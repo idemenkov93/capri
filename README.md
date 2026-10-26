@@ -41,6 +41,14 @@
    ```
    ollama pull qwen3:8b
    ```
+   **Какую модель выбрать:**
+
+   | Компьютер | Модель | Настройка в `config.yaml` |
+   |---|---|---|
+   | ПК с видеокартой NVIDIA 8 ГБ+ | `qwen3:8b` | `model: qwen3:8b` |
+   | Ноутбук без видеокарты (только процессор) | `qwen3:4b-instruct` | `model: qwen3:4b-instruct`, `think: false` |
+
+   Проверить, на чём работает модель: `ollama ps` → колонка PROCESSOR (`100% GPU` — отлично, `100% CPU` — бери instruct-модель).
 3. **Claude Code** (по желанию, для сложных задач):
    ```
    irm https://claude.ai/install.ps1 | iex
