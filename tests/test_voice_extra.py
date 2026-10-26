@@ -57,3 +57,11 @@ def test_sentence_split():
     parts = split_sentences("Ну привет. Опять ты? Ладно, говори, что надо, у меня процессы скучают. DNS — это книга. Всё.")
     assert len(parts) == 2 and parts[0].startswith("Ну привет.")
     assert split_sentences("Один") == ["Один"]
+
+
+def test_strict_keyword_confidence_during_video():
+    from capri.voice.wake import keyword_hit
+    words = [{"word": "капри", "conf": 0.88}]
+    assert keyword_hit(words, short=True)                       # обычно — хватает
+    assert not keyword_hit(words, short=True, min_conf=0.93)    # во время видео — нужно увереннее
+    assert keyword_hit([{"word": "капри", "conf": 0.97}], short=True, min_conf=0.93)

@@ -65,6 +65,7 @@ class WakeListener(QThread):
     def __init__(self, models_dir: Path, device=None, short: bool = True):
         super().__init__()
         self.short = short       # True — хватит просто «Капри»
+        self.strict = False      # True — в колонках идёт видео/речь: «Капри» засчитываем только при очень уверенном распознавании
         self.models_dir = Path(models_dir)
         self.device = device
         self._paused = False     # пока Капри сама слушает или говорит — не реагируем
@@ -165,11 +166,13 @@ class WakeListener(QThread):
                             log.debug("wake: слышу «%s»", text)
                     else:
                         text = json.loads(free.PartialResult()).get("partial", "")
-                    if text and is_wake(text, self.short):
+                    # во время видео одиночное «капри» из обычного распознавания не считаем (оно часто «слышит» его в речи),
+                    # а «привет/эй капри» — считаем всегда
+                    if text and is_wake(text, self.short and not self.strict):
                         hit = text
                     if kw.AcceptWaveform(data):
                         words = json.loads(kw.Result()).get("result", [])
-                        if keyword_hit(words, self.short):
+                        if keyword_hit(words, self.short, min_conf=0.93 if self.strict else 0.8):
                             hit = hit or " ".join(w["word"] for w in words)
                     if hit and time.monotonic() - self._last_hit > 2.0:
                         self._last_hit = time.monotonic()

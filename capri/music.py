@@ -114,6 +114,8 @@ class MusicWatcher(QThread):
                 new_talk = bool(np_) and not real_music
                 if new_talk != talk:
                     talk = new_talk
+                    if talk:
+                        log.info("играет не музыка: %s — %s (%s)", np_[2], np_[3], np_[0])
                     self.talking.emit(talk)
                 title = f"{np_[2]} — {np_[3]}" if np_ and music else ""
                 if title != last_title:

@@ -207,8 +207,8 @@ class CapriApp:
         if not ok:
             self.chat.add_system(t("wake_missing", self.lang))
             return
-        short = self.prefs.get("wake_short", True) and not getattr(self, "talking_media", False)
-        self.wake = WakeListener(models, self.prefs.get("input_device"), short=short)
+        self.wake = WakeListener(models, self.prefs.get("input_device"), short=self.prefs.get("wake_short", True))
+        self._apply_wake_mode()
         self.wake.woke.connect(self.on_wake)
         self.wake.failed.connect(lambda e: self.chat.add_system(f"«Привет, Капри»: {e}"))
         self.wake.start()
@@ -304,6 +304,7 @@ class CapriApp:
                 mic.addAction(t("mic_none", L)).setEnabled(False)
             menu.addAction(self._check(menu, t("wake", L), self.prefs.get("wake_word", True), self.toggle_wake))
             menu.addAction(self._check(menu, t("wake_short", L), self.prefs.get("wake_short", True), self.toggle_wake_short))
+            menu.addAction(self._check(menu, t("strict_video", L), self.prefs.get("strict_during_video", False), self.toggle_strict_video))
             menu.addAction(self._check(menu, t("speak_on", L), self.cfg["voice"]["speak"], self.toggle_speak))
             menu.addAction(self._check(menu, t("speak_typed", L), self.prefs.get("speak_typed", True),
                                        lambda: self.prefs.set("speak_typed", not self.prefs.get("speak_typed", True))))
@@ -390,11 +391,14 @@ class CapriApp:
             self.stop_wake()
             self.chat.add_system(t("wake_off", self.lang))
 
+    def toggle_strict_video(self):
+        self.prefs.set("strict_during_video", not self.prefs.get("strict_during_video", False))
+        self._apply_wake_mode()
+
     def toggle_wake_short(self):
         on = not self.prefs.get("wake_short", True)
         self.prefs.set("wake_short", on)
-        if self.wake:
-            self.wake.short = on
+        self._apply_wake_mode()
 
     # танцы -----------------------------------------------------------------------
     def start_dancing(self):
@@ -409,20 +413,21 @@ class CapriApp:
         self.music.start()
 
     def _on_talking_media(self, talking: bool):
-        """Играет видео/подкаст: там много речи, и «Капри» может послышаться из колонок —
-        на это время хватает только «Привет, Капри» / «Эй, Капри»."""
+        """Играет видео/подкаст: там много речи, и «Капри» может послышаться из колонок.
+        По умолчанию «Капри» работает и тогда, но засчитывается только при очень уверенном распознавании;
+        в меню можно включить строгий режим — во время видео только «Привет, Капри»."""
         from .log import log
         self.talking_media = talking
-        if self.wake:
-            self.wake.short = self.prefs.get("wake_short", True) and not talking
-        log.info("видео/речь в колонках: %s → «Капри» без «привет» %s", talking,
-                 "выкл" if talking else ("вкл" if self.prefs.get("wake_short", True) else "выкл"))
+        self._apply_wake_mode()
+        log.info("видео/речь в колонках: %s", talking)
 
-    def stop_dancing(self):
-        if self.music:
-            self.music.stop()
-            self.music = None
-        self.avatar.dance = 0.0
+    def _apply_wake_mode(self):
+        if not self.wake:
+            return
+        talking = getattr(self, "talking_media", False)
+        strict_video = self.prefs.get("strict_during_video", False)
+        self.wake.short = self.prefs.get("wake_short", True) and not (talking and strict_video)
+        self.wake.strict = talking
 
     def _on_music_level(self, level: float):
         if not self.prefs.get("dance", True):
