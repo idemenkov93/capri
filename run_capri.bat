@@ -19,9 +19,9 @@ if not exist .venv (
     .venv\Scripts\python -m pip install --upgrade pip
     .venv\Scripts\python -m pip install -r requirements.txt || (echo [Capri] Failed to install requirements. & pause & exit /b 1)
 )
-if not exist .venv\voice_installed.txt (
+if not exist .venv\voice_installed_v2.txt (
     echo [Capri] Installing voice module ^(speech recognition + voices^)...
-    .venv\Scripts\python -m pip install -r requirements-voice.txt && echo ok> .venv\voice_installed.txt
+    .venv\Scripts\python -m pip install -r requirements-voice.txt && echo ok> .venv\voice_installed_v2.txt
 )
 if not exist config.yaml copy config.example.yaml config.yaml >nul
 start "" .venv\Scripts\pythonw -m capri
