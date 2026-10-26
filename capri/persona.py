@@ -18,4 +18,5 @@ SYSTEM_PROMPT = """Ты — Капри, ИИ-конструкт, который 
 
 
 def system_prompt(user: str) -> str:
-    return SYSTEM_PROMPT.format(user=user)
+    # /no_think — «мягкий» выключатель рассуждений у моделей Qwen3; остальные модели его игнорируют
+    return SYSTEM_PROMPT.format(user=user) + "\nОтвечай сразу, без рассуждений вслух. /no_think"
