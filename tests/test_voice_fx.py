@@ -58,3 +58,42 @@ def test_voice_lab_dialog():
     assert tn["voices"]["ru"] == "ru-RU-DariyaNeural" and tn["voices"]["en"] == "en-US-AvaNeural"
     assert tn["fx"] == PRESETS["cyber"]
     assert tune["voices"]["ru"] == "ru-RU-SvetlanaNeural"   # оригинал не испорчен до «Сохранить»
+
+
+def test_music_detection_and_beat():
+    from capri.music import Beat, is_music
+    assert is_music("Chrome._crx_cinhimbnkkaeohfgghhklpknlkffjgod", "", "")          # приложение YouTube Music
+    assert is_music("Spotify.exe", "", "")
+    assert is_music("chrome.exe", "Discovery", "Daft Punk")                           # music.youtube.com во вкладке: есть альбом
+    assert not is_music("chrome.exe", "", "Linus Tech Tips")                          # обычный ролик на YouTube
+    assert is_music("chrome.exe", "", "", any_media=True)
+    b = Beat()
+    kicks = 0
+    t = 0.0
+    for i in range(200):                                  # 120 BPM: удар каждые 0.5 с, между ними тихо
+        t += 0.05
+        level, k = b.push(0.9 if i % 10 == 0 else 0.1, t)
+        kicks += k
+    assert 18 <= kicks <= 20 and 0 < level <= 1
+
+
+def test_avatar_dance_and_effects():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from PySide6.QtGui import QPixmap
+    from capri.ui.avatar import Avatar
+    a = Avatar(120, "", 12, wander=False)
+    a.set_dance(0.8)
+    assert a.dance > 0
+    a.kick()
+    import math
+    assert abs(abs(math.sin(a._dance_t)) - 1) < 1e-6        # на ударе — пик прыжка
+    for _ in range(40):
+        a.set_dance(0.0)
+    assert a.dance == 0.0
+    for st in Avatar.TP_STYLES:                            # каждый телепорт рисуется без ошибок
+        a._start_teleport(("ground", None, 0, 0))
+        a._tp_style = st
+        pm = QPixmap(a.size())
+        a.render(pm)

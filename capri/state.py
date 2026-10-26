@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 DEFAULT_STATE = {"language": "ru", "input_device": None, "wake_word": True, "wake_short": True, "wander": True, "speak": None, "speak_typed": True,
-                 "attitude": "sassy", "voice_tune": None}
+                 "attitude": "sassy", "dance": True, "dance_any": False, "voice_tune": None}
 
 
 class State:

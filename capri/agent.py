@@ -130,7 +130,15 @@ class Agent:
                 return Reply(f"Окей, {act.description.lower()}.", [act], "rules")
         if m := RE_NOTE.match(text):
             return Reply("Записываю.", [A.make_note(m.group(1).strip())], "rules")
+        from . import files
+        f = files.match(text)
+        if isinstance(f, str):
+            return Reply(f"Не вышло: {f}.", route="error")
+        if f:
+            return Reply(f"{f.description}.", [f], "rules")
         bare = text.rstrip(".!? ")
+        if f := files.match_open(bare):
+            return Reply(f"{f.description}.", [f], "rules")
         if m := RE_YOUTUBE.match(bare):
             q = next(g for g in m.groups() if g).strip()
             return Reply(f"Ищу на YouTube «{q}».", [A.make_youtube_search(q)], "rules")

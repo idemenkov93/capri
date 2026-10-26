@@ -23,9 +23,9 @@ if not exist .venv\voice_installed_v3.txt (
     echo [Capri] Installing voice module ^(speech recognition + voices + wake phrase^)...
     .venv\Scripts\python -m pip install -r requirements-voice.txt && echo ok> .venv\voice_installed_v3.txt
 )
-if not exist .venv\system_installed_v1.txt (
+if not exist .venv\system_installed_v2.txt (
     echo [Capri] Installing system commands ^(music, volume, brightness, PC check^)...
-    .venv\Scripts\python -m pip install -r requirements-system.txt && echo ok> .venv\system_installed_v1.txt
+    .venv\Scripts\python -m pip install -r requirements-system.txt && echo ok> .venv\system_installed_v2.txt
 )
 where nvidia-smi >nul 2>nul
 if not errorlevel 1 if not exist .venv\gpu_installed_v1.txt (

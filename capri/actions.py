@@ -126,6 +126,9 @@ def execute(action: Action, config: dict) -> str:
     if action.kind == "open_app":
         _launch(action.params["target"])
         return "Готово, открыла."
+    if action.kind in ("mkdir", "mkfile", "trash", "open_folder"):
+        from . import files
+        return files.execute(action)
     if action.kind == "start_app":
         from .applist import launch
         launch(action.params["id"])

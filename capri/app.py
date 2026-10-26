@@ -111,6 +111,8 @@ class CapriApp:
         self.voice = None
         self.last_input_was_voice = False
         self._init_voice()
+        self.music = None
+        self.start_dancing()
 
         # грузим модель в видеокарту сразу, пока пользователь ещё ничего не написал
         self.set_status("LOADING")
@@ -295,6 +297,9 @@ class CapriApp:
             ag.addAction(act)
             am.addAction(act)
         menu.addAction(self._check(menu, t("wander", L), self.avatar.wander, self.toggle_wander))
+        dm = menu.addMenu(t("dance", L))
+        dm.addAction(self._check(dm, t("dance_on", L), self.prefs.get("dance", True), self.toggle_dance))
+        dm.addAction(self._check(dm, t("dance_any", L), self.prefs.get("dance_any", False), self.toggle_dance_any))
         menu.addAction(t("hide", L) if self.avatar.isVisible() else t("show", L), self.toggle_avatar)
 
         lm = menu.addMenu(t("language", L))
@@ -371,6 +376,37 @@ class CapriApp:
         self.prefs.set("wake_short", on)
         if self.wake:
             self.wake.short = on
+
+    # танцы -----------------------------------------------------------------------
+    def start_dancing(self):
+        if self.music or not self.prefs.get("dance", True):
+            return
+        from .music import MusicWatcher
+        self.music = MusicWatcher(any_media=self.prefs.get("dance_any", False))
+        self.music.level.connect(self._on_music_level)
+        self.music.kick.connect(self.avatar.kick)
+        self.music.start()
+
+    def stop_dancing(self):
+        if self.music:
+            self.music.stop()
+            self.music = None
+        self.avatar.dance = 0.0
+
+    def _on_music_level(self, level: float):
+        # пока сама слушает или говорит — не танцует
+        busy = getattr(self, "state", "") in ("LISTENING", "RECOGNIZING", "SPEAKING", "THINKING", "CLAUDE")
+        self.avatar.set_dance(0.0 if busy else level)
+
+    def toggle_dance(self):
+        on = not self.prefs.get("dance", True)
+        self.prefs.set("dance", on)
+        self.start_dancing() if on else self.stop_dancing()
+
+    def toggle_dance_any(self):
+        self.prefs.set("dance_any", not self.prefs.get("dance_any", False))
+        if self.music:
+            self.music.any_media = self.prefs.get("dance_any", False)
 
     def toggle_wander(self):
         self.avatar._toggle_wander()
@@ -469,7 +505,8 @@ class CapriApp:
 
     # действия --------------------------------------------------------------
     def run_action(self, act: A.Action):
-        if act.needs_confirm and self.cfg.get("confirm_actions", True):
+        # удаление — всегда с вопросом, даже если подтверждения выключены
+        if (act.needs_confirm and self.cfg.get("confirm_actions", True)) or act.kind == "trash":
             # окно подтверждения всегда поверх Капри и чата — раньше оно пряталось сзади, и казалось, что всё зависло
             box = QMessageBox(QMessageBox.Question, "Capri", f"{act.description}?",
                               QMessageBox.Yes | QMessageBox.No, self.chat if self.chat.isVisible() else None)
@@ -500,6 +537,7 @@ class CapriApp:
 
     def run(self) -> int:
         self.qt.aboutToQuit.connect(self.stop_wake)
+        self.qt.aboutToQuit.connect(self.stop_dancing)
         self._watch_hangs()
         return self.qt.exec()
 

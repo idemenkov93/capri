@@ -19,7 +19,7 @@ from PySide6.QtGui import QColor, QMovie, QPainter, QPainterPath, QPen, QPixmap,
 from PySide6.QtGui import QGuiApplication, QTransform
 from PySide6.QtWidgets import QMenu, QWidget
 
-from . import desktop
+from . import desktop, fx
 from .sprites import SpriteSet
 
 STATUS_COLORS = {
@@ -94,6 +94,10 @@ class Avatar(QWidget):
         self.glitch = 0
         self.menu_items = lambda: []  # приложение может добавить свои пункты меню
         self.menu_builder = None      # или построить всё меню само (общее с треем)
+        self._tp_style, self._tp_seed, self._tp_frames = "crt", 0, 0
+        self.dance = 0.0              # 0 — не танцует, 0..1 — сила (громкость музыки сейчас)
+        self._dance_t = 0.0
+        self._idle_glitch = ""        # короткий случайный глитч в покое: slices | rgb
         self.sprites = SpriteSet(custom_image, fps)
 
         # поведение на рабочем столе
@@ -139,10 +143,15 @@ class Avatar(QWidget):
     # жизнь на экране --------------------------------------------------------
     def _animate(self) -> None:
         self.phase += 0.08
+        if self.dance:
+            self._dance_t += 0.12 + 0.25 * self.dance       # громче — быстрее
         if self.glitch:
             self.glitch -= 1
+            if not self.glitch:
+                self._idle_glitch = ""
         elif random.random() < 0.006:
             self.glitch = 4
+            self._idle_glitch = random.choice(("", "slices", "rgb"))
 
         if self.mode == "perch":
             self._follow_window()
@@ -154,7 +163,7 @@ class Avatar(QWidget):
         if self.walk_to is not None and self.mode in ("ground", "perch"):
             self._walk_step()
 
-        if (self.wander and self.mode in ("ground", "perch") and self.walk_to is None
+        if (self.wander and self.mode in ("ground", "perch") and self.walk_to is None and not self.dance
                 and not self.busy() and time.monotonic() > self.next_decision):
             self._decide()
         self.update()
@@ -215,11 +224,16 @@ class Avatar(QWidget):
         elif self.mode == "perch":                         # спрыгнуть вниз
             self.mode, self.vy, self.perch_hwnd = "fall", -6.0, None
 
+    TP_STYLES = ("crt", "slices", "rgb", "dissolve", "scan")
+
     def _start_teleport(self, target):
         self._tp_target = target
         self.mode = "teleport"
         self._tp_frames = 24
         self.glitch = 24
+        # каждый раз — другой эффект: CRT-схлопывание, нарезка, RGB-расслоение, рассыпание на пиксели, сканлайн
+        self._tp_style = random.choice(self.TP_STYLES) if not self.holo else "crt"
+        self._tp_seed = random.randrange(1 << 30)
 
     def _teleport_step(self):
         self._tp_frames -= 1
@@ -274,7 +288,7 @@ class Avatar(QWidget):
         w, h = self.width(), self.height()
         color = STATUS_COLORS.get(self.status, STATUS_COLORS["ONLINE"])
         jitter = random.uniform(-5, 5) if self.glitch else 0
-        if self.mode == "teleport":
+        if self.mode == "teleport" and (self._tp_style == "crt" or not self.sprites):
             # 24→12: схлопывание в светящуюся линию; 12→0: разворачивание на новом месте
             t = self._tp_frames
             k = (t - 12) / 12 if t > 12 else (12 - t) / 12      # 1 → 0 → 1
@@ -300,12 +314,21 @@ class Avatar(QWidget):
                 x, y = (w - img.width()) / 2 + jitter, h - img.height()    # ногами вниз
                 if self.walk_to is not None and "walk" not in self.sprites.kinds():
                     y -= abs(math.sin(self.phase * 4)) * 6           # нет анимации ходьбы — хотя бы «шагает»
-                if self.glitch:   # цветные «тени» глитча
-                    p.setOpacity(0.35)
-                    p.drawPixmap(int(x - 4), int(y), img)
-                    p.drawPixmap(int(x + 4), int(y - 1), img)
-                    p.setOpacity(1.0)
-                p.drawPixmap(int(x), int(y), img)
+                if self.dance and self.mode != "teleport":
+                    self._paint_dance(p, img, x, y, w, h, color)
+                elif self.mode == "teleport" and self._tp_style != "crt":
+                    t = self._tp_frames
+                    k = 1 - abs(t - 12) / 12                          # 0 → 1 (момент переноса) → 0
+                    fx.paint_effect(p, img, x, y, self._tp_style, max(0.0, min(1.0, k)), color, self._tp_seed)
+                elif self.glitch and self._idle_glitch:
+                    fx.paint_effect(p, img, x, y, self._idle_glitch, 0.35, color, random.randrange(1 << 30))
+                else:
+                    if self.glitch:   # цветные «тени» глитча
+                        p.setOpacity(0.35)
+                        p.drawPixmap(int(x - 4), int(y), img)
+                        p.drawPixmap(int(x + 4), int(y - 1), img)
+                        p.setOpacity(1.0)
+                    p.drawPixmap(int(x), int(y), img)
         else:
             bob = math.sin(self.phase) * 4 if self.mode != "perch" else 0
             r = w * 0.32
@@ -323,6 +346,45 @@ class Avatar(QWidget):
             p.setBrush(color)
             p.setPen(Qt.NoPen)
             p.drawEllipse(QPointF(w - 10, 10), 5, 5)
+
+    def set_dance(self, level: float) -> None:
+        # плавно: не дёргаться от каждой тихой ноты
+        target = level if level > 0.04 else 0.0
+        self.dance = self.dance * 0.7 + target * 0.3 if target else (self.dance * 0.85 if self.dance > 0.02 else 0.0)
+        if self.dance:
+            self.walk_to = None
+
+    def kick(self) -> None:
+        """Сильная доля в музыке — подпрыгнуть ровно сейчас (ставим фазу на «пик» прыжка)."""
+        if self.dance:
+            self._dance_t = math.floor(self._dance_t / math.pi) * math.pi + math.pi / 2
+            if random.random() < 0.15:
+                self.sprites.shuffle("idle")   # иногда меняет позу на ударе
+
+    def _paint_dance(self, p: QPainter, img: QPixmap, x: float, y: float, w: int, h: int, color: QColor):
+        """Танец под музыку: подпрыгивает в такт, качается, чуть сжимается на «ударах», под ногами — неоновый пол."""
+        lvl, t = self.dance, self._dance_t
+        beat = abs(math.sin(t))                       # 0..1, «удар» — когда близко к 1
+        bounce = beat * 14 * lvl
+        sway = math.sin(t / 2) * 9 * lvl              # градусы
+        sq = 1 + 0.07 * lvl * (beat - 0.5)
+        floor = QRadialGradient(QPointF(w / 2, h - 4), w * 0.45)
+        floor.setColorAt(0, QColor(color.red(), color.green(), color.blue(), int(90 + 120 * beat * lvl)))
+        floor.setColorAt(1, QColor(0, 0, 0, 0))
+        p.save()
+        p.setPen(Qt.NoPen)
+        p.setBrush(floor)
+        p.drawEllipse(QPointF(w / 2, h - 4), w * 0.45, 10)
+        cx, feet = x + img.width() / 2, y + img.height()
+        p.translate(cx, feet - bounce)
+        p.rotate(sway)
+        p.scale(2 - sq, sq)
+        p.translate(-cx, -feet)
+        if beat > 0.92 and lvl > 0.4:                 # на сильной доле — цветные «эхо»
+            fx.paint_effect(p, img, x, y, "rgb", 0.25 * lvl, color, int(t * 10))
+        else:
+            p.drawPixmap(int(x), int(y), img)
+        p.restore()
 
     def _paint_holo(self, p: QPainter, w: int, h: int, color: QColor, jitter: float):
         """Голограмма: клип в рамке со скошенными углами, сканлайны, уголки, глитч и «проектор» снизу."""
