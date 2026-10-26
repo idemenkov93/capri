@@ -40,6 +40,13 @@ RE_YOUTUBE = re.compile(
     r"^(?:ютуб|youtube)\s+(.+)$|^(?:search|play)\s+(.+?)\s+on youtube$|^(?:such\w*|spiel\w*)\s+(.+?)\s+auf youtube$", re.I)
 # «Привет, Капри, открой ютуб.» → «открой ютуб» (голос приносит имя и точки)
 RE_WAKE_PREFIX = re.compile(r"^\s*(?:(?:привет|эй|окей|ок|хей|hey|hi|hallo|okay)\s*,?\s*)?(?:капри|кэпри|capri|kapri)\b[\s,!.:-]*", re.I)
+# сложное — сразу Claude: код, разбор ошибок, планы, подробные объяснения
+RE_COMPLEX = re.compile(
+    r"\b(напиши|написать|сделай|составь|сгенерируй)\s+(мне\s+)?(скрипт|код|программ\w*|функци\w*|регулярк\w*|запрос|план|резюме|письмо|"
+    r"bewerbung\w*|anschreiben)|\b(объясни|расскажи)\s+(подробно|детально|по шагам)|\bразбер\w*|\bсравни\b|"
+    r"\bпочему\s+(не\s+работает|ошибк\w*|падает|не\s+запускается)|\bкак\s+(настроить|исправить|починить|автоматизировать)|"
+    r"\bпомоги\s+(с|мне с)\s+(код\w*|ошибк\w*|скрипт\w*|задач\w*)|\b(powershell|bash|python|sql|ansible|terraform|docker)\b.*\b(скрипт|команд\w*|ошибк\w*)|"
+    r"\b(write|create)\s+(a\s+)?(script|function|program)|\bschreib\w*\s+(ein\s+)?(skript|programm)", re.I)
 RE_DOMAIN = re.compile(r"^[\w-]+(\.[\w-]+)+(/\S*)?$")
 
 UNIT_TO_MIN = {
@@ -51,8 +58,13 @@ UNIT_TO_MIN = {
 
 class Agent:
     def __init__(self, config: dict, llm: OllamaClient | None = None,
-                 claude: Callable[[str, dict], str] = claude_code.ask, system=None):
+                 claude: Callable[[str, dict], str] = claude_code.ask, system=None, apps=None):
         self.cfg = config
+        if apps is None:
+            from .applist import AppIndex
+            from .config import expand
+            apps = AppIndex(expand("data/apps.json"))
+        self.apps = apps
         if system is None:
             from .config import expand
             from .system import SystemControl
@@ -75,7 +87,33 @@ class Agent:
             return reply
         if m := RE_CLAUDE.match(text):
             return self._ask_claude(m.group(1), on_status)
+        from . import screen, weather
+        if weather.is_weather_question(text) and len(text) < 120:
+            return self._weather(text)
+        if screen.is_screen_question(text):
+            return self._screen(text, on_status)
+        if RE_COMPLEX.search(text) or len(text) > 300 or text.count("\n") >= 3:
+            return self._ask_claude(text, on_status)
         return self._local(text, on_status, on_token, should_stop)
+
+    def _weather(self, text: str) -> Reply:
+        from . import weather
+        lang = C.lang_of(text)
+        try:
+            return Reply(weather.forecast(text, self.cfg.get("city", "München"), lang), route="rules")
+        except Exception as e:  # noqa: BLE001 — нет интернета и т.п.
+            return Reply(f"Погоду узнать не вышло: {e}", route="error")
+
+    def _screen(self, text: str, on_status) -> Reply:
+        """Снимок экрана → Claude смотрит и отвечает (локальная модель картинки не видит)."""
+        from . import screen
+        from .config import expand
+        on_status("CLAUDE")
+        try:
+            paths, title = screen.capture(expand(self.cfg["claude_code"].get("workdir", "workspace")))
+        except Exception as e:  # noqa: BLE001
+            return Reply(f"Не смогла сделать снимок экрана: {e}", route="error")
+        return self._ask_claude(screen.prompt(text, paths, title), on_status, label=text)
 
     # быстрые правила --------------------------------------------------------
     def _rules(self, text: str) -> Reply | None:
@@ -102,8 +140,16 @@ class Agent:
             if act := A.make_open_app(target, self.cfg["apps"]):
                 act.needs_confirm = False
                 return Reply(f"{act.description}.", [act], "rules")
-            if act := A.make_open_site(target):
+            # программа на компьютере с точным названием → сайт из списка → программа «похоже на то» → браузер
+            app = self.apps.find(target, threshold=0.95)
+            site = A.make_open_site(target, self.cfg.get("sites"))
+            if not app and not site:
+                app = self.apps.find(target)
+            if app:
+                act = A.make_start_app(app)
                 return Reply(f"{act.description}.", [act], "rules")
+            if site:
+                return Reply(f"{site.description}.", [site], "rules")
             if RE_DOMAIN.match(target) and (act := A.make_open_url(target)):
                 act.needs_confirm = False
                 return Reply(f"{act.description}.", [act], "rules")
@@ -150,7 +196,14 @@ class Agent:
     def _tool_to_action(self, name: str, args: dict) -> A.Action | None:
         try:
             if name == "open_app":
-                return A.make_open_app(str(args.get("name", "")), self.cfg["apps"])
+                n = str(args.get("name", ""))
+                if act := A.make_open_app(n, self.cfg["apps"]):
+                    return act
+                if app := self.apps.find(n):
+                    act = A.make_start_app(app)
+                    act.needs_confirm = True   # придумала модель, а не ты — спросим
+                    return act
+                return A.make_open_site(n, self.cfg.get("sites"))
             if name == "open_url":
                 return A.make_open_url(str(args.get("url", "")))
             if name == "web_search":
@@ -164,12 +217,12 @@ class Agent:
         return None
 
     # Claude ---------------------------------------------------------------------
-    def _ask_claude(self, task: str, on_status, remembered: bool = False) -> Reply:
+    def _ask_claude(self, task: str, on_status, remembered: bool = False, label: str | None = None) -> Reply:
         if not self.cfg["claude_code"].get("enabled", True):
             return Reply("Claude выключен в config.yaml.", route="error")
         on_status("CLAUDE")
         if not remembered:
-            self._remember("user", task)
+            self._remember("user", label or task)
         try:
             answer = self.claude(task, self.cfg["claude_code"])
         except claude_code.ClaudeError as e:

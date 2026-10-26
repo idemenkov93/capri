@@ -23,6 +23,19 @@ SHORT_RX = re.compile(r"(?<![а-яa-z])(капри|кэпри|кепри|capri)(
 MODEL_NAME = "vosk-model-small-ru-0.22"
 
 
+KEYWORDS = ["капри", "привет капри", "эй капри", "окей капри", "привет"]
+
+
+def keyword_hit(words: list[dict], short: bool, min_conf: float = 0.8) -> bool:
+    """Результат «ключевого» распознавателя: [{'word': 'капри', 'conf': 0.97}, …]."""
+    for i, w in enumerate(words):
+        if w.get("word") == "капри" and w.get("conf", 0) >= min_conf:
+            prev = words[i - 1]["word"] if i else ""
+            if short or prev in ("привет", "эй", "окей"):
+                return True
+    return False
+
+
 def is_wake(text: str, short: bool = False) -> bool:
     t = text.lower().replace("ё", "е")
     return bool(WAKE_RX.search(t) or (short and SHORT_RX.search(t)))
@@ -58,6 +71,7 @@ class WakeListener(QThread):
         self.wait(2000)
 
     def run(self):
+        from ..log import log
         try:
             import sounddevice as sd
             from vosk import KaldiRecognizer, Model, SetLogLevel
@@ -71,7 +85,12 @@ class WakeListener(QThread):
             self.failed.emit(f"модель vosk не загрузилась: {e}")
             return
         rate = 16000
-        rec = KaldiRecognizer(model, rate)
+        # два слушателя на одном звуке:
+        #  free — обычное распознавание всей речи (ловит «привет капри» внутри фразы);
+        #  kw   — распознаёт ТОЛЬКО слова «капри / привет / эй…», остальное → [unk]. Так имя ловится намного надёжнее.
+        free = KaldiRecognizer(model, rate)
+        kw = KaldiRecognizer(model, rate, json.dumps(KEYWORDS + ["[unk]"], ensure_ascii=False))
+        kw.SetWords(True)
         audio: queue.Queue[bytes] = queue.Queue(maxsize=100)
 
         def cb(indata, frames, t, status):  # noqa: ARG001
@@ -81,8 +100,9 @@ class WakeListener(QThread):
                 pass
 
         last = 0.0
+        log.info("wake: слушаю (устройство %s, короткий режим %s)", self.device, self.short)
         try:
-            with sd.RawInputStream(samplerate=rate, blocksize=4000, dtype="int16", channels=1,
+            with sd.RawInputStream(samplerate=rate, blocksize=3200, dtype="int16", channels=1,
                                    device=self.device, callback=cb):
                 while not self._stop:
                     try:
@@ -90,15 +110,28 @@ class WakeListener(QThread):
                     except queue.Empty:
                         continue
                     if self.paused:
-                        rec.Reset()
+                        free.Reset()
+                        kw.Reset()
                         continue
-                    if rec.AcceptWaveform(data):
-                        text = json.loads(rec.Result()).get("text", "")
+                    hit = ""
+                    if free.AcceptWaveform(data):
+                        text = json.loads(free.Result()).get("text", "")
+                        if text:
+                            log.debug("wake: слышу «%s»", text)
                     else:
-                        text = json.loads(rec.PartialResult()).get("partial", "")
-                    if text and is_wake(text, self.short) and time.monotonic() - last > 2.5:
+                        text = json.loads(free.PartialResult()).get("partial", "")
+                    if text and is_wake(text, self.short):
+                        hit = text
+                    if kw.AcceptWaveform(data):
+                        words = json.loads(kw.Result()).get("result", [])
+                        if keyword_hit(words, self.short):
+                            hit = hit or " ".join(w["word"] for w in words)
+                    if hit and time.monotonic() - last > 2.0:
                         last = time.monotonic()
-                        rec.Reset()
-                        self.woke.emit(text)
+                        free.Reset()
+                        kw.Reset()
+                        log.info("wake: сработало на «%s»", hit)
+                        self.woke.emit(hit)
         except Exception as e:  # noqa: BLE001
+            log.exception("wake: ошибка")
             self.failed.emit(f"микрофон: {e}")

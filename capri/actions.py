@@ -62,12 +62,22 @@ SITES = {
 }
 
 
-def make_open_site(name: str) -> Action | None:
-    key = name.strip().lower().rstrip(".!")
-    for names, url in SITES.items():
+SITES = {"ютуб мюзик|youtube music|ютьюб мюзик": "https://music.youtube.com", **SITES}
+
+
+def make_open_site(name: str, extra: dict | None = None) -> Action | None:
+    """Сайт по имени: сначала твои из config.yaml → sites, потом встроенные."""
+    key = " ".join(name.strip().lower().rstrip(".!").split())
+    for names, url in {**(extra or {}), **SITES}.items():
         if key in names.split("|"):
-            return Action("open_url", f"Открыть {url.split('//')[1]}", {"url": url}, needs_confirm=False)
+            url = url if "://" in url else "https://" + url
+            return Action("open_url", f"Открыть {url.split('//')[1].rstrip('/')}", {"url": url}, needs_confirm=False)
     return None
+
+
+def make_start_app(app: dict) -> Action:
+    """Программа из меню «Пуск» (найдена по названию)."""
+    return Action("start_app", f"Открыть {app['name']}", {"id": app["id"], "name": app["name"]}, needs_confirm=False)
 
 
 def make_youtube_search(query: str) -> Action:
@@ -107,6 +117,10 @@ def execute(action: Action, config: dict) -> str:
     if action.kind == "open_app":
         _launch(action.params["target"])
         return "Готово, открыла."
+    if action.kind == "start_app":
+        from .applist import launch
+        launch(action.params["id"])
+        return f"Запускаю {action.params['name']}."
     if action.kind in ("open_url", "web_search"):
         webbrowser.open(action.params["url"])
         return "Открыла в браузере."

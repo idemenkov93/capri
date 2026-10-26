@@ -34,6 +34,9 @@ DEFAULTS: dict = {
         "steam|стим": "steam://open/main",
     },
     "search_url": "https://www.google.com/search?q={query}",
+    "city": "München",   # для «какая погода» без города
+    # свои сайты: «как ты говоришь|синонимы»: адрес. Встроенные (ютуб, гитхаб, почта…) знает и так.
+    "sites": {},
     "confirm_actions": True,
     "notes_file": "data/notes.md",
     "avatar": {"size": 150, "custom_image": "", "fps": 12, "wander": True, "desktop_mode": "auto"},

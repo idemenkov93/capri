@@ -75,7 +75,7 @@ def test_llm_tool_call_becomes_action(cfg):
 
 def test_llm_can_escalate_to_claude(cfg):
     msg = {"content": "", "tool_calls": [{"function": {"name": "ask_claude", "arguments": {"task": "сложно"}}}]}
-    r = make(cfg, msg).handle("помоги с ошибкой в коде")
+    r = make(cfg, msg).handle("мне нужна твоя помощь")
     assert r.route == "claude" and r.text == "CLAUDE:сложно"
 
 

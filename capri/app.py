@@ -57,6 +57,16 @@ class CapriApp:
         self._apply_attitude(self.prefs.get("attitude", "sassy"))
         self.agent = Agent(self.cfg)
         self.wake = None
+        # список программ из меню «Пуск» — обновляем в фоне при каждом запуске
+        import threading
+
+        def refresh_apps():
+            from .log import log
+            try:
+                log.info("программ в «Пуске»: %s", self.agent.apps.refresh())
+            except Exception:  # noqa: BLE001
+                log.exception("не удалось прочитать список программ")
+        threading.Thread(target=refresh_apps, daemon=True).start()
 
         av = self.cfg["avatar"]
         custom = self._avatar_source(av, "desktop")
@@ -194,11 +204,16 @@ class CapriApp:
             self.wake = None
 
     def on_wake(self, heard: str):
-        if not self.voice or self.voice.recording or (self.worker and self.worker.isRunning()):
+        from .log import log
+        if not self.voice or self.voice.recording:
+            log.info("wake пропущен: уже слушаю")
             return
+        if self.worker and self.worker.isRunning():
+            self.stop_current()          # позвали, пока думала, — бросаем старое и слушаем новое
         if not self.avatar.isVisible():
             self.avatar.show()
         self.voice.quiet()
+        self.voice.chime()
         self.voice.listen_once()
 
     def call_capri(self):
@@ -269,6 +284,8 @@ class CapriApp:
             menu.addAction(self._check(menu, t("wake", L), self.prefs.get("wake_word", True), self.toggle_wake))
             menu.addAction(self._check(menu, t("wake_short", L), self.prefs.get("wake_short", True), self.toggle_wake_short))
             menu.addAction(self._check(menu, t("speak_on", L), self.cfg["voice"]["speak"], self.toggle_speak))
+            menu.addAction(self._check(menu, t("speak_typed", L), self.prefs.get("speak_typed", True),
+                                       lambda: self.prefs.set("speak_typed", not self.prefs.get("speak_typed", True))))
             menu.addAction(t("voice_lab", L), self.open_voice_lab)
         am = menu.addMenu(t("attitude", L))
         ag = QActionGroup(am)
@@ -402,8 +419,14 @@ class CapriApp:
         self.chat.input.setFocus()
 
     def on_message(self, text: str):
+        from .log import log
         if self.worker and self.worker.isRunning():
+            # раньше новый запрос молча терялся; теперь — ставим в очередь (последний побеждает)
+            log.info("занята, откладываю: «%s»", text)
+            self._queued = text
+            self.stop_current()
             return
+        log.info("запрос: «%s»", text)
         self.chat.set_busy(True)
         self.worker = Worker(self.agent, text)
         self.worker.status.connect(self.on_status)
@@ -427,6 +450,8 @@ class CapriApp:
             self.chat.add_system("Передаю задачу Claude… это может занять минуту.")
 
     def on_reply(self, reply: Reply):
+        from .log import log
+        log.info("ответ [%s]: «%s»", reply.route, reply.text[:200].replace("\n", " "))
         self.set_status("ERROR" if reply.route == "error" else "TALKING")
         QTimer.singleShot(2500, lambda: self.state in ("TALKING", "ERROR") and self.set_status("ONLINE"))
         self.chat.end_stream()
@@ -435,9 +460,12 @@ class CapriApp:
             self.run_action(act)
         self.chat.set_busy(False)
         v = self.cfg["voice"]
-        if self.voice and v["speak"] and (self.last_input_was_voice or not v["speak_only_voice"]):
+        if self.voice and v["speak"] and (self.last_input_was_voice or self.prefs.get("speak_typed", True)):
             self.voice.speak(reply.text)
         self.last_input_was_voice = False
+        if getattr(self, "_queued", None):
+            text, self._queued = self._queued, None
+            QTimer.singleShot(0, lambda: self.on_message(text))
 
     # действия --------------------------------------------------------------
     def run_action(self, act: A.Action):
@@ -498,6 +526,10 @@ INSTANCE_NAME = "capri-desktop-companion"
 
 def main() -> int:
     from PySide6.QtNetwork import QLocalServer, QLocalSocket
+
+    from .log import log, setup
+    setup()
+    log.info("=== Капри запускается ===")
 
     # Только одна Капри: если она уже запущена — просто показываем её чат и выходим
     probe = QLocalSocket()

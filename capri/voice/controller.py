@@ -112,6 +112,19 @@ class VoiceController(QObject):
         if self.speaker:
             self.speaker.stop()
 
+    def chime(self) -> None:
+        """Короткий «дзынь» — услышала имя и слушаю (0.15 с, не мешает распознаванию)."""
+        try:
+            import numpy as np
+            import sounddevice as sd
+            sr = 24000
+            t = np.arange(int(sr * 0.07)) / sr
+            tone = np.concatenate([np.sin(2 * np.pi * 880 * t), np.sin(2 * np.pi * 1320 * t)])
+            tone *= np.hanning(len(tone)) * 0.25
+            sd.play(tone.astype(np.float32), sr)
+        except Exception:  # noqa: BLE001
+            pass
+
     def listen_once(self) -> None:
         """Слушать одну фразу и самой остановиться, когда договоришь (после «Привет, Капри»)."""
         if self.recording:
@@ -143,12 +156,16 @@ class VoiceController(QObject):
 
         def done(result):
             text, lang = result
+            from ..log import log
+            log.info("stt [%s/%s]: «%s»", getattr(self.stt, "device", "?"), lang, text)
             self.state.emit("IDLE")
             if lang:
                 self.last_lang = lang
             self.transcribed.emit(text, lang)
 
         def failed(err):
+            from ..log import log
+            log.error("stt: %s", err)
             self.state.emit("IDLE")
             self.error.emit(f"Не получилось распознать: {err}")
 
@@ -171,5 +188,10 @@ class VoiceController(QObject):
                 from .tts import windows_say
                 windows_say(clean, lang)
 
-        self._run(say, lambda _: self.state.emit("IDLE"),
-                  lambda e: (self.state.emit("IDLE"), self.error.emit(f"Озвучка не сработала: {e}")))
+        def failed(e):
+            from ..log import log
+            log.error("tts: %s", e)
+            self.state.emit("IDLE")
+            self.error.emit(f"Озвучка не сработала: {e}")
+
+        self._run(say, lambda _: self.state.emit("IDLE"), failed)

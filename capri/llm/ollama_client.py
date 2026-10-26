@@ -11,7 +11,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "open_app",
-            "description": "Открыть программу из списка разрешённых",
+            "description": "Открыть программу на компьютере (Discord, Steam, PowerShell…) или известный сайт по названию",
             "parameters": {
                 "type": "object",
                 "properties": {"name": {"type": "string", "description": "Название программы"}},

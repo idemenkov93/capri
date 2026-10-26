@@ -12,6 +12,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "mic_none": {"ru": "Микрофоны не найдены", "en": "No microphones found"},
     "wake": {"ru": "👂 Слушать «Привет, Капри»", "en": "👂 Listen for “Hey Capri”"},
     "wake_short": {"ru": "👂 Хватит просто «Капри»", "en": "👂 Just “Capri” is enough"},
+    "speak_typed": {"ru": "🔊 Озвучивать и написанное", "en": "🔊 Speak replies to typed messages too"},
     "speak_on": {"ru": "🔊 Озвучивать ответы", "en": "🔊 Speak replies"},
     "wander": {"ru": "🚶 Гулять по экрану", "en": "🚶 Walk around"},
     "hide": {"ru": "🙈 Спрятать", "en": "🙈 Hide"},
