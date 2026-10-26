@@ -87,16 +87,19 @@ class OllamaError(RuntimeError):
 
 
 class OllamaClient:
-    def __init__(self, url: str, model: str, timeout: float = 120):
+    def __init__(self, url: str, model: str, timeout: float = 120, think: bool | None = None):
         self.url = url.rstrip("/")
         self.model = model
         self.timeout = timeout
+        self.think = think
 
     def chat(self, messages: list[dict], tools: list[dict] | None = TOOLS) -> dict:
         """Возвращает message из ответа: {'content': str, 'tool_calls': [...]}."""
         payload = {"model": self.model, "messages": messages, "stream": False}
         if tools:
             payload["tools"] = tools
+        if self.think is not None:
+            payload["think"] = self.think
         try:
             r = httpx.post(f"{self.url}/api/chat", json=payload, timeout=self.timeout)
             r.raise_for_status()

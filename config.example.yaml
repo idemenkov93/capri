@@ -5,8 +5,9 @@ user_name: Игорь
 
 ollama:
   url: http://127.0.0.1:11434
-  model: qwen2.5:7b        # хорошо говорит по-русски и умеет вызывать инструменты
+  model: qwen3:8b          # RU/DE/EN/HE, умеет вызывать инструменты, влезает в 8 ГБ видеопамяти
   timeout: 120
+  think: false             # без «размышлений» — быстрее отвечает
 
 claude_code:
   enabled: true
@@ -18,14 +19,14 @@ claude_code:
   workdir: ~/capri-workspace  # папка, в которой работает Claude
 
 # Белый список. Капри запускает ТОЛЬКО то, что здесь есть.
-# Слева — как ты называешь программу, справа — команда или ссылка.
+# Слева — как ты называешь программу (синонимы через |), справа — команда или ссылка.
 apps:
-  браузер: https://www.google.com
-  блокнот: notepad
-  калькулятор: calc
-  проводник: explorer
-  терминал: wt
-  steam: steam://open/main
+  "браузер|browser": https://www.google.com
+  "блокнот|notepad|editor": notepad
+  "калькулятор|calculator|rechner": calc
+  "проводник|explorer": explorer
+  "терминал|terminal": wt
+  "steam|стим": steam://open/main
   # vscode: code
 
 search_url: https://www.google.com/search?q={query}
@@ -37,5 +38,9 @@ notes_file: ~/.capri/notes.md
 
 avatar:
   size: 140
-  # Своя картинка (PNG с прозрачным фоном). Положи её в assets/custom/ — эта папка не попадает в git.
+  # Свой аватар (папка assets/custom/ в git не попадает). Варианты:
+  #   assets/custom/capri.png      — одна картинка
+  #   assets/custom/capri.gif      — анимированный GIF
+  #   assets/custom/frames/        — папка с кадрами 001.png, 002.png, ...
   custom_image: ""
+  fps: 12

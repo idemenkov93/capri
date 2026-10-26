@@ -11,8 +11,10 @@ DEFAULTS: dict = {
     "user_name": "Игорь",
     "ollama": {
         "url": "http://127.0.0.1:11434",
-        "model": "qwen2.5:7b",
+        "model": "qwen3:8b",
         "timeout": 120,
+        # qwen3 умеет «размышлять» перед ответом — для ассистента это лишняя задержка
+        "think": False,
     },
     "claude_code": {
         "enabled": True,
@@ -24,17 +26,17 @@ DEFAULTS: dict = {
     },
     # Белый список: имя -> команда запуска. Ничего вне списка Капри не запускает.
     "apps": {
-        "браузер": "https://www.google.com",
-        "блокнот": "notepad",
-        "калькулятор": "calc",
-        "проводник": "explorer",
-        "терминал": "wt",
-        "steam": "steam://open/main",
+        "браузер|browser": "https://www.google.com",
+        "блокнот|notepad|editor": "notepad",
+        "калькулятор|calculator|rechner": "calc",
+        "проводник|explorer": "explorer",
+        "терминал|terminal": "wt",
+        "steam|стим": "steam://open/main",
     },
     "search_url": "https://www.google.com/search?q={query}",
     "confirm_actions": True,
     "notes_file": "~/.capri/notes.md",
-    "avatar": {"size": 140, "custom_image": ""},
+    "avatar": {"size": 140, "custom_image": "", "fps": 12},
 }
 
 
@@ -48,12 +50,17 @@ def _merge(base: dict, override: dict) -> dict:
     return out
 
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
 def expand(path: str) -> Path:
-    return Path(os.path.expandvars(os.path.expanduser(path)))
+    """~ и %VAR% раскрываются; относительные пути считаются от папки проекта."""
+    p = Path(os.path.expandvars(os.path.expanduser(path)))
+    return p if p.is_absolute() else PROJECT_ROOT / p
 
 
 def load_config(path: str | Path | None = None) -> dict:
-    path = Path(path) if path else Path(__file__).resolve().parent.parent / "config.yaml"
+    path = Path(path) if path else PROJECT_ROOT / "config.yaml"
     user = {}
     if path.exists():
         with open(path, encoding="utf-8") as f:

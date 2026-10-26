@@ -22,16 +22,25 @@ class Reply:
 
 
 # --- быстрые правила: отрабатывают мгновенно, без ИИ -------------------------
-RE_OPEN = re.compile(r"^(?:открой|запусти|включи)\s+(.+?)[.!]?$", re.I)
-RE_SEARCH = re.compile(r"^(?:загугли|погугли|найди в (?:интернете|гугле|сети))\s+(.+)$", re.I)
-RE_TIMER = re.compile(
-    r"таймер\s+на\s+(\d+(?:[.,]\d+)?)\s*(сек|с\b|мин|м\b|час|ч\b)\w*(?:\s+(.+))?", re.I
+# Русский / Deutsch / English. Всё, что не подошло, уходит модели — она понимает любой язык.
+RE_OPEN = re.compile(r"^(?:открой|запусти|включи|öffne|starte|open|launch|start)\s+(.+?)[.!]?$", re.I)
+RE_SEARCH = re.compile(
+    r"^(?:загугли|погугли|найди в (?:интернете|гугле|сети)|google|googel|suche nach|search for)\s+(.+)$", re.I
 )
-RE_NOTE = re.compile(r"^(?:запиши|заметка|запомни)[:,]?\s+(.+)$", re.I)
+RE_TIMER = re.compile(
+    r"(?:таймер\s+на|timer\s+(?:auf|für|for))\s+(\d+(?:[.,]\d+)?)\s*"
+    r"(сек|с\b|мин|м\b|час|ч\b|sek|sec|s\b|min|m\b|stunde|std|h\b|hour)\w*(?:\s+(.+))?",
+    re.I,
+)
+RE_NOTE = re.compile(r"^(?:запиши|заметка|запомни|notiz|merke dir|note|remember)[:,]?\s+(.+)$", re.I)
 RE_CLAUDE = re.compile(r"^(?:/claude|клод|claude)[,:]?\s+(.+)$", re.I | re.S)
 RE_DOMAIN = re.compile(r"^[\w-]+(\.[\w-]+)+(/\S*)?$")
 
-UNIT_TO_MIN = {"сек": 1 / 60, "с": 1 / 60, "мин": 1, "м": 1, "час": 60, "ч": 60}
+UNIT_TO_MIN = {
+    "сек": 1 / 60, "с": 1 / 60, "sek": 1 / 60, "sec": 1 / 60, "s": 1 / 60,
+    "мин": 1, "м": 1, "min": 1, "m": 1,
+    "час": 60, "ч": 60, "stunde": 60, "std": 60, "h": 60, "hour": 60,
+}
 
 
 class Agent:
@@ -39,7 +48,7 @@ class Agent:
                  claude: Callable[[str, dict], str] = claude_code.ask):
         self.cfg = config
         o = config["ollama"]
-        self.llm = llm or OllamaClient(o["url"], o["model"], o["timeout"])
+        self.llm = llm or OllamaClient(o["url"], o["model"], o["timeout"], o.get("think"))
         self.claude = claude
         self.history: list[dict] = []
 

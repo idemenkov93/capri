@@ -39,7 +39,7 @@ class CapriApp:
 
         av = self.cfg["avatar"]
         custom = str(expand(av["custom_image"])) if av.get("custom_image") else ""
-        self.avatar = Avatar(av["size"], custom)
+        self.avatar = Avatar(av["size"], custom, av.get("fps", 12))
         self.chat = ChatWindow()
         self.worker: Worker | None = None
 

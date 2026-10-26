@@ -88,3 +88,17 @@ def test_llm_cannot_open_non_whitelisted_app(cfg):
 def test_bad_url_rejected(cfg):
     msg = {"content": "", "tool_calls": [{"function": {"name": "open_url", "arguments": {"url": "file:///C:/Windows"}}}]}
     assert not make(cfg, msg).handle("открой системную папку").actions
+
+
+@pytest.mark.parametrize("text", ["öffne browser", "open calculator", "открой стим"])
+def test_open_multilang(cfg, text):
+    assert make(cfg).handle(text).actions[0].kind == "open_app"
+
+
+@pytest.mark.parametrize("text,minutes", [("timer auf 10 minuten", 10), ("set a timer for 2 hours", 120)])
+def test_timer_multilang(cfg, text, minutes):
+    assert make(cfg).handle(text).actions[0].params["minutes"] == pytest.approx(minutes)
+
+
+def test_search_german(cfg):
+    assert make(cfg).handle("suche nach DHCP Server").actions[0].kind == "web_search"

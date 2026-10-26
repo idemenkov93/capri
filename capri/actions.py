@@ -22,9 +22,11 @@ class Action:
 
 def make_open_app(name: str, apps: dict) -> Action | None:
     key = name.strip().lower()
-    for app_name, target in apps.items():
-        if app_name.lower() == key:
-            return Action("open_app", f"Открыть «{app_name}»", {"target": target})
+    for app_names, target in apps.items():
+        # в config можно указать синонимы через |, например "браузер|browser"
+        aliases = [a.strip().lower() for a in app_names.split("|")]
+        if key in aliases:
+            return Action("open_app", f"Открыть «{aliases[0]}»", {"target": target})
     return None
 
 
