@@ -1,8 +1,10 @@
-"""Аватар на рабочем столе: прозрачное окно поверх всех, перетаскивается мышью.
+"""Аватар на рабочем столе: прозрачное окно поверх всех.
 
-Стандартная внешность — оригинальная «глитч-звезда». Свою картинку можно указать
-в config.yaml (avatar.custom_image) — например, файл из папки assets/custom/,
-которую git игнорирует.
+Капри «живёт» на экране: гуляет по низу экрана, телепортируется на верхние края окон
+и сидит на них (окно двигается — она едет вместе с ним; окно закрыли — падает вниз).
+Её можно взять мышью и бросить на любое окно.
+
+Внешность: оригинальная «глитч-звезда» или свои GIF/PNG из assets/custom (см. sprites.py).
 """
 from __future__ import annotations
 
@@ -10,9 +12,15 @@ import math
 import random
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QPointF, Qt, QTimer, Signal
+import time
+
+from PySide6.QtCore import QPoint, QPointF, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QMovie, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient
+from PySide6.QtGui import QGuiApplication, QTransform
 from PySide6.QtWidgets import QMenu, QWidget
+
+from . import desktop
+from .sprites import SpriteSet
 
 STATUS_COLORS = {
     "ONLINE": QColor("#00f0ff"),
@@ -70,104 +78,223 @@ class Avatar(QWidget):
     clicked = Signal()
     quit_requested = Signal()
 
-    def __init__(self, size: int = 140, custom_image: str = "", fps: int = 12):
+    SINK = 6          # насколько «проваливается» в край окна, чтобы сидеть, а не парить
+    SPEED = 2.2       # пикселей за кадр при ходьбе
+    GRAVITY = 1.3
+
+    def __init__(self, size: int = 140, custom_image: str = "", fps: int = 12, wander: bool = True):
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.resize(size, size + 22)
+        self.resize(size, size)
         self.status = "ONLINE"
         self.phase = 0.0
         self.glitch = 0
+        self.menu_items = lambda: []  # приложение может добавить свои пункты меню
+        self.sprites = SpriteSet(custom_image)
+
+        # поведение на рабочем столе
+        self.wander = wander
+        self.mode = "ground"          # ground | perch | fall | drag | teleport
+        self.perch_hwnd: int | None = None
+        self.perch_dx = 0.0           # смещение от левого края окна, на котором сидит
+        self.walk_to: float | None = None
+        self.facing = 1
+        self.vy = 0.0
+        self.next_decision = time.monotonic() + 6
+        self._tp_target: tuple[str, int | None, float, float] | None = None
         self._drag_from: QPoint | None = None
         self._moved = False
-        self.menu_items = lambda: []  # приложение может добавить свои пункты меню
-        self.frames: list[QPixmap] = []
-        self.frame_i = 0
-        self.movie: QMovie | None = None
-        self._load_custom(custom_image, fps)
 
-        self._tick = QTimer(self, interval=40, timeout=self._animate)
+        self._tick = QTimer(self, interval=33, timeout=self._animate)
         self._tick.start()
 
-    def _load_custom(self, path: str, fps: int) -> None:
-        """Своя внешность: PNG, анимированный GIF или папка с кадрами."""
-        if not path:
-            return
-        p = Path(path)
-        if p.is_dir():
-            self.frames = [QPixmap(str(f)) for f in sorted(p.glob("*.png"))]
-            self.frames = [f for f in self.frames if not f.isNull()]
-            if self.frames:
-                QTimer(self, interval=max(1, 1000 // max(1, fps)), timeout=self._next_frame).start()
-        elif p.suffix.lower() == ".gif":
-            self.movie = QMovie(str(p))
-            self.movie.frameChanged.connect(lambda _: self.update())
-            self.movie.start()
-        elif p.exists():
-            self.frames = [QPixmap(str(p))]
+    # геометрия ----------------------------------------------------------------
+    def screen_rect(self) -> QRect:
+        scr = QGuiApplication.screenAt(self.geometry().center()) or QGuiApplication.primaryScreen()
+        return scr.availableGeometry()
 
-    def _next_frame(self) -> None:
-        self.frame_i = (self.frame_i + 1) % len(self.frames)
+    def ground_y(self) -> int:
+        return self.screen_rect().bottom() - self.height() + 1
 
-    def _current_image(self) -> QPixmap | None:
-        if self.movie and self.movie.isValid():
-            return self.movie.currentPixmap()
-        if self.frames:
-            return self.frames[self.frame_i]
-        return None
+    def place_on_ground(self, x: float | None = None):
+        scr = self.screen_rect()
+        x = scr.right() - self.width() - 40 if x is None else x
+        self.move(int(max(scr.left(), min(x, scr.right() - self.width()))), self.ground_y())
+        self.mode = "ground"
 
     # состояние ------------------------------------------------------------------
     def set_status(self, status: str) -> None:
+        if status != self.status:
+            self.glitch = 8
         self.status = status
-        self.glitch = 8
         self.update()
 
+    def busy(self) -> bool:
+        return self.status not in ("ONLINE", "LOADING")
+
+    # жизнь на экране --------------------------------------------------------
     def _animate(self) -> None:
         self.phase += 0.08
         if self.glitch:
             self.glitch -= 1
-        elif random.random() < 0.01:
+        elif random.random() < 0.006:
             self.glitch = 4
+
+        if self.mode == "perch":
+            self._follow_window()
+        elif self.mode == "fall":
+            self._fall()
+        elif self.mode == "teleport":
+            self._teleport_step()
+
+        if self.walk_to is not None and self.mode in ("ground", "perch"):
+            self._walk_step()
+
+        if self.wander and self.mode in ("ground", "perch") and not self.busy() and time.monotonic() > self.next_decision:
+            self._decide()
         self.update()
 
+    def _follow_window(self):
+        rect = desktop.window_rect(self.perch_hwnd) if self.perch_hwnd else None
+        if rect is None:                      # окно закрыли или свернули — падаем
+            self.mode, self.vy, self.perch_hwnd = "fall", 0.0, None
+            return
+        self.perch_dx = max(0.0, min(self.perch_dx, rect.width() - self.width()))
+        self.move(int(rect.left() + self.perch_dx), rect.top() - self.height() + self.SINK)
+
+    def _fall(self):
+        self.vy = min(self.vy + self.GRAVITY, 28)
+        y = self.y() + self.vy
+        if y >= self.ground_y():
+            self.place_on_ground(self.x())
+            self.glitch = 6
+        else:
+            self.move(self.x(), int(y))
+
+    def _walk_step(self):
+        target = self.walk_to
+        dx = target - (self.perch_dx if self.mode == "perch" else self.x())
+        if abs(dx) <= self.SPEED:
+            self.walk_to = None
+            return
+        step = self.SPEED if dx > 0 else -self.SPEED
+        self.facing = 1 if step > 0 else -1
+        if self.mode == "perch":
+            self.perch_dx += step
+        else:
+            self.move(int(self.x() + step), self.ground_y())
+
+    def _decide(self):
+        """Раз в несколько секунд решаем, чем заняться: пройтись, перепрыгнуть на окно или спуститься вниз."""
+        self.next_decision = time.monotonic() + random.uniform(7, 18)
+        self.sprites.shuffle("idle")
+        roll = random.random()
+        scr = self.screen_rect()
+        if roll < 0.45:                                    # прогуляться по текущей поверхности
+            if self.mode == "perch":
+                rect = desktop.window_rect(self.perch_hwnd)
+                if rect:
+                    self.walk_to = random.uniform(0, max(0, rect.width() - self.width()))
+            else:
+                self.walk_to = random.uniform(scr.left(), scr.right() - self.width())
+        elif roll < 0.85:                                  # телепорт на верхний край другого окна
+            spots = [w for w in desktop.perchable(desktop.list_windows(), scr, self.height()) if w.hwnd != self.perch_hwnd]
+            if spots:
+                w = random.choice(spots)
+                dx = random.uniform(20, max(20, w.rect.width() - self.width() - 20))
+                self._start_teleport(("perch", w.hwnd, dx, 0))
+        elif self.mode == "perch":                         # спрыгнуть вниз
+            self.mode, self.vy, self.perch_hwnd = "fall", -6.0, None
+
+    def _start_teleport(self, target):
+        self._tp_target = target
+        self.mode = "teleport"
+        self._tp_frames = 16
+        self.glitch = 16
+
+    def _teleport_step(self):
+        self._tp_frames -= 1
+        if self._tp_frames == 8 and self._tp_target:      # середина глитча — переносимся
+            kind, hwnd, dx, _ = self._tp_target
+            self.perch_hwnd, self.perch_dx = hwnd, dx
+            self.mode = "perch"
+            self._follow_window()
+            self.mode = "teleport"
+        if self._tp_frames <= 0:
+            self.mode = "perch" if self.perch_hwnd else "ground"
+            self._tp_target = None
+
+    def _land_after_drop(self):
+        """Бросили мышью: если под ногами верхний край окна — садимся на него, иначе падаем вниз."""
+        feet = QPoint(self.x() + self.width() // 2, self.y() + self.height())
+        for w in desktop.list_windows():
+            r = w.rect
+            if r.left() <= feet.x() <= r.right() and abs(feet.y() - r.top()) < 40:
+                self.perch_hwnd, self.perch_dx = w.hwnd, self.x() - r.left()
+                self.mode = "perch"
+                self.glitch = 6
+                return
+            if r.contains(feet):
+                break  # бросили на середину окна — не цепляемся
+        self.mode, self.vy, self.perch_hwnd = "fall", 0.0, None
+
     # отрисовка -----------------------------------------------------------------
+    def sprite_kind(self) -> str:
+        if self.walk_to is not None:
+            return "walk"
+        if self.mode == "teleport":
+            return "teleport"
+        if self.status in ("THINKING", "CLAUDE", "RECOGNIZING", "LOADING"):
+            return "think"
+        if self.status in ("SPEAKING", "TALKING"):
+            return "talk"
+        if self.status == "LISTENING":
+            return "listen"
+        if self.mode == "perch":
+            return "sit"
+        return "idle"
+
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        w = self.width()
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        w, h = self.width(), self.height()
         color = STATUS_COLORS.get(self.status, STATUS_COLORS["ONLINE"])
-        bob = math.sin(self.phase) * 4
-        cx, cy = w / 2, w / 2 + bob
-        r = w * 0.36
-        jitter = random.uniform(-4, 4) if self.glitch else 0
+        jitter = random.uniform(-5, 5) if self.glitch else 0
+        if self.mode == "teleport" and 4 < self._tp_frames < 12:
+            p.setOpacity(0.35)
 
-        glow = QRadialGradient(QPointF(cx, cy), r * 1.4)
-        glow.setColorAt(0, QColor(color.red(), color.green(), color.blue(), 120))
-        glow.setColorAt(1, QColor(0, 0, 0, 0))
-        p.setBrush(glow)
-        p.setPen(Qt.NoPen)
-        p.drawEllipse(QPointF(cx, cy), r * 1.4, r * 1.4)
-
-        current = self._current_image()
-        if current is not None and not current.isNull():
-            side = int(r * 2.4)
-            img = current.scaled(side, side, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            p.drawPixmap(int(cx - img.width() / 2 + jitter), int(cy - img.height() / 2), img)
+        sprite = self.sprites.get(self.sprite_kind()) if self.sprites else None
+        if sprite is not None:
+            img = sprite.frame()
+            if not img.isNull():
+                img = img.scaled(w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                if self.facing < 0:
+                    img = img.transformed(QTransform().scale(-1, 1))
+                x, y = (w - img.width()) / 2 + jitter, h - img.height()    # ногами вниз
+                if self.glitch:   # цветные «тени» глитча
+                    p.setOpacity(0.35)
+                    p.drawPixmap(int(x - 4), int(y), img)
+                    p.drawPixmap(int(x + 4), int(y - 1), img)
+                    p.setOpacity(1.0)
+                p.drawPixmap(int(x), int(y), img)
         else:
-            self._draw_star(p, cx + jitter, cy, r, color)
+            bob = math.sin(self.phase) * 4 if self.mode != "perch" else 0
+            r = w * 0.32
+            cx, cy = w / 2 + jitter, h - r * 1.25 + bob
+            glow = QRadialGradient(QPointF(cx, cy), r * 1.4)
+            glow.setColorAt(0, QColor(color.red(), color.green(), color.blue(), 120))
+            glow.setColorAt(1, QColor(0, 0, 0, 0))
+            p.setBrush(glow)
+            p.setPen(Qt.NoPen)
+            p.drawEllipse(QPointF(cx, cy), r * 1.4, r * 1.4)
+            draw_star(p, cx, cy, r, color, self.phase, bool(self.glitch))
 
-        # кольцо статуса
-        pen = QPen(color, 2)
-        pen.setDashPattern([3, 4])
-        pen.setDashOffset(self.phase * 10)
-        p.setPen(pen)
-        p.setBrush(Qt.NoBrush)
-        p.drawEllipse(QPointF(cx, cy), r * 1.15, r * 1.15)
-
-        p.setPen(color)
-        p.drawText(0, w + 4, w, 18, Qt.AlignCenter, self.status)
-
-    def _draw_star(self, p: QPainter, cx: float, cy: float, r: float, color: QColor) -> None:
-        draw_star(p, cx, cy, r, color, self.phase, bool(self.glitch))
+        if self.status not in ("ONLINE",):          # маленький индикатор статуса
+            p.setOpacity(1.0)
+            p.setBrush(color)
+            p.setPen(Qt.NoPen)
+            p.drawEllipse(QPointF(w - 10, 10), 5, 5)
 
     # мышь ---------------------------------------------------------------------
     def mousePressEvent(self, e):
@@ -177,12 +304,18 @@ class Avatar(QWidget):
 
     def mouseMoveEvent(self, e):
         if self._drag_from is not None and e.buttons() & Qt.LeftButton:
+            if not self._moved:
+                self.mode, self.walk_to, self.perch_hwnd = "drag", None, None
             self.move(e.globalPosition().toPoint() - self._drag_from)
             self._moved = True
 
     def mouseReleaseEvent(self, e):
-        if e.button() == Qt.LeftButton and not self._moved:
-            self.clicked.emit()
+        if e.button() == Qt.LeftButton:
+            if not self._moved:
+                self.clicked.emit()
+            elif self.mode == "drag":
+                self._land_after_drop()
+                self.next_decision = time.monotonic() + 15   # дать посидеть там, куда положили
         self._drag_from = None
 
     def contextMenuEvent(self, e):
@@ -190,5 +323,10 @@ class Avatar(QWidget):
         menu.addAction("Чат", self.clicked.emit)
         for label, callback in self.menu_items():
             menu.addAction(label, callback)
+        menu.addAction("🚶 Гулять: выкл" if self.wander else "🚶 Гулять: вкл", self._toggle_wander)
         menu.addAction("Выход", self.quit_requested.emit)
         menu.exec(e.globalPos())
+
+    def _toggle_wander(self):
+        self.wander = not self.wander
+        self.walk_to = None

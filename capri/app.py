@@ -51,8 +51,8 @@ class CapriApp:
         self.agent = Agent(self.cfg)
 
         av = self.cfg["avatar"]
-        custom = str(expand(av["custom_image"])) if av.get("custom_image") else ""
-        self.avatar = Avatar(av["size"], custom, av.get("fps", 12))
+        custom = self._avatar_source(av)
+        self.avatar = Avatar(av["size"], custom, av.get("fps", 12), wander=av.get("wander", True))
         if self.cfg.get("ui", {}).get("style", "hud") == "hud":
             from .ui.hud import HudWindow
             self.chat = HudWindow(custom, av.get("fps", 12))
@@ -70,9 +70,11 @@ class CapriApp:
         self.chat.submitted.connect(self.on_message)
         self.chat.stop_requested.connect(self.stop_current)
 
-        screen = self.qt.primaryScreen().availableGeometry()
-        self.avatar.move(screen.right() - self.avatar.width() - 40, screen.bottom() - self.avatar.height() - 40)
+        self.avatar.place_on_ground()
         self.avatar.show()
+        if self.avatar.sprites:
+            kinds = ", ".join(f"{k}×{n}" for k, n in self.avatar.sprites.kinds().items())
+            self.chat.add_system(f"Анимации загружены: {kinds}")
         self.chat.add_capri(f"Йо, {self.cfg['user_name']}. Я в системе. Чем займёмся?", "rules")
 
         self.voice = None
@@ -84,6 +86,15 @@ class CapriApp:
         self.warmup = Warmup(self.agent)
         self.warmup.finished.connect(lambda: self.set_status("ONLINE"))
         self.warmup.start()
+
+    @staticmethod
+    def _avatar_source(av: dict) -> str:
+        """Своя внешность: путь из config.yaml, а если он пустой — папка assets/custom, если в ней есть картинки."""
+        if av.get("custom_image"):
+            return str(expand(av["custom_image"]))
+        folder = expand("assets/custom")
+        has_images = folder.is_dir() and any(p.suffix.lower() in (".gif", ".png", ".webp") for p in folder.rglob("*"))
+        return str(folder) if has_images else ""
 
     # голос ------------------------------------------------------------------
     def _init_voice(self):

@@ -17,7 +17,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy, QTextBrowser, QVBoxLayout, QWidget,
 )
 
-from .avatar import STATUS_COLORS, draw_star, load_custom_frames
+from .avatar import STATUS_COLORS, draw_star
+from .sprites import SpriteSet
 
 BG = QColor("#070b16")
 PANEL = QColor("#0b1222")
@@ -146,22 +147,23 @@ class Viewport(QWidget):
         self.phase = 0.0
         self.level = 0.0
         self.glitch = 0
-        self.frames, self.movie = load_custom_frames(custom_image)
-        if self.movie:
-            self.movie.frameChanged.connect(lambda _: self.update())
-        self.frame_i = 0
+        self.sprites = SpriteSet(custom_image)
         self.stars = [(random.random(), random.random(), random.random()) for _ in range(70)]
         QTimer(self, interval=33, timeout=self._tick).start()
-        if len(self.frames) > 1:
-            QTimer(self, interval=max(1, 1000 // max(1, fps)), timeout=self._next_frame).start()
 
     def set_state(self, state: str):
         if state != self.state:
             self.glitch = 10
         self.state = state
 
-    def _next_frame(self):
-        self.frame_i = (self.frame_i + 1) % len(self.frames)
+    def sprite_kind(self) -> str:
+        if self.state in ("THINKING", "CLAUDE", "RECOGNIZING", "LOADING"):
+            return "think"
+        if self.state in ("SPEAKING", "TALKING"):
+            return "talk"
+        if self.state == "LISTENING":
+            return "listen"
+        return "idle"
 
     def _tick(self):
         self.phase += 0.06
@@ -200,7 +202,8 @@ class Viewport(QWidget):
             p.fillRect(QRectF(sx * w, sy * h, 1.5, 1.5), QColor(180, 220, 255, a))
         cx, cy = w / 2, h / 2 + math.sin(self.phase) * 4
         size = min(w, h) * 0.78
-        img = self.movie.currentPixmap() if self.movie else (self.frames[self.frame_i] if self.frames else None)
+        sprite = self.sprites.get(self.sprite_kind()) if self.sprites else None
+        img = sprite.frame() if sprite else None
         if img is not None and not img.isNull():
             img = img.scaled(int(size * 1.15), int(size * 1.15), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             p.drawPixmap(int(cx - img.width() / 2), int(cy - img.height() / 2), img)

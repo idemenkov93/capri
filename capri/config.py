@@ -36,7 +36,7 @@ DEFAULTS: dict = {
     "search_url": "https://www.google.com/search?q={query}",
     "confirm_actions": True,
     "notes_file": "data/notes.md",
-    "avatar": {"size": 140, "custom_image": "", "fps": 12},
+    "avatar": {"size": 150, "custom_image": "", "fps": 12, "wander": True},
     "ui": {"style": "hud"},  # hud — панель «Personal Link», classic — простой чат
     "voice": {
         "enabled": True,

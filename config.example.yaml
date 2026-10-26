@@ -43,11 +43,11 @@ ui:
   style: hud                # hud — панель «Personal Link», classic — простой чат
 
 avatar:
-  size: 140
-  # Свой аватар (папка assets/custom/ в git не попадает). Варианты:
-  #   assets/custom/capri.png      — одна картинка
-  #   assets/custom/capri.gif      — анимированный GIF
-  #   assets/custom/frames/        — папка с кадрами 001.png, 002.png, ...
+  size: 150
+  wander: true                # гулять по экрану и сидеть на окнах
+  # Своя внешность. Пусто = всё из папки assets/custom/ (в git не попадает).
+  # Анимация выбирается по слову в имени файла: idle, walk, sit, think, talk, listen, teleport.
+  # Например: idle.gif, walk.gif, sit.gif, talk.gif. Файлы без этих слов — варианты idle.
   custom_image: ""
   fps: 12
 
