@@ -52,8 +52,14 @@ class CapriApp:
 
         av = self.cfg["avatar"]
         custom = self._avatar_source(av, "desktop")
-        self.avatar = Avatar(av["size"], custom, av.get("fps", 12), wander=av.get("wander", True))
         hud_source = self._avatar_source(av, "hud")
+        mode = av.get("desktop_mode", "auto")   # auto | sprite | holo | star
+        holo = mode == "holo" or (mode == "auto" and not custom and bool(hud_source))
+        if holo:
+            custom = hud_source                  # нет прозрачных спрайтов — гуляет голограммой с клипами
+        elif mode == "star":
+            custom = ""
+        self.avatar = Avatar(av["size"], custom, av.get("fps", 12), wander=av.get("wander", True), holo=holo)
         if self.cfg.get("ui", {}).get("style", "hud") == "hud":
             from .ui.hud import HudWindow
             self.chat = HudWindow(hud_source, av.get("fps", 12))

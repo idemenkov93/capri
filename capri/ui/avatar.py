@@ -14,7 +14,7 @@ from pathlib import Path
 
 import time
 
-from PySide6.QtCore import QPoint, QPointF, QRect, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QMovie, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient
 from PySide6.QtGui import QGuiApplication, QTransform
 from PySide6.QtWidgets import QMenu, QWidget
@@ -82,10 +82,13 @@ class Avatar(QWidget):
     SPEED = 2.2       # пикселей за кадр при ходьбе
     GRAVITY = 1.3
 
-    def __init__(self, size: int = 140, custom_image: str = "", fps: int = 12, wander: bool = True):
+    def __init__(self, size: int = 140, custom_image: str = "", fps: int = 12, wander: bool = True,
+                 holo: bool = False):
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.resize(size, size)
+        # holo — клипы с фоном показываются как маленькая голограмма-экран, которая гуляет по рабочему столу
+        self.holo = holo
+        self.resize(int(size * 1.6), int(size * 1.0)) if holo else self.resize(size, size)
         self.status = "ONLINE"
         self.phase = 0.0
         self.glitch = 0
@@ -150,7 +153,8 @@ class Avatar(QWidget):
         if self.walk_to is not None and self.mode in ("ground", "perch"):
             self._walk_step()
 
-        if self.wander and self.mode in ("ground", "perch") and not self.busy() and time.monotonic() > self.next_decision:
+        if (self.wander and self.mode in ("ground", "perch") and self.walk_to is None
+                and not self.busy() and time.monotonic() > self.next_decision):
             self._decide()
         self.update()
 
@@ -186,7 +190,7 @@ class Avatar(QWidget):
 
     def _decide(self):
         """Раз в несколько секунд решаем, чем заняться: пройтись, перепрыгнуть на окно или спуститься вниз."""
-        self.next_decision = time.monotonic() + random.uniform(7, 18)
+        self.next_decision = time.monotonic() + random.uniform(5, 12)
         self.sprites.shuffle("idle")
         roll = random.random()
         scr = self.screen_rect()
@@ -203,22 +207,28 @@ class Avatar(QWidget):
                 w = random.choice(spots)
                 dx = random.uniform(20, max(20, w.rect.width() - self.width() - 20))
                 self._start_teleport(("perch", w.hwnd, dx, 0))
+            else:                                          # окон, куда сесть, нет — прыжок в другое место внизу
+                self._start_teleport(("ground", None, random.uniform(scr.left(), scr.right() - self.width()), 0))
         elif self.mode == "perch":                         # спрыгнуть вниз
             self.mode, self.vy, self.perch_hwnd = "fall", -6.0, None
 
     def _start_teleport(self, target):
         self._tp_target = target
         self.mode = "teleport"
-        self._tp_frames = 16
-        self.glitch = 16
+        self._tp_frames = 24
+        self.glitch = 24
 
     def _teleport_step(self):
         self._tp_frames -= 1
-        if self._tp_frames == 8 and self._tp_target:      # середина глитча — переносимся
+        if self._tp_frames == 12 and self._tp_target:     # середина глитча — переносимся
             kind, hwnd, dx, _ = self._tp_target
-            self.perch_hwnd, self.perch_dx = hwnd, dx
-            self.mode = "perch"
-            self._follow_window()
+            if kind == "perch":
+                self.perch_hwnd, self.perch_dx = hwnd, dx
+                self.mode = "perch"
+                self._follow_window()
+            else:
+                self.perch_hwnd = None
+                self.place_on_ground(dx)
             self.mode = "teleport"
         if self._tp_frames <= 0:
             self.mode = "perch" if self.perch_hwnd else "ground"
@@ -261,8 +271,11 @@ class Avatar(QWidget):
         w, h = self.width(), self.height()
         color = STATUS_COLORS.get(self.status, STATUS_COLORS["ONLINE"])
         jitter = random.uniform(-5, 5) if self.glitch else 0
-        if self.mode == "teleport" and 4 < self._tp_frames < 12:
+        if self.mode == "teleport" and 6 < self._tp_frames < 18:
             p.setOpacity(0.35)
+        if self.holo:
+            self._paint_holo(p, w, h, color, jitter)
+            return
 
         sprite = self.sprites.get(self.sprite_kind()) if self.sprites else None
         if sprite is not None:
@@ -295,6 +308,58 @@ class Avatar(QWidget):
             p.setBrush(color)
             p.setPen(Qt.NoPen)
             p.drawEllipse(QPointF(w - 10, 10), 5, 5)
+
+    def _paint_holo(self, p: QPainter, w: int, h: int, color: QColor, jitter: float):
+        """Голограмма: клип в рамке со скошенными углами, сканлайны, уголки, глитч и «проектор» снизу."""
+        sprite = self.sprites.get(self.sprite_kind()) if self.sprites else None
+        frame = QRectF(4, 4, w - 8, h - 16)
+        cut = 10
+        path = QPainterPath()
+        path.moveTo(frame.left() + cut, frame.top())
+        path.lineTo(frame.right(), frame.top())
+        path.lineTo(frame.right(), frame.bottom() - cut)
+        path.lineTo(frame.right() - cut, frame.bottom())
+        path.lineTo(frame.left(), frame.bottom())
+        path.lineTo(frame.left(), frame.top() + cut)
+        path.closeSubpath()
+
+        p.save()
+        p.setClipPath(path)
+        p.fillRect(frame, QColor("#05070f"))
+        if sprite is not None and not sprite.frame().isNull():
+            img = sprite.frame().scaled(int(frame.width()), int(frame.height()),
+                                        Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+            x = frame.left() + (frame.width() - img.width()) / 2 + jitter
+            y = frame.top() + (frame.height() - img.height()) / 2
+            p.setOpacity(p.opacity() * 0.92)
+            p.drawPixmap(int(x), int(y), img)
+            if self.glitch:  # сдвинутые полосы
+                for _ in range(4):
+                    hh = random.randint(3, 10)
+                    yy = random.uniform(frame.top(), frame.bottom() - hh)
+                    p.drawPixmap(int(x + random.randint(-14, 14)), int(yy), img, 0, int(yy - y), img.width(), hh)
+        p.setOpacity(1.0)
+        p.setPen(QColor(255, 255, 255, 14))
+        for yy in range(int(frame.top()), int(frame.bottom()), 3):
+            p.drawLine(int(frame.left()), yy, int(frame.right()), yy)
+        p.restore()
+
+        p.setPen(QPen(QColor(color.red(), color.green(), color.blue(), 160), 1.2))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(path)
+        p.setPen(QPen(color, 2))
+        L = 12
+        for (x, y, dx, dy) in ((frame.left(), frame.top(), 1, 1), (frame.right(), frame.top(), -1, 1),
+                               (frame.left(), frame.bottom(), 1, -1), (frame.right(), frame.bottom(), -1, -1)):
+            p.drawLine(QPointF(x, y), QPointF(x + L * dx, y))
+            p.drawLine(QPointF(x, y), QPointF(x, y + L * dy))
+        # «проектор» под голограммой — светящаяся полоска, на которой она стоит/сидит
+        glow = QRadialGradient(QPointF(w / 2, h - 5), w * 0.45)
+        glow.setColorAt(0, QColor(color.red(), color.green(), color.blue(), 160))
+        glow.setColorAt(1, QColor(0, 0, 0, 0))
+        p.setPen(Qt.NoPen)
+        p.setBrush(glow)
+        p.drawEllipse(QPointF(w / 2, h - 5), w * 0.45, 5)
 
     # мышь ---------------------------------------------------------------------
     def mousePressEvent(self, e):

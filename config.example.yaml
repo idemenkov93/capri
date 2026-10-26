@@ -45,6 +45,10 @@ ui:
 avatar:
   size: 150
   wander: true                # гулять по экрану и сидеть на окнах
+  # Как Капри выглядит на рабочем столе:
+  #   auto   — есть прозрачные спрайты в assets/custom/desktop → они; иначе голограмма с клипами из hud/
+  #   sprite — только спрайты, holo — всегда голограмма, star — неоновая звезда
+  desktop_mode: auto
   # Своя внешность. Пусто = всё из папки assets/custom/ (в git не попадает).
   # Анимация выбирается по слову в имени файла: idle, walk, sit, think, talk, listen, teleport.
   # Например: idle.gif, walk.gif, sit.gif, talk.gif. Файлы без этих слов — варианты idle.
