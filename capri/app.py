@@ -183,7 +183,7 @@ class CapriApp:
         if not ok:
             self.chat.add_system(t("wake_missing", self.lang))
             return
-        self.wake = WakeListener(models, self.prefs.get("input_device"))
+        self.wake = WakeListener(models, self.prefs.get("input_device"), short=self.prefs.get("wake_short", True))
         self.wake.woke.connect(self.on_wake)
         self.wake.failed.connect(lambda e: self.chat.add_system(f"«Привет, Капри»: {e}"))
         self.wake.start()
@@ -267,6 +267,7 @@ class CapriApp:
             if len(choices) == 1:
                 mic.addAction(t("mic_none", L)).setEnabled(False)
             menu.addAction(self._check(menu, t("wake", L), self.prefs.get("wake_word", True), self.toggle_wake))
+            menu.addAction(self._check(menu, t("wake_short", L), self.prefs.get("wake_short", True), self.toggle_wake_short))
             menu.addAction(self._check(menu, t("speak_on", L), self.cfg["voice"]["speak"], self.toggle_speak))
             menu.addAction(t("voice_lab", L), self.open_voice_lab)
         am = menu.addMenu(t("attitude", L))
@@ -347,6 +348,12 @@ class CapriApp:
         else:
             self.stop_wake()
             self.chat.add_system(t("wake_off", self.lang))
+
+    def toggle_wake_short(self):
+        on = not self.prefs.get("wake_short", True)
+        self.prefs.set("wake_short", on)
+        if self.wake:
+            self.wake.short = on
 
     def toggle_wander(self):
         self.avatar._toggle_wander()
@@ -435,9 +442,13 @@ class CapriApp:
     # действия --------------------------------------------------------------
     def run_action(self, act: A.Action):
         if act.needs_confirm and self.cfg.get("confirm_actions", True):
-            answer = QMessageBox.question(self.chat if self.chat.isVisible() else None,
-                                          "Capri", f"{act.description}?")
-            if answer != QMessageBox.Yes:
+            # окно подтверждения всегда поверх Капри и чата — раньше оно пряталось сзади, и казалось, что всё зависло
+            box = QMessageBox(QMessageBox.Question, "Capri", f"{act.description}?",
+                              QMessageBox.Yes | QMessageBox.No, self.chat if self.chat.isVisible() else None)
+            box.setWindowFlag(Qt.WindowStaysOnTopHint)
+            box.raise_()
+            box.activateWindow()
+            if box.exec() != QMessageBox.Yes:
                 self.chat.add_system("Отменено.")
                 return
         if act.kind == "timer":
@@ -461,7 +472,25 @@ class CapriApp:
 
     def run(self) -> int:
         self.qt.aboutToQuit.connect(self.stop_wake)
+        self._watch_hangs()
         return self.qt.exec()
+
+    def _watch_hangs(self):
+        """Если окно «зависнет» дольше 20 с — записать, где стоит каждый поток, в data/hang.log."""
+        import faulthandler
+        try:
+            path = expand("data/hang.log")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._hang_file = open(path, "a", encoding="utf-8")  # noqa: SIM115 — открыт всё время работы
+        except OSError:
+            return
+
+        def rearm():
+            faulthandler.dump_traceback_later(20, exit=False, file=self._hang_file)
+        rearm()
+        self._hang_timer = QTimer(interval=2000, timeout=rearm)
+        self._hang_timer.start()
+        self.qt.aboutToQuit.connect(faulthandler.cancel_dump_traceback_later)
 
 
 INSTANCE_NAME = "capri-desktop-companion"

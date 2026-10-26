@@ -170,7 +170,7 @@ def t_stt(cfg, store):
     pcm = _pcm16k(store["mp3"])
     store["pcm"] = pcm
     stt = Transcriber(v["whisper_model"], v["languages"], str(expand(v["models_dir"]) / "whisper"),
-                      preferred=v.get("preferred_language", "ru"))
+                      preferred=v.get("preferred_language", "ru"), device=v.get("whisper_device", "auto"))
     t0 = time.perf_counter()
     stt.warmup()
     load = time.perf_counter() - t0
@@ -178,7 +178,7 @@ def t_stt(cfg, store):
     text, lang = stt.transcribe(pcm.astype("float32") / 32768)
     took = time.perf_counter() - t0
     good = "капри" in text.lower() and "погод" in text.lower()
-    return (OK if good else WARN), f"модель {v['whisper_model']} загрузка {load:.1f} с, распознала за {took:.1f} с [{lang}]: «{text}»"
+    return (OK if good else WARN), f"[{stt.device.upper()}] модель {v['whisper_model']} загрузка {load:.1f} с, распознала за {took:.1f} с [{lang}]: «{text}»"
 
 
 @check("«Привет, Капри» (vosk)")

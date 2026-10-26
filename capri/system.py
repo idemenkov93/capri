@@ -40,6 +40,16 @@ def ps_json(cmd: str) -> list:
     return data if isinstance(data, list) else [data]
 
 
+def _com_init():
+    """CoInitialize для текущего потока; возвращает модуль comtypes, если инициализировали мы."""
+    try:
+        import comtypes
+        comtypes.CoInitialize()
+        return comtypes
+    except Exception:  # noqa: BLE001 — уже инициализирован в другом режиме или comtypes нет
+        return None
+
+
 class SystemControl:
     """Один объект на приложение; методы вызываются из рабочего потока, не из интерфейса."""
 
@@ -53,12 +63,16 @@ class SystemControl:
             fn = getattr(self, "_" + cmd.op)
         except AttributeError:
             return {"error": f"неизвестная команда {cmd.op}"}
+        com = _com_init()   # громкость (pycaw) — это COM, а мы в рабочем потоке: COM нужно включить для него
         try:
             return fn(cmd) or {}
         except ImportError as e:
             return {"error": f"не установлен пакет {e.name} — перезапусти run_capri.bat"}
         except Exception as e:  # noqa: BLE001 — любую ошибку показываем пользователю, а не падаем
             return {"error": str(e) or type(e).__name__}
+        finally:
+            if com:
+                com.CoUninitialize()
 
     # ------------------------------------------------------------ клавиши
     @staticmethod

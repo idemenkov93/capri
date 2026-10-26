@@ -42,6 +42,7 @@ DEFAULTS: dict = {
         "enabled": True,
         "hotkey": "Ctrl+Space",
         "whisper_model": "small",      # tiny | base | small | medium — больше = точнее, но медленнее
+        "whisper_device": "auto",      # auto — видеокарта NVIDIA, если есть (requirements-gpu.txt), иначе процессор
         "languages": ["ru", "de", "en", "he"],
         "preferred_language": "ru",     # получает фору при распознавании коротких фраз
         "tts_engine": "edge",           # edge — живые нейроголоса (нужен интернет), piper — офлайн

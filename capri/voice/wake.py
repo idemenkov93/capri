@@ -1,7 +1,8 @@
 """«Привет, Капри» — офлайн-распознавание фразы пробуждения через vosk (маленькая русская модель).
 
 Слушает микрофон в своём потоке и испускает woke, когда слышит:
-«привет капри», «эй капри», «окей капри», «hey capri», «hallo capri»… (vosk иногда пишет «кэпри», «капли»).
+«привет капри», «эй капри», «окей капри», «hey capri», «hallo capri»… (vosk иногда пишет «кэпри», «капли»),
+а в коротком режиме (по умолчанию) — просто «Капри».
 """
 from __future__ import annotations
 
@@ -17,11 +18,14 @@ WAKE_RX = re.compile(
     r"(привет|прив|эй|окей|ок|хей|hey|hi|hallo|okay)\s*,?\s*(капри|кэпри|кепри|капре|каприз|капр|кап ри|кабри|капли|capri)",
     re.I,
 )
+# короткий режим: просто «Капри» отдельным словом (без «капли», «каприз» — их vosk слышит в обычной речи)
+SHORT_RX = re.compile(r"(?<![а-яa-z])(капри|кэпри|кепри|capri)(?![а-яa-z])", re.I)
 MODEL_NAME = "vosk-model-small-ru-0.22"
 
 
-def is_wake(text: str) -> bool:
-    return bool(WAKE_RX.search(text.lower().replace("ё", "е")))
+def is_wake(text: str, short: bool = False) -> bool:
+    t = text.lower().replace("ё", "е")
+    return bool(WAKE_RX.search(t) or (short and SHORT_RX.search(t)))
 
 
 def model_path(models_dir: Path) -> Path:
@@ -41,8 +45,9 @@ class WakeListener(QThread):
     woke = Signal(str)       # что услышал
     failed = Signal(str)
 
-    def __init__(self, models_dir: Path, device=None):
+    def __init__(self, models_dir: Path, device=None, short: bool = True):
         super().__init__()
+        self.short = short       # True — хватит просто «Капри»
         self.models_dir = Path(models_dir)
         self.device = device
         self.paused = False      # пока Капри сама слушает или говорит — не реагируем
@@ -91,7 +96,7 @@ class WakeListener(QThread):
                         text = json.loads(rec.Result()).get("text", "")
                     else:
                         text = json.loads(rec.PartialResult()).get("partial", "")
-                    if text and is_wake(text) and time.monotonic() - last > 2.5:
+                    if text and is_wake(text, self.short) and time.monotonic() - last > 2.5:
                         last = time.monotonic()
                         rec.Reset()
                         self.woke.emit(text)

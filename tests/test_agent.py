@@ -109,3 +109,18 @@ def test_strip_thinking():
     assert strip_thinking("Хорошо, пользователь спрашивает...\n</think>\n\nЙо! Всё ок.") == "Йо! Всё ок."
     assert strip_thinking("<think>хм</think>Ответ") == "Ответ"
     assert strip_thinking("Просто ответ") == "Просто ответ"
+
+
+@pytest.mark.parametrize("text,url", [
+    ("Капри, открой ютуб.", "https://www.youtube.com"),
+    ("Привет, Капри! Открой YouTube", "https://www.youtube.com"),
+    ("открой гитхаб", "https://github.com"),
+])
+def test_known_sites_open_without_confirm(cfg, text, url):
+    r = make(cfg).handle(text)
+    assert r.route == "rules" and r.actions[0].params["url"] == url and not r.actions[0].needs_confirm
+
+
+def test_youtube_search(cfg):
+    r = make(cfg).handle("найди на ютубе лоу фай музыку")
+    assert r.route == "rules" and "youtube.com/results" in r.actions[0].params["url"]

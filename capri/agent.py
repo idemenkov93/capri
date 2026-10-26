@@ -35,6 +35,11 @@ RE_TIMER = re.compile(
 )
 RE_NOTE = re.compile(r"^(?:запиши|заметка|запомни|notiz|merke dir|note|remember)[:,]?\s+(.+)$", re.I)
 RE_CLAUDE = re.compile(r"^(?:/claude|клод|claude)[,:]?\s+(.+)$", re.I | re.S)
+RE_YOUTUBE = re.compile(
+    r"^(?:найди|поищи|включи|поставь|открой|запусти)\s+(?:на|в)\s+(?:ютубе|ютьюбе|youtube)\s+(.+)$|"
+    r"^(?:ютуб|youtube)\s+(.+)$|^(?:search|play)\s+(.+?)\s+on youtube$|^(?:such\w*|spiel\w*)\s+(.+?)\s+auf youtube$", re.I)
+# «Привет, Капри, открой ютуб.» → «открой ютуб» (голос приносит имя и точки)
+RE_WAKE_PREFIX = re.compile(r"^\s*(?:(?:привет|эй|окей|ок|хей|hey|hi|hallo|okay)\s*,?\s*)?(?:капри|кэпри|capri|kapri)\b[\s,!.:-]*", re.I)
 RE_DOMAIN = re.compile(r"^[\w-]+(\.[\w-]+)+(/\S*)?$")
 
 UNIT_TO_MIN = {
@@ -62,7 +67,7 @@ class Agent:
     def handle(self, text: str, on_status: Callable[[str], None] = lambda s: None,
                on_token: Callable[[str, str], None] | None = None,
                should_stop: Callable[[], bool] | None = None) -> Reply:
-        text = text.strip()
+        text = RE_WAKE_PREFIX.sub("", text.strip()).strip()
         if not text:
             return Reply("Ну? Я слушаю.", route="rules")
         reply = self._rules(text)
@@ -87,11 +92,20 @@ class Agent:
                 return Reply(f"Окей, {act.description.lower()}.", [act], "rules")
         if m := RE_NOTE.match(text):
             return Reply("Записываю.", [A.make_note(m.group(1).strip())], "rules")
-        if m := RE_OPEN.match(text):
+        bare = text.rstrip(".!? ")
+        if m := RE_YOUTUBE.match(bare):
+            q = next(g for g in m.groups() if g).strip()
+            return Reply(f"Ищу на YouTube «{q}».", [A.make_youtube_search(q)], "rules")
+        if m := RE_OPEN.match(bare):
             target = m.group(1).strip()
+            # ты сам попросил открыть — без лишнего «Вы уверены?»
             if act := A.make_open_app(target, self.cfg["apps"]):
+                act.needs_confirm = False
+                return Reply(f"{act.description}.", [act], "rules")
+            if act := A.make_open_site(target):
                 return Reply(f"{act.description}.", [act], "rules")
             if RE_DOMAIN.match(target) and (act := A.make_open_url(target)):
+                act.needs_confirm = False
                 return Reply(f"{act.description}.", [act], "rules")
         return None  # не узнали команду — пусть думает модель
 

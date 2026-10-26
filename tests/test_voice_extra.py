@@ -42,3 +42,18 @@ def test_every_text_has_both_languages():
     for key, entry in TEXTS.items():
         assert entry.get("ru") and entry.get("en"), key
     assert t("mic_set", "en", name="USB") == "Microphone: USB"
+
+
+def test_short_wake_word():
+    assert is_wake("капри открой ютуб", short=True)
+    assert is_wake("ну капри", short=True)
+    assert not is_wake("капри открой ютуб", short=False)
+    for s in ["капли воды", "это каприз", "капризная погода"]:
+        assert not is_wake(s, short=True), s
+
+
+def test_sentence_split():
+    from capri.voice.tts import split_sentences
+    parts = split_sentences("Ну привет. Опять ты? Ладно, говори, что надо, у меня процессы скучают. DNS — это книга. Всё.")
+    assert len(parts) == 2 and parts[0].startswith("Ну привет.")
+    assert split_sentences("Один") == ["Один"]

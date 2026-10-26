@@ -14,7 +14,7 @@ class Recorder:
     """
 
     SPEECH_LEVEL = 0.12     # громкость (0..1), выше которой считаем, что это речь
-    SILENCE_AFTER = 1.2     # секунд тишины после речи — значит, договорил
+    SILENCE_AFTER = 0.9     # секунд тишины после речи — значит, договорил
     NO_SPEECH = 6.0         # если за столько секунд не начал говорить — отбой
     MAX_LEN = 12.0
 
@@ -74,9 +74,33 @@ class Recorder:
         return np.concatenate(self._chunks)[:, 0]
 
 
+def _cuda_dlls() -> None:
+    """cuBLAS и cuDNN из pip-пакетов nvidia-* лежат в site-packages/nvidia/*/bin — показываем их Windows."""
+    import os
+    import sys
+    from pathlib import Path
+    for base in map(Path, sys.path):
+        for sub in ("cublas", "cudnn", "cuda_nvrtc"):
+            d = base / "nvidia" / sub / "bin"
+            if d.is_dir():
+                os.environ["PATH"] = str(d) + os.pathsep + os.environ.get("PATH", "")
+                if hasattr(os, "add_dll_directory"):
+                    os.add_dll_directory(str(d))
+
+
+def gpu_available() -> bool:
+    try:
+        import ctranslate2
+        return ctranslate2.get_cuda_device_count() > 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
 class Transcriber:
     def __init__(self, model_size: str = "small", languages: list[str] | None = None,
-                 download_root: str | None = None, preferred: str | None = "ru"):
+                 download_root: str | None = None, preferred: str | None = "ru", device: str = "auto"):
+        self.device_pref = device      # auto | cuda | cpu
+        self.device = "cpu"
         self.model_size = model_size
         self.preferred = preferred
         self.languages = languages or ["ru", "de", "en", "he"]
@@ -87,9 +111,23 @@ class Transcriber:
         if self._model is None:
             from faster_whisper import WhisperModel
 
+            if self.device_pref in ("auto", "cuda"):
+                _cuda_dlls()
+                if gpu_available():
+                    try:
+                        # видеокарта: int8 работает и на старых GTX (Pascal), распознавание в разы быстрее
+                        model = WhisperModel(self.model_size, device="cuda", compute_type="int8",
+                                             download_root=self.download_root)
+                        list(model.transcribe(np.zeros(SAMPLE_RATE, np.float32), language="ru", beam_size=1)[0])
+                        self._model, self.device = model, "cuda"
+                        return model
+                    except Exception:  # noqa: BLE001 — нет cuDNN/cuBLAS или карта не подошла: работаем на процессоре
+                        pass
+            import os
             # int8 на процессоре — быстро и мало памяти; модель скачается один раз
             self._model = WhisperModel(self.model_size, device="cpu", compute_type="int8",
-                                       download_root=self.download_root)
+                                       cpu_threads=max(4, (os.cpu_count() or 4)), download_root=self.download_root)
+            self.device = "cpu"
         return self._model
 
     def warmup(self) -> None:
@@ -112,6 +150,13 @@ class Transcriber:
             return "", ""
         model = self._load()
         lang = self._pick_language(audio)
-        segments, info = model.transcribe(audio, language=lang, beam_size=1, vad_filter=True)
-        text = " ".join(s.text.strip() for s in segments).strip()
+        try:
+            segments, info = model.transcribe(audio, language=lang, beam_size=1, vad_filter=True)
+            text = " ".join(s.text.strip() for s in segments).strip()
+        except RuntimeError:
+            if self.device != "cuda":
+                raise
+            # видеокарта отказала посреди работы (например, кончилась видеопамять) — переходим на процессор
+            self._model, self.device_pref = None, "cpu"
+            return self.transcribe(audio)
         return text, (lang or info.language)

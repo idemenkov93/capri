@@ -11,6 +11,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "mic_default": {"ru": "По умолчанию (Windows)", "en": "Windows default"},
     "mic_none": {"ru": "Микрофоны не найдены", "en": "No microphones found"},
     "wake": {"ru": "👂 Слушать «Привет, Капри»", "en": "👂 Listen for “Hey Capri”"},
+    "wake_short": {"ru": "👂 Хватит просто «Капри»", "en": "👂 Just “Capri” is enough"},
     "speak_on": {"ru": "🔊 Озвучивать ответы", "en": "🔊 Speak replies"},
     "wander": {"ru": "🚶 Гулять по экрану", "en": "🚶 Walk around"},
     "hide": {"ru": "🙈 Спрятать", "en": "🙈 Hide"},
@@ -26,7 +27,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "quit": {"ru": "⏻ Выход", "en": "⏻ Quit"},
     # сообщения
     "mic_set": {"ru": "Микрофон: {name}", "en": "Microphone: {name}"},
-    "wake_on": {"ru": "Скажи «Привет, Капри» — и говори команду.", "en": "Say “Hey Capri” (or «Привет, Капри»), then your command."},
+    "wake_on": {"ru": "Скажи «Капри» (или «Привет, Капри») — и говори команду.", "en": "Say “Capri” (or “Hey Capri”), then your command."},
     "wake_off": {"ru": "Больше не слушаю «Привет, Капри».", "en": "Not listening for the wake phrase anymore."},
     "wake_missing": {"ru": "Для «Привет, Капри» нужна модель vosk — перезапусти run_capri.bat, он её скачает.",
                      "en": "The wake phrase needs the vosk model — restart run_capri.bat to download it."},

@@ -59,6 +59,19 @@ def decode_mp3(data: bytes) -> tuple[np.ndarray, int]:
     return (np.concatenate(frames) if frames else np.zeros(0, np.int16)), rate
 
 
+def split_sentences(text: str, min_len: int = 40) -> list[str]:
+    """Режем на предложения, но слишком короткие склеиваем с соседним («Ну привет.» + следующее)."""
+    import re
+    raw = [p.strip() for p in re.split(r"(?<=[.!?…])\s+", text) if p.strip()]
+    out: list[str] = []
+    for p in raw:
+        if out and len(out[-1]) < min_len:
+            out[-1] += " " + p
+        else:
+            out.append(p)
+    return out or [text]
+
+
 class EdgeSpeaker:
     """Нейроголоса Microsoft через edge-tts."""
 
@@ -68,23 +81,42 @@ class EdgeSpeaker:
         self._sd = sd
         self.voices, self.rate, self.pitch = voices, rate, pitch
         self.fx: dict = {}   # фильтры голоса (см. fx.py), меняются из «🎛 Голос Капри…»
+        self._stopped = False
 
     def warmup(self, lang: str) -> None:
         pass
 
-    def say(self, text: str, lang: str) -> None:
+    def _synth(self, text: str, voice: str):
         import edge_tts
 
-        voice = self.voices.get(lang) or self.voices.get("en")
+        from .fx import apply
         comm = edge_tts.Communicate(text, voice, rate=self.rate, pitch=self.pitch, connect_timeout=5, receive_timeout=20)
         mp3 = b"".join(c["data"] for c in comm.stream_sync() if c.get("type") == "audio")
         audio, sr = decode_mp3(mp3)
-        from .fx import apply
-        audio = apply(audio, sr, self.fx)
-        self._sd.play(audio, sr)
-        self._sd.wait()
+        return apply(audio, sr, self.fx), sr
+
+    def say(self, text: str, lang: str) -> None:
+        """По предложениям: первое начинает звучать сразу, следующее синтезируется, пока играет текущее."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        voice = self.voices.get(lang) or self.voices.get("en")
+        parts = split_sentences(text)
+        self._stopped = False
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            nxt = ex.submit(self._synth, parts[0], voice)
+            for i in range(len(parts)):
+                audio, sr = nxt.result()
+                if i + 1 < len(parts):
+                    nxt = ex.submit(self._synth, parts[i + 1], voice)
+                if self._stopped:
+                    break
+                self._sd.play(audio, sr)
+                self._sd.wait()
+                if self._stopped:
+                    break
 
     def stop(self) -> None:
+        self._stopped = True
         self._sd.stop()
 
 

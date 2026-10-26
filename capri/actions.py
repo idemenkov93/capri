@@ -41,6 +41,40 @@ def make_open_url(url: str) -> Action | None:
     return Action("open_url", f"Открыть сайт {parsed.netloc}", {"url": url})
 
 
+# Известные сайты: «открой ютуб» работает без настройки. Свои — в config.yaml → apps.
+SITES = {
+    "ютуб|ютьюб|youtube|ю туб": "https://www.youtube.com",
+    "гугл|google|гугол": "https://www.google.com",
+    "гитхаб|github|гит хаб": "https://github.com",
+    "почту|почта|gmail|джимейл": "https://mail.google.com",
+    "переводчик|гугл переводчик|translate|übersetzer": "https://translate.google.com",
+    "карты|гугл карты|maps|karten": "https://maps.google.com",
+    "вк|вконтакте|vk": "https://vk.com",
+    "телеграм|телеграмм|telegram": "https://web.telegram.org",
+    "твич|twitch": "https://www.twitch.tv",
+    "нетфликс|netflix": "https://www.netflix.com",
+    "спотифай|spotify": "https://open.spotify.com",
+    "чатгпт|chatgpt|чат гпт": "https://chatgpt.com",
+    "клод|claude": "https://claude.ai",
+    "википедию|википедия|wikipedia": "https://ru.wikipedia.org",
+    "амазон|amazon": "https://www.amazon.de",
+    "linkedin|линкедин": "https://www.linkedin.com",
+}
+
+
+def make_open_site(name: str) -> Action | None:
+    key = name.strip().lower().rstrip(".!")
+    for names, url in SITES.items():
+        if key in names.split("|"):
+            return Action("open_url", f"Открыть {url.split('//')[1]}", {"url": url}, needs_confirm=False)
+    return None
+
+
+def make_youtube_search(query: str) -> Action:
+    url = "https://www.youtube.com/results?search_query=" + quote_plus(query)
+    return Action("web_search", f"Найти на YouTube: «{query}»", {"url": url}, needs_confirm=False)
+
+
 def make_web_search(query: str, search_url: str) -> Action:
     url = search_url.format(query=quote_plus(query))
     return Action("web_search", f"Поискать в интернете: «{query}»", {"url": url}, needs_confirm=False)

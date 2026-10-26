@@ -47,7 +47,7 @@ class VoiceController(QObject):
         self.recorder = Recorder(device)
         self._auto_timer = QTimer(self, interval=100, timeout=self._check_auto_stop)
         self.stt = Transcriber(v["whisper_model"], v["languages"], str(expand(v["models_dir"]) / "whisper"),
-                               preferred=v.get("preferred_language", "ru"))
+                               preferred=v.get("preferred_language", "ru"), device=v.get("whisper_device", "auto"))
         piper = None
         if importlib.util.find_spec("piper") is not None:
             piper = Speaker(v["piper_voices"], expand(v["models_dir"]) / "piper")

@@ -27,6 +27,11 @@ if not exist .venv\system_installed_v1.txt (
     echo [Capri] Installing system commands ^(music, volume, brightness, PC check^)...
     .venv\Scripts\python -m pip install -r requirements-system.txt && echo ok> .venv\system_installed_v1.txt
 )
+where nvidia-smi >nul 2>nul
+if not errorlevel 1 if not exist .venv\gpu_installed_v1.txt (
+    echo [Capri] NVIDIA GPU found: installing CUDA libraries for fast speech recognition ^(about 1.3 GB, once^)...
+    .venv\Scripts\python -m pip install -r requirements-gpu.txt && echo ok> .venv\gpu_installed_v1.txt
+)
 if not exist data\models\vosk-model-small-ru-0.22\am (
     echo [Capri] Downloading the wake phrase model ^(Russian, about 45 MB^)...
     if not exist data\models mkdir data\models
