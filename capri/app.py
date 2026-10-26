@@ -53,7 +53,11 @@ class CapriApp:
         av = self.cfg["avatar"]
         custom = str(expand(av["custom_image"])) if av.get("custom_image") else ""
         self.avatar = Avatar(av["size"], custom, av.get("fps", 12))
-        self.chat = ChatWindow()
+        if self.cfg.get("ui", {}).get("style", "hud") == "hud":
+            from .ui.hud import HudWindow
+            self.chat = HudWindow(custom, av.get("fps", 12))
+        else:
+            self.chat = ChatWindow()
         self.worker: Worker | None = None
 
         self.tray = QSystemTrayIcon(QIcon(self.avatar.grab()), self.qt)
@@ -76,9 +80,9 @@ class CapriApp:
         self._init_voice()
 
         # грузим модель в видеокарту сразу, пока пользователь ещё ничего не написал
-        self.avatar.set_status("LOADING")
+        self.set_status("LOADING")
         self.warmup = Warmup(self.agent)
-        self.warmup.finished.connect(lambda: self.avatar.set_status("ONLINE"))
+        self.warmup.finished.connect(lambda: self.set_status("ONLINE"))
         self.warmup.start()
 
     # голос ------------------------------------------------------------------
@@ -99,6 +103,12 @@ class CapriApp:
             return
         self.chat.mic.show()
         self.chat.mic_clicked.connect(self.voice.toggle_record)
+        if hasattr(self.chat, "speak_toggled"):
+            self.chat.speak_toggled.connect(self.toggle_speak)
+            self.chat.set_speak_icon(v["speak"])
+        if hasattr(self.chat, "set_level"):
+            self._level_timer = QTimer(interval=50, timeout=lambda: self.chat.set_level(self.voice.recorder.level))
+            self._level_timer.start()
         self.voice.state.connect(self.on_voice_state)
         self.voice.transcribed.connect(self.on_transcribed)
         self.voice.error.connect(self.chat.add_system)
@@ -116,14 +126,16 @@ class CapriApp:
     def toggle_speak(self):
         v = self.cfg["voice"]
         v["speak"] = not v["speak"]
+        if hasattr(self.chat, "set_speak_icon"):
+            self.chat.set_speak_icon(v["speak"])
         self.chat.add_system("Озвучка включена." if v["speak"] else "Озвучка выключена.")
 
     def on_voice_state(self, state: str):
         self.chat.set_recording(state == "LISTENING")
         if state == "IDLE":
-            self.avatar.set_status("ONLINE")
+            self.set_status("ONLINE")
         else:
-            self.avatar.set_status(state)
+            self.set_status(state)
         if state == "RECOGNIZING":
             self.chat.add_system("Распознаю…")
 
@@ -161,14 +173,20 @@ class CapriApp:
         if self.worker and self.worker.isRunning():
             self.worker.stop_requested = True
 
-    def on_status(self, status: str):
+    def set_status(self, status: str):
+        self.state = status
         self.avatar.set_status(status)
+        if hasattr(self.chat, "set_status"):
+            self.chat.set_status(status)
+
+    def on_status(self, status: str):
+        self.set_status(status)
         if status == "CLAUDE":
             self.chat.add_system("Передаю задачу Claude… это может занять минуту.")
 
     def on_reply(self, reply: Reply):
-        self.avatar.set_status("ERROR" if reply.route == "error" else "TALKING")
-        QTimer.singleShot(2500, lambda: self.avatar.set_status("ONLINE"))
+        self.set_status("ERROR" if reply.route == "error" else "TALKING")
+        QTimer.singleShot(2500, lambda: self.state in ("TALKING", "ERROR") and self.set_status("ONLINE"))
         self.chat.end_stream()
         self.chat.add_capri(reply.text, reply.route)
         for act in reply.actions:
@@ -199,12 +217,12 @@ class CapriApp:
             self.chat.add_system(f"Не получилось: {e}")
 
     def timer_fired(self, label: str):
-        self.avatar.set_status("TALKING")
+        self.set_status("TALKING")
         self.tray.showMessage("Capri", f"⏰ {label}")
         self.chat.add_capri(f"⏰ Эй! {label}", "rules")
         if self.voice and self.cfg["voice"]["speak"]:
             self.voice.speak(f"Эй! {label}")
-        QTimer.singleShot(5000, lambda: self.avatar.set_status("ONLINE"))
+        QTimer.singleShot(5000, lambda: self.state == "TALKING" and self.set_status("ONLINE"))
 
     def run(self) -> int:
         return self.qt.exec()

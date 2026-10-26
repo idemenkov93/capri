@@ -27,6 +27,45 @@ STATUS_COLORS = {
 }
 
 
+def draw_star(p: QPainter, cx: float, cy: float, r: float, color: QColor, phase: float, glitch: bool) -> None:
+    """Оригинальная «глитч-звезда» — внешность Капри по умолчанию."""
+    path = QPainterPath()
+    spin = phase * 0.3
+    for i in range(8):
+        ang = spin + i * math.pi / 4
+        rad = r if i % 2 == 0 else r * 0.32
+        pt = QPointF(cx + rad * math.cos(ang), cy + rad * math.sin(ang))
+        path.moveTo(pt) if i == 0 else path.lineTo(pt)
+    path.closeSubpath()
+    if glitch:  # смещённая «тень» в другом цвете
+        p.setBrush(QColor(255, 42, 109, 140))
+        p.setPen(Qt.NoPen)
+        p.drawPath(path.translated(3, -2))
+    p.setBrush(QColor(10, 10, 20, 220))
+    p.setPen(QPen(color, 2.5))
+    p.drawPath(path)
+    p.setBrush(color)
+    p.setPen(Qt.NoPen)
+    p.drawEllipse(QPointF(cx, cy), r * 0.12, r * 0.12)
+
+
+def load_custom_frames(path: str) -> tuple[list[QPixmap], "QMovie | None"]:
+    """Своя внешность: PNG, анимированный GIF или папка с кадрами."""
+    if not path:
+        return [], None
+    pth = Path(path)
+    if pth.is_dir():
+        frames = [QPixmap(str(f)) for f in sorted(pth.glob("*.png"))]
+        return [f for f in frames if not f.isNull()], None
+    if pth.suffix.lower() == ".gif":
+        movie = QMovie(str(pth))
+        movie.start()
+        return [], movie
+    if pth.exists():
+        return [QPixmap(str(pth))], None
+    return [], None
+
+
 class Avatar(QWidget):
     clicked = Signal()
     quit_requested = Signal()
@@ -128,24 +167,7 @@ class Avatar(QWidget):
         p.drawText(0, w + 4, w, 18, Qt.AlignCenter, self.status)
 
     def _draw_star(self, p: QPainter, cx: float, cy: float, r: float, color: QColor) -> None:
-        path = QPainterPath()
-        spin = self.phase * 0.3
-        for i in range(8):
-            ang = spin + i * math.pi / 4
-            rad = r if i % 2 == 0 else r * 0.32
-            pt = QPointF(cx + rad * math.cos(ang), cy + rad * math.sin(ang))
-            path.moveTo(pt) if i == 0 else path.lineTo(pt)
-        path.closeSubpath()
-        if self.glitch:  # смещённая «тень» в другом цвете
-            p.setBrush(QColor(255, 42, 109, 140))
-            p.setPen(Qt.NoPen)
-            p.drawPath(path.translated(3, -2))
-        p.setBrush(QColor(10, 10, 20, 220))
-        p.setPen(QPen(color, 2.5))
-        p.drawPath(path)
-        p.setBrush(color)
-        p.setPen(Qt.NoPen)
-        p.drawEllipse(QPointF(cx, cy), r * 0.12, r * 0.12)
+        draw_star(p, cx, cy, r, color, self.phase, bool(self.glitch))
 
     # мышь ---------------------------------------------------------------------
     def mousePressEvent(self, e):

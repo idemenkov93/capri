@@ -39,6 +39,9 @@ confirm_actions: true
 
 notes_file: data/notes.md   # относительные пути считаются от папки проекта
 
+ui:
+  style: hud                # hud — панель «Personal Link», classic — простой чат
+
 avatar:
   size: 140
   # Свой аватар (папка assets/custom/ в git не попадает). Варианты:

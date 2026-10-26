@@ -37,6 +37,7 @@ DEFAULTS: dict = {
     "confirm_actions": True,
     "notes_file": "data/notes.md",
     "avatar": {"size": 140, "custom_image": "", "fps": 12},
+    "ui": {"style": "hud"},  # hud — панель «Personal Link», classic — простой чат
     "voice": {
         "enabled": True,
         "hotkey": "Ctrl+Space",

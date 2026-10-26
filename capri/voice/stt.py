@@ -15,16 +15,22 @@ class Recorder:
         self._sd = sd
         self._chunks: list[np.ndarray] = []
         self._stream = None
+        self.level = 0.0  # текущая громкость 0..1 — для индикатора в интерфейсе
 
     def start(self) -> None:
         self._chunks = []
         self._stream = self._sd.InputStream(
             samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-            callback=lambda data, *_: self._chunks.append(data.copy()),
+            callback=self._on_audio,
         )
         self._stream.start()
 
+    def _on_audio(self, data, *_):
+        self._chunks.append(data.copy())
+        self.level = float(min(1.0, np.sqrt(np.mean(data ** 2)) * 12))
+
     def stop(self) -> np.ndarray:
+        self.level = 0.0
         if self._stream:
             self._stream.stop()
             self._stream.close()
