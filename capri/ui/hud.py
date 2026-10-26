@@ -148,15 +148,24 @@ class Viewport(QWidget):
         self.level = 0.0
         self.glitch = 0
         self.sprites = SpriteSet(custom_image)
+        self.transition = 0
         self.stars = [(random.random(), random.random(), random.random()) for _ in range(70)]
         QTimer(self, interval=33, timeout=self._tick).start()
 
     def set_state(self, state: str):
         if state != self.state:
             self.glitch = 10
+            # короткий «переход» между состояниями, если есть анимация teleport
+            if self.sprites and "teleport" in self.sprites.kinds() and state != "TYPING":
+                self.transition = 22  # кадров по 33 мс ≈ 0.7 сек
+                self.sprites.shuffle("teleport")
+            for kind in ("idle", "talk", "think", "listen"):
+                self.sprites.shuffle(kind)  # каждый раз — случайный вариант анимации
         self.state = state
 
     def sprite_kind(self) -> str:
+        if self.transition > 0:
+            return "teleport"
         if self.state in ("THINKING", "CLAUDE", "RECOGNIZING", "LOADING"):
             return "think"
         if self.state in ("SPEAKING", "TALKING"):
@@ -167,6 +176,8 @@ class Viewport(QWidget):
 
     def _tick(self):
         self.phase += 0.06
+        if self.transition:
+            self.transition -= 1
         if self.glitch:
             self.glitch -= 1
         elif self.state in ("THINKING", "CLAUDE", "RECOGNIZING") and random.random() < 0.25:
