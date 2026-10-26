@@ -20,7 +20,10 @@ class ClaudeError(RuntimeError):
 def ask(task: str, cfg: dict) -> str:
     exe = shutil.which(cfg.get("command", "claude"))
     if not exe:
-        raise ClaudeError("Не нашла Claude Code. Установи его и войди в аккаунт: npm install -g @anthropic-ai/claude-code, потом claude.")
+        raise ClaudeError(
+            "Не нашла Claude Code. Установи его в PowerShell: irm https://claude.ai/install.ps1 | iex — "
+            "потом один раз запусти claude и войди в аккаунт. После этого перезапусти Капри."
+        )
 
     workdir = expand(cfg.get("workdir", "~/capri-workspace"))
     workdir.mkdir(parents=True, exist_ok=True)

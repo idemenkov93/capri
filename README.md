@@ -43,7 +43,7 @@
    ```
 3. **Claude Code** (по желанию, для сложных задач):
    ```
-   npm install -g @anthropic-ai/claude-code
+   irm https://claude.ai/install.ps1 | iex
    claude      # один раз войти в аккаунт
    ```
 4. Клонировать и запустить:
