@@ -98,41 +98,96 @@ class Agent:
         return self._local(text, on_status, on_token, should_stop)
 
     def _google(self, text: str) -> Reply | None:
-        """Почта / календарь / задачи. None — фраза не про Google."""
+        """Почта / календарь / задачи. None — фраза не про Google.
+
+        Полный режим (Google Cloud, docs/GOOGLE.md) — если есть data/google_token.json.
+        Иначе простой режим (google_simple.py): календарь по iCal-ссылке, почта по паролю приложения, свой список дел."""
         from . import google_api as G
+        from . import google_simple as S
+        from .config import expand
         t = text.rstrip(".!? ")
-        kind = ("connect" if G.RE_CONNECT.search(t) else "task_add" if G.RE_ADD_TASK.match(t) else
-                "tasks" if G.RE_LIST_TASKS.search(t) else "event_add" if G.RE_ADD_EVENT.match(t) else
-                "mail" if G.RE_MAIL.search(t) else "agenda" if G.RE_AGENDA.search(t) else None)
+        kind = ("connect_mail" if G.RE_CONNECT_MAIL.search(t) else "connect_cal" if G.RE_CONNECT_CAL.search(t) else
+                "connect" if G.RE_CONNECT.search(t) else "task_done" if G.RE_TASK_DONE.match(t) else
+                "task_add" if G.RE_ADD_TASK.match(t) else "tasks" if G.RE_LIST_TASKS.search(t) else
+                "event_add" if G.RE_ADD_EVENT.match(t) else "mail" if G.RE_MAIL.search(t) else
+                "agenda" if G.RE_AGENDA.search(t) else None)
         if not kind:
             return None
         if self.google is None:
-            from .config import expand
             self.google = G.Google(expand("data"))
+        full = self.google.token_file.exists()
+        todo = S.Todo(expand("data/todo.md"))
+
+        def ask(what: str, text: str) -> Reply:
+            return Reply(text, [A.Action(what, text, {}, needs_confirm=False)], "rules")
         try:
+            if kind == "connect_mail":
+                return ask("connect_mail", "Подключаю почту: открыла страницу паролей приложений Google — следуй окошку.")
+            if kind == "connect_cal":
+                return ask("connect_calendar", "Подключаю календарь: открыла настройки Google Календаря — следуй окошку.")
             if kind == "connect":
-                return Reply(self.google.connect(), route="rules")
+                if self.google.client_file.exists() or self.google._find_client_file():
+                    return Reply(self.google.connect(), route="rules")      # полный режим уже настроен
+                return ask("connect_simple", "Подключаю по-простому: календарь и почту, без Google Cloud. Следуй окошкам.")
             if kind == "mail":
-                return Reply(self.google.unread(), route="rules")
-            if kind == "tasks":
-                return Reply(self.google.tasks(), route="rules")
+                if full:
+                    return Reply(self.google.unread(), route="rules")
+                addr, pw = S.get_secret("gmail_address"), S.get_secret("gmail_app_password")
+                if not (addr and pw):
+                    return ask("connect_mail", "Почта ещё не подключена — давай подключим, это 2 минуты.")
+                return Reply(S.unread_imap(addr, pw), route="rules")
             if kind == "agenda":
-                return Reply(self.google.agenda(t), route="rules")
+                if full:
+                    return Reply(self.google.agenda(t), route="rules")
+                url = S.get_secret("ical_url")
+                if not url:
+                    return ask("connect_calendar", "Календарь ещё не подключён — давай подключим, это одна ссылка.")
+                return Reply(self._agenda_simple(t, url), route="rules")
+            if kind == "tasks":
+                if full:
+                    return Reply(self.google.tasks(), route="rules")
+                items = todo.open_items()
+                return Reply(("В списке дел: " + "; ".join(items) + ".") if items else "Список дел пуст. Подозрительно продуктивно.", route="rules")
             if kind == "task_add":
                 m = G.RE_ADD_TASK.match(t)
                 title = (m.group("title") or m.group("title_en")).strip(" :«»\"")
-                return Reply(self.google.add_task(title[0].upper() + title[1:]), route="rules")
+                title = title[0].upper() + title[1:]
+                if full:
+                    return Reply(self.google.add_task(title), route="rules")
+                todo.add(title)
+                return Reply(f"Добавила в список дел: «{title}».", route="rules")
+            if kind == "task_done":
+                m = G.RE_TASK_DONE.match(t)
+                w = (m.group("w") or m.group("w2")).strip()
+                done = todo.done(w)
+                return Reply(f"Вычеркнула: «{done}». Красава." if done else f"Не нашла в списке дел «{w}».", route="rules")
             m = G.RE_ADD_EVENT.match(t)
             ev = G.Google.parse_event(m.group("rest") or m.group("rest_en"))
             if isinstance(ev, str):
                 return Reply(f"Не поняла: {ev}.", route="error")
-            # в календарь пишем только после «Да» — вдруг я не так расслышала дату
-            act = A.Action("gcal_add", f"Добавить в календарь {G.describe_event(ev)}", {"event": ev}, needs_confirm=True)
-            return Reply(f"Добавить в календарь {G.describe_event(ev)}?", [act], "rules")
+            if full:
+                # в календарь пишем только после «Да» — вдруг я не так расслышала дату
+                act = A.Action("gcal_add", f"Добавить в календарь {G.describe_event(ev)}", {"event": ev}, needs_confirm=True)
+                return Reply(f"Добавить в календарь {G.describe_event(ev)}?", [act], "rules")
+            act = A.Action("open_url", "Открыть событие в Google Календаре", {"url": S.calendar_add_url(ev)}, needs_confirm=False)
+            return Reply(f"Открыла в календаре {G.describe_event(ev)} — проверь и нажми «Сохранить».", [act], "rules")
         except G.GoogleError as e:
             return Reply(str(e), route="error")
-        except Exception as e:  # noqa: BLE001 — сеть, права, квоты
+        except Exception as e:  # noqa: BLE001 — сеть, права, неверный пароль
             return Reply(f"Google ответил ошибкой: {str(e)[:200]}", route="error")
+
+    def _agenda_simple(self, text: str, url: str) -> str:
+        import datetime as dt
+
+        from . import google_simple as S
+        from .when import fmt_day, parse_day
+        now = dt.datetime.now().astimezone()
+        day = parse_day(text, now.date()) or now.date()
+        items = S.fetch_agenda(url, day, now.tzinfo)
+        when = "Сегодня" if day == now.date() else "Завтра" if day == now.date() + dt.timedelta(days=1) else fmt_day(day)
+        if not items:
+            return f"{when} в календаре пусто. Свобода."
+        return f"{when}: " + "; ".join(f"{a} — {b}" for a, b in items) + "."
 
     def _weather(self, text: str) -> Reply:
         from . import weather

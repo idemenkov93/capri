@@ -22,7 +22,11 @@ SCOPES = [
     "https://www.googleapis.com/auth/tasks",
 ]
 
-RE_CONNECT = re.compile(r"^(подключи|подключить|авторизуй\w*|войди в)\s+(гугл|google|почту|календарь)|^connect google", re.I)
+RE_CONNECT = re.compile(r"^(подключи|подключить|авторизуй\w*|войди в)\s+(гугл|google)|^connect google", re.I)
+RE_CONNECT_MAIL = re.compile(r"^(подключи|подключить)\s+(почту|gmail|джимейл)|^connect (gmail|mail)", re.I)
+RE_CONNECT_CAL = re.compile(r"^(подключи|подключить)\s+(календарь|гугл календарь)|^connect calendar", re.I)
+RE_TASK_DONE = re.compile(r"^(?:отметь|вычеркни|закрой)\s+(?:задачу|дело)\s+(?P<w>.+?)(?:\s+(?:выполненной|как выполненную|сделанной))?$|"
+                          r"^(?:я\s+)?(?:сделал|выполнил|сделала|выполнила)\s+(?:задачу\s+)?(?P<w2>.+)$", re.I)
 RE_MAIL = re.compile(r"(есть|какие|сколько)\s+(ли\s+)?(новы\w+|непрочитанн\w+)\s+(письм\w*|сообщени\w*)|проверь\s+(мою\s+)?(почту|gmail|джимейл)|"
                      r"что\s+(нового\s+)?(в|на)\s+почт\w*|\b(check|any new)\s+(my\s+)?(e-?mails?|mail)|neue (e-?mails|mails)", re.I)
 RE_AGENDA = re.compile(r"(что|какие)\s+(у меня\s+)?(в календаре|планы|по планам|встреч\w*|дела)\b|"

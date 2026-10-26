@@ -84,6 +84,7 @@ class FakeTasks:
 def google(tmp_path):
     g = G.Google(tmp_path)
     g._services = {"gmail": FakeGmail(), "calendar": FakeCal(), "tasks": FakeTasks()}
+    g.token_file.write_text("{}", encoding="utf-8")   # полный режим (Google Cloud) уже подключён
     return g
 
 

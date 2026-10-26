@@ -277,7 +277,11 @@ class CapriApp:
             menu.addAction(t("speak_now", L), self.voice.toggle_record)
         menu.addAction(t("quiet", L), self.be_quiet)
         menu.addAction(t("pc_check", L), self.check_pc)
-        menu.addAction(t("google", L), lambda: self.on_message(t("google_cmd", self.lang)))
+        gm = menu.addMenu(t("google", L))
+        gm.addAction(t("google_cal", L), lambda: self.connect_google("connect_calendar"))
+        gm.addAction(t("google_mail", L), lambda: self.connect_google("connect_mail"))
+        gm.addAction(t("google_full", L), lambda: __import__("webbrowser").open(
+            "https://github.com/idemenkov93/capri/blob/main/docs/GOOGLE.md"))
         menu.addSeparator()
 
         if self.voice:
@@ -576,7 +580,42 @@ class CapriApp:
             QTimer.singleShot(0, lambda: self.on_message(text))
 
     # действия --------------------------------------------------------------
+    def connect_google(self, what: str):
+        """Простое подключение: окошко со ссылкой/паролем (в главном потоке — это окна)."""
+        from . import google_simple as S
+        from .ui.connect_dialogs import ask_calendar, ask_mail
+        parent = self.chat if self.chat.isVisible() else None
+        if what in ("connect_calendar", "connect_simple"):
+            def check_cal(url):
+                if not S.valid_ical_url(url):
+                    return "Это не та ссылка: нужна «Секретный адрес в формате iCal» (начинается с https://calendar.google.com/calendar/ical/ и кончается на .ics)."
+                try:
+                    import datetime as dt
+                    S.fetch_agenda(url, dt.date.today(), dt.datetime.now().astimezone().tzinfo)
+                except Exception as e:  # noqa: BLE001
+                    return f"Не получилось открыть календарь: {str(e)[:120]}"
+                return None
+            if url := ask_calendar(parent, check_cal):
+                S.set_secret("ical_url", url)
+                self.chat.add_capri("Календарь подключён. Спроси: «что у меня завтра?»", "rules")
+        if what in ("connect_mail", "connect_simple"):
+            def check_mail(addr, pw):
+                if "@" not in addr or len(pw.replace(" ", "")) != 16:
+                    return "Нужна почта и пароль приложения — ровно 16 букв (пробелы не важны)."
+                try:
+                    S.unread_imap(addr, pw, limit=1)
+                except Exception as e:  # noqa: BLE001
+                    return f"Google не пустил: {str(e)[:120]}. Проверь почту и пароль приложения."
+                return None
+            if res := ask_mail(parent, check_mail):
+                S.set_secret("gmail_address", res[0])
+                S.set_secret("gmail_app_password", res[1])
+                self.chat.add_capri("Почта подключена. Спроси: «есть новые письма?»", "rules")
+
     def run_action(self, act: A.Action):
+        if act.kind in ("connect_mail", "connect_calendar", "connect_simple"):
+            self.connect_google(act.kind)
+            return
         # удаление — всегда с вопросом, даже если подтверждения выключены
         if (act.needs_confirm and self.cfg.get("confirm_actions", True)) or act.kind == "trash":
             # окно подтверждения всегда поверх Капри и чата — раньше оно пряталось сзади, и казалось, что всё зависло
