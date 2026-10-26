@@ -135,7 +135,10 @@ class Agent:
             q = next(g for g in m.groups() if g).strip()
             return Reply(f"Ищу на YouTube «{q}».", [A.make_youtube_search(q)], "rules")
         if m := RE_OPEN.match(bare):
-            target = m.group(1).strip()
+            target = re.sub(r"^(?:в|на|in|auf)\s+", "", m.group(1).strip())
+            # «открой в YouTube Music понравившуюся музыку» / «…, понравившаяся музыка» — сначала то, что внутри
+            if "," in target and (inner := A.make_open_site(target.split(",", 1)[1], self.cfg.get("sites"))):
+                return Reply(f"{inner.description}.", [inner], "rules")
             # ты сам попросил открыть — без лишнего «Вы уверены?»
             if act := A.make_open_app(target, self.cfg["apps"]):
                 act.needs_confirm = False

@@ -104,3 +104,17 @@ def test_simple_goes_to_ollama():
     LLM.calls = 0
     r = agent().handle("как дела?")
     assert r.route == "local" and LLM.calls == 1
+
+
+def test_liked_music_and_open_in_phrasing():
+    a = agent(apps("YouTube Music"))
+    for t in ["Открой понравившейся музыка.", "Открой в YouTube-мюзик, понравившаяся музыка."]:
+        assert a.handle(t).actions[0].params["url"] == "https://music.youtube.com/playlist?list=LM"
+    assert a.handle("Открой YouTube-мюзик.").actions[0].kind == "start_app"
+
+
+@pytest.mark.parametrize("spoken,name", [("просмотр событий", "Event Viewer"), ("реестр", "Registry Editor"),
+                                         ("службы", "Services"), ("ведьмак", "The Witcher 3 Wild Hunt - Complete Edition")])
+def test_admin_tools_in_russian(spoken, name):
+    ix = apps("Event Viewer", "Registry Editor", "Services", "The Witcher 3 Wild Hunt - Complete Edition", "Settings")
+    assert ix.find(spoken)["name"] == name

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import re
 import subprocess
 import sys
 import webbrowser
@@ -62,14 +63,22 @@ SITES = {
 }
 
 
-SITES = {"ютуб мюзик|youtube music|ютьюб мюзик": "https://music.youtube.com", **SITES}
+SITES = {
+    "ютуб мюзик|youtube music|ютьюб мюзик|youtube мюзик": "https://music.youtube.com",
+    # «открой понравившуюся музыку» — плейлист лайков в YouTube Music
+    "понравившаяся музыка|понравившуюся музыку|понравившиеся|понравившейся музыка|любимая музыка|любимую музыку|"
+    "мои лайки|лайкнутые|liked music|мою музыку": "https://music.youtube.com/playlist?list=LM",
+    **SITES,
+}
 
 
 def make_open_site(name: str, extra: dict | None = None) -> Action | None:
     """Сайт по имени: сначала твои из config.yaml → sites, потом встроенные."""
-    key = " ".join(name.strip().lower().rstrip(".!").split())
+    import difflib
+    key = " ".join(re.sub(r"[-–,.!?]+", " ", name.lower()).split())
     for names, url in {**(extra or {}), **SITES}.items():
-        if key in names.split("|"):
+        # точное совпадение или почти (Whisper пишет «понравившейся музыка», «YouTube-мюзик»)
+        if any(key == n or difflib.SequenceMatcher(None, key, n).ratio() >= 0.88 for n in names.split("|")):
             url = url if "://" in url else "https://" + url
             return Action("open_url", f"Открыть {url.split('//')[1].rstrip('/')}", {"url": url}, needs_confirm=False)
     return None

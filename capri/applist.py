@@ -31,12 +31,15 @@ ALIASES = {
     "фото": "photos", "почта": "mail", "календарь": "calendar", "магазин": "store", "кс": "counter-strike",
     "контра": "counter-strike", "юбисофт": "ubisoft", "ориджин": "origin", "иа": "ea", "гог": "gog",
     "мессенджер": "messenger", "нотион": "notion", "обсидиан": "obsidian", "вирт": "virt", "винбокс": "winbox",
-    "мобакстерм": "mobaxterm", "вайршарк": "wireshark", "анидеск": "anydesk", "тимвьюер": "teamviewer",
+    "мобакстерм": "mobaxterm", "ведьмак": "witcher", "киберпанк": "cyberpunk", "валорант": "valorant", "апекс": "apex",
+    "геогессер": "geoguessr", "рейзер": "razer", "логитек": "logitech", "риот": "riot", "экситлаг": "exitlag",
+    "фейсит": "faceit", "влс": "vlc", "винрар": "winrar", "иксбокс": "xbox", "пэйнт": "paint", "паинт": "paint",
+    "питон": "python", "оллама": "ollama", "шиндоус": "windows", "безопасность": "security", "вайршарк": "wireshark", "анидеск": "anydesk", "тимвьюер": "teamviewer",
     "фигма": "figma", "блендер": "blender", "фотошоп": "photoshop", "премьер": "premiere", "давинчи": "davinci",
 }
 GENERIC = {"desktop", "app", "client", "launcher", "windows", "microsoft", "google", "new", "beta", "x64", "x86",
            "for", "the", "classic", "preview"}
-SKIP = re.compile(r"uninstall|удал|deinstall|readme|help|справк|documentation|license|release notes|website", re.I)
+SKIP = re.compile(r"uninstall|удал|deinstall|деинстал|reset preferences|readme|help|справк|documentation|license|release notes|website", re.I)
 TR = dict(zip("абвгдеёжзийклмнопрстуфхцчшщъыьэюя",
               ["a", "b", "v", "g", "d", "e", "yo", "zh", "z", "i", "y", "k", "l", "m", "n", "o", "p", "r", "s", "t", "u",
                "f", "h", "ts", "ch", "sh", "sch", "", "y", "", "e", "yu", "ya"]))
@@ -46,7 +49,18 @@ def norm(s: str) -> str:
     return " ".join(re.sub(r"[^a-z0-9а-яё]+", " ", s.lower().replace("ё", "е")).split())
 
 
-PHRASES = {"вс код": "visual studio code", "вскод": "visual studio code", "вижуал студио код": "visual studio code",
+PHRASES = {
+    # админские инструменты Windows — по-русски
+    "просмотр событий": "event viewer", "журнал событий": "event viewer", "редактор реестра": "registry editor",
+    "реестр": "registry editor", "службы": "services", "планировщик заданий": "task scheduler", "планировщик": "task scheduler",
+    "брандмауэр": "windows defender firewall", "фаервол": "windows defender firewall", "панель управления": "control panel",
+    "командная строка": "command prompt", "командную строку": "command prompt", "управление компьютером": "computer management",
+    "монитор ресурсов": "resource monitor", "монитор производительности": "performance monitor",
+    "сведения о системе": "system information", "конфигурация системы": "system configuration",
+    "удаленный рабочий стол": "remote desktop connection", "удалённый рабочий стол": "remote desktop connection",
+    "очистка диска": "disk clean up", "локальная политика безопасности": "local security policy",
+    "ножницы": "snipping tool", "гит баш": "git bash", "человек паук": "spider man", "балдурс гейт": "baldur s gate",
+    "вс код": "visual studio code", "вскод": "visual studio code", "вижуал студио код": "visual studio code",
            "диспетчер задач": "task manager", "эпик геймс": "epic games", "баттл нет": "battle.net"}
 
 
