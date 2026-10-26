@@ -118,3 +118,27 @@ def test_liked_music_and_open_in_phrasing():
 def test_admin_tools_in_russian(spoken, name):
     ix = apps("Event Viewer", "Registry Editor", "Services", "The Witcher 3 Wild Hunt - Complete Edition", "Settings")
     assert ix.find(spoken)["name"] == name
+
+
+def test_music_app_found_by_its_start_menu_id():
+    from capri.music import is_music, music_app_ids
+    ix = apps("YouTube Music", "Discord")
+    ix.apps[0]["id"] = "Chrome._crx_cinhimbnkkghhklpknlkffjgod"     # такой ID был у тебя на ПК
+    ids = music_app_ids(ix)
+    assert is_music("Chrome._crx_cinhimbnkkghhklpknlkffjgod", "", "Boiler Room", known_ids=ids)   # видео без альбома — тоже музыка
+    assert not is_music("chrome.exe", "", "Linus Tech Tips", known_ids=ids)
+
+
+@pytest.mark.parametrize("text", ["воспроизведим музыку", "Поспроизведем музыку.", "нажми на Play в YouTube Music", "включи музыку"])
+def test_play_phrases(text):
+    from capri import commands as C
+    assert C.match(text).op == "play"
+
+
+def test_play_with_nothing_opens_youtube_music():
+    class Sys:
+        def run(self, cmd):
+            return {"nothing": True}
+    a = Agent(copy.deepcopy(DEFAULTS), llm=LLM(), claude=lambda t, c: "", system=Sys(), apps=apps("YouTube Music"))
+    r = a.handle("включи музыку")
+    assert r.actions[0].kind == "start_app" and r.actions[0].params["name"] == "YouTube Music"

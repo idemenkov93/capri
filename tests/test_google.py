@@ -118,7 +118,19 @@ def test_agent_routes_google(google):
     assert r.actions[0].kind == "gcal_add" and r.actions[0].needs_confirm
 
 
-def test_not_connected_message(tmp_path):
-    g = G.Google(tmp_path)
+def test_not_connected_message(tmp_path, monkeypatch):
+    monkeypatch.setattr(G.Path, "home", staticmethod(lambda: tmp_path / "nohome"))
+    g = G.Google(tmp_path / "data")
     ok, why = g.ready()
-    assert not ok and ("google_client.json" in why or "пакеты" in why)
+    assert not ok and ("client_secret" in why or "пакеты" in why)
+
+
+def test_finds_downloaded_key(tmp_path, monkeypatch):
+    import json
+    home = tmp_path / "home"
+    (home / "Downloads").mkdir(parents=True)
+    (home / "Downloads" / "client_secret_123-abc.apps.googleusercontent.com.json").write_text(
+        json.dumps({"installed": {"client_id": "x"}}), encoding="utf-8")
+    monkeypatch.setattr(G.Path, "home", staticmethod(lambda: home))
+    g = G.Google(tmp_path / "data")
+    assert g._find_client_file() and g.client_file.exists()

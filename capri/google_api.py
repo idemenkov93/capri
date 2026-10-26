@@ -46,15 +46,45 @@ class Google:
         self._services: dict = {}
 
     # ------------------------------------------------------------ доступ
+    GUIDE = "https://github.com/idemenkov93/capri/blob/main/docs/GOOGLE.md"
+
+    def _find_client_file(self) -> bool:
+        """Скачанный из Google Cloud ключ называется client_secret_<много цифр>.json и обычно лежит в «Загрузках».
+        Находим его сами (data, Загрузки, Рабочий стол) и копируем как data/google_client.json."""
+        import json
+        import shutil
+        homes = [self.client_file.parent, Path.home() / "Downloads", Path.home() / "Desktop"]
+        try:
+            from .files import known_folder
+            homes += [known_folder("downloads"), known_folder("desktop")]
+        except Exception:  # noqa: BLE001
+            pass
+        for folder in homes:
+            for f in sorted(folder.glob("client_secret*.json"), key=lambda p: p.stat().st_mtime, reverse=True) if folder.is_dir() else []:
+                try:
+                    if "installed" in json.loads(f.read_text(encoding="utf-8")):   # нужен именно «Desktop app»
+                        self.client_file.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copyfile(f, self.client_file)
+                        return True
+                except (OSError, ValueError):
+                    continue
+        return False
+
     def ready(self) -> tuple[bool, str]:
         try:
             import googleapiclient  # noqa: F401
             import google_auth_oauthlib  # noqa: F401
         except ImportError:
             return False, "не установлены пакеты Google — перезапусти run_capri.bat"
-        if not self.client_file.exists():
-            return False, "нет файла data/google_client.json — смотри docs/GOOGLE.md"
+        if not self.client_file.exists() and not self._find_client_file():
+            return False, ("Сначала нужен ключ из Google Cloud (это 10 минут, один раз). Открыла инструкцию: "
+                           "сделай шаги 1–3, скачанный файл client_secret_….json оставь в «Загрузках» — я сама его найду. "
+                           "Потом снова скажи «подключи гугл».")
         return True, ""
+
+    def open_guide(self) -> None:
+        import webbrowser
+        webbrowser.open(self.GUIDE)
 
     def _creds(self, interactive: bool):
         from google.auth.transport.requests import Request
@@ -85,6 +115,10 @@ class Google:
 
     def connect(self) -> str:
         self._services.clear()
+        ok, why = self.ready()
+        if not ok:
+            self.open_guide()
+            raise GoogleError(why)
         self._creds(interactive=True)
         return "Подключила Google: почта (только чтение), календарь и задачи."
 

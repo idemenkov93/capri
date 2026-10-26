@@ -7,19 +7,31 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 
 from PySide6.QtCore import QThread, Signal
 
 MUSIC_APPS = ("music", "spotify", "yandex", "vlc", "winamp", "foobar", "itunes", "deezer", "tidal", "soundcloud",
-              "aimp", "groove", "zune", "cinhimbnkkaeohfgghhklpknlkffjgod")  # последнее — id приложения YouTube Music
+              "aimp", "groove", "zune", "cinhimbnkk")  # «cinhimbnkk…» — начало id сайта-приложения YouTube Music в Chrome
 
 
-def is_music(app_id: str, album: str, artist: str, any_media: bool = False) -> bool:
+MUSIC_NAME = re.compile(r"music|musik|spotify|deezer|tidal|soundcloud|yandex|vlc|winamp|foobar|aimp|itunes|groove", re.I)
+
+
+def music_app_ids(apps) -> set[str]:
+    """ID музыкальных приложений из меню «Пуск»: у сайта-приложения YouTube Music он свой на каждом ПК
+    (Chrome._crx_…), поэтому берём его из списка программ, а не угадываем."""
+    return {a["id"].lower() for a in (getattr(apps, "apps", None) or []) if MUSIC_NAME.search(a.get("name", ""))}
+
+
+def is_music(app_id: str, album: str, artist: str, any_media: bool = False, known_ids: set[str] | None = None) -> bool:
     """Музыка ли это (а не ролик на YouTube или созвон): по приложению или по наличию альбома."""
     if any_media:
         return True
     a = (app_id or "").lower()
+    if known_ids and a in known_ids:
+        return True
     return any(m in a for m in MUSIC_APPS) or bool((album or "").strip())
 
 
@@ -46,9 +58,10 @@ class MusicWatcher(QThread):
     kick = Signal()
     playing = Signal(str)      # что играет (для журнала), "" — перестало
 
-    def __init__(self, any_media: bool = False):
+    def __init__(self, any_media: bool = False, apps=None):
         super().__init__()
         self.any_media = any_media
+        self.apps = apps      # AppIndex — чтобы узнать YouTube Music и др. по их ID
         self._stop = False
 
     def stop(self):
@@ -94,7 +107,7 @@ class MusicWatcher(QThread):
                     np_ = asyncio.run(self._now_playing())
                 except Exception:  # noqa: BLE001
                     np_ = None
-                music = bool(np_) and is_music(np_[0], np_[1], np_[2], self.any_media)
+                music = bool(np_) and is_music(np_[0], np_[1], np_[2], self.any_media, music_app_ids(self.apps))
                 title = f"{np_[2]} — {np_[3]}" if np_ and music else ""
                 if title != last_title:
                     last_title = title

@@ -214,6 +214,11 @@ def match(text: str) -> Command | None:
     if not t or len(t) > 80:
         return None
 
+    # «нажми play», «нажми на паузу» — это про плеер, а не про клавиши
+    if re.fullmatch(r"(?:нажми|нажать|press|hit)\s+(?:на\s+)?(?:play|плей|плэй|воспроизведение)(?:\s+(?:в|на|in)\s+.+)?", t):
+        return Command("play")
+    if re.fullmatch(r"(?:нажми|нажать|press|hit)\s+(?:на\s+)?(?:pause|паузу|пауза)(?:\s+(?:в|на|in)\s+.+)?", t):
+        return Command("pause")
     if m := re.match(r"^(?:нажми|нажать|зажми|press|hit|drück|drücke)\s+(.+)$", t):
         parsed = parse_keys(m.group(1))
         return Command("keys", keys=parsed[0], repeat=parsed[1]) if parsed else None
@@ -226,7 +231,9 @@ def match(text: str) -> Command | None:
                     r"останови (музыку|видео|трек)|выключи (музыку|видео)|pause( (the )?(music|video))?|pausier\w*", t):
         return Command("pause")
     if re.fullmatch(r"продолжи|продолжай|играй|сними с паузы|сними паузу|включи дальше|продолжи (музыку|видео)|"
-                    r"resume|play|unpause|continue playing|weiter( abspielen)?|fortsetzen", t):
+                    r"(воспроизвед\w*|поспроизвед\w*|запусти|включи|врубай|вруби|поставь)\s+(какую-?нибудь\s+|мою\s+|немного\s+)?(музык\w*|песн\w*|трек\w*)|"
+                    r"воспроизведени\w* музык\w*|музыку|"
+                    r"resume|play|play (some )?music|unpause|continue playing|weiter( abspielen)?|fortsetzen|musik (an|abspielen)", t):
         return Command("play")
     if re.fullmatch(r"следующ\w* (трек|песн\w*|видео|композици\w*)|пропусти( трек| песню)?|переключи (трек|песню)|"
                     r"next( track| song| video)?|skip( (this|the) (song|track))?|nächst\w* (titel|lied|song)", t):
@@ -249,13 +256,13 @@ def match(text: str) -> Command | None:
                 return Command("seek_to", secs)
 
     # --- громкость
-    if re.match(r"^(какая|какой|сколько) (сейчас |у меня )?(громкость|звук)|^what('s| is) the volume|^wie laut", t):
+    if re.match(r"^(какая|какой|сколько) (сейчас |у меня )?([гк]ромкость|звук)|^what('s| is) the volume|^wie laut", t):
         return Command("volume_get")
     if re.fullmatch(r"(выключи|отключи|убери) звук|без звука|mute|stumm( schalten)?|ton aus", t):
         return Command("mute")
     if re.fullmatch(r"(включи|верни) звук|unmute|ton an", t):
         return Command("unmute")
-    if m := re.fullmatch(r"(?:(?:сделай|поставь|установи|set)\s+)?(?:громкость|звук|volume|lautstärke)\s+"
+    if m := re.fullmatch(r"(?:(?:сделай|поставь|установи|set)\s+)?(?:[гк]ромкость|звук|volume|lautstärke)\s+"
                          r"(?:на\s+|to\s+|auf\s+)?(.+?)(?:\s*(?:процент\w*|%|percent|prozent))?", t):
         if (v := level(m.group(1))) is not None:
             return Command("volume_set", v)

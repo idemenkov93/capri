@@ -54,6 +54,10 @@ def wake_available(models_dir: Path) -> tuple[bool, str]:
     return True, ""
 
 
+class _Reopen(Exception):
+    pass
+
+
 class WakeListener(QThread):
     woke = Signal(str)       # что услышал
     failed = Signal(str)
@@ -63,8 +67,25 @@ class WakeListener(QThread):
         self.short = short       # True — хватит просто «Капри»
         self.models_dir = Path(models_dir)
         self.device = device
-        self.paused = False      # пока Капри сама слушает или говорит — не реагируем
+        self._paused = False     # пока Капри сама слушает или говорит — не реагируем
+        self._paused_at = 0.0
         self._stop = False
+        self._last_hit = 0.0
+
+    @property
+    def paused(self) -> bool:
+        # страховка: «пауза» дольше 45 с — это зависшее состояние (озвучка не сообщила, что закончила), снимаем
+        if self._paused and time.monotonic() - self._paused_at > 45:
+            from ..log import log
+            log.warning("wake: пауза висела больше 45 с — снимаю")
+            self._paused = False
+        return self._paused
+
+    @paused.setter
+    def paused(self, value: bool) -> None:
+        if value and not self._paused:
+            self._paused_at = time.monotonic()
+        self._paused = value
 
     def stop(self):
         self._stop = True
@@ -101,14 +122,38 @@ class WakeListener(QThread):
 
         last = 0.0
         log.info("wake: слушаю (устройство %s, короткий режим %s)", self.device, self.short)
-        try:
-            with sd.RawInputStream(samplerate=rate, blocksize=3200, dtype="int16", channels=1,
-                                   device=self.device, callback=cb):
+        while not self._stop:
+            try:
+                self._listen(sd, rate, cb, audio, free, kw, log, last)
+            except _Reopen as r:
+                log.warning("wake: %s — переоткрываю микрофон", r)
+                free.Reset()
+                kw.Reset()
+                time.sleep(1.0)
+            except Exception as e:  # noqa: BLE001
+                log.exception("wake: ошибка")
+                self.failed.emit(f"микрофон: {e}")
+                return
+
+    def _listen(self, sd, rate, cb, audio, free, kw, log, last):
+        """Один «сеанс» микрофона. Если звук перестал приходить — бросаем _Reopen, и run() откроет его заново."""
+        import json
+        got, beat_at, silent_since = 0, time.monotonic(), time.monotonic()
+        with sd.RawInputStream(samplerate=rate, blocksize=3200, dtype="int16", channels=1,
+                               device=self.device, callback=cb):
                 while not self._stop:
+                    now = time.monotonic()
+                    if now - beat_at > 60:                      # раз в минуту — «я жива» в журнал
+                        log.debug("wake: жива, кусков звука за минуту %d, пауза %s", got, self._paused)
+                        got, beat_at = 0, now
                     try:
                         data = audio.get(timeout=0.5)
                     except queue.Empty:
+                        if now - silent_since > 5:
+                            raise _Reopen("5 с нет звука с микрофона")
                         continue
+                    got += 1
+                    silent_since = now
                     if self.paused:
                         free.Reset()
                         kw.Reset()
@@ -126,12 +171,9 @@ class WakeListener(QThread):
                         words = json.loads(kw.Result()).get("result", [])
                         if keyword_hit(words, self.short):
                             hit = hit or " ".join(w["word"] for w in words)
-                    if hit and time.monotonic() - last > 2.0:
-                        last = time.monotonic()
+                    if hit and time.monotonic() - self._last_hit > 2.0:
+                        self._last_hit = time.monotonic()
                         free.Reset()
                         kw.Reset()
                         log.info("wake: сработало на «%s»", hit)
                         self.woke.emit(hit)
-        except Exception as e:  # noqa: BLE001
-            log.exception("wake: ошибка")
-            self.failed.emit(f"микрофон: {e}")

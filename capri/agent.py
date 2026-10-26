@@ -24,7 +24,7 @@ class Reply:
 
 # --- быстрые правила: отрабатывают мгновенно, без ИИ -------------------------
 # Русский / Deutsch / English. Всё, что не подошло, уходит модели — она понимает любой язык.
-RE_OPEN = re.compile(r"^(?:открой|запусти|включи|öffne|starte|open|launch|start)\s+(.+?)[.!]?$", re.I)
+RE_OPEN = re.compile(r"^(?:открой|запусти|включи|öffne|starte|open|launch|start|play)\s+(.+?)[.!]?$", re.I)
 RE_SEARCH = re.compile(
     r"^(?:загугли|погугли|найди в (?:интернете|гугле|сети)|google|googel|suche nach|search for)\s+(.+)$", re.I
 )
@@ -158,6 +158,11 @@ class Agent:
         # системные команды (музыка, громкость, клавиши, проверка ПК…) — выполняем прямо здесь, в рабочем потоке
         if cmd := C.match(text):
             result = self.system.run(cmd)
+            if cmd.op == "play" and result.get("nothing"):
+                # ничего не играет — открываем YouTube Music (приложение, если есть, иначе сайт)
+                app = self.apps.find("youtube music", threshold=0.95)
+                act = A.make_start_app(app) if app else A.make_open_site("ютуб мюзик")
+                return Reply("Сейчас ничего не играет — открываю YouTube Music, жми ▶.", [act], "rules")
             return Reply(C.reply(cmd, C.lang_of(text), result), route="error" if result.get("error") else "rules")
         if (g := self._google(text)) is not None:
             return g

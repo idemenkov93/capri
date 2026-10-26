@@ -383,7 +383,7 @@ class CapriApp:
         if self.music or not self.prefs.get("dance", True):
             return
         from .music import MusicWatcher
-        self.music = MusicWatcher(any_media=self.prefs.get("dance_any", False))
+        self.music = MusicWatcher(any_media=self.prefs.get("dance_any", False), apps=self.agent.apps)
         self.music.level.connect(self._on_music_level)
         self.music.kick.connect(self.avatar.kick)
         self.music.start()
@@ -417,6 +417,8 @@ class CapriApp:
         self.avatar.setVisible(not self.avatar.isVisible())
 
     def on_voice_state(self, state: str):
+        from .log import log
+        log.debug("голос: %s", state)
         if self.wake:
             self.wake.paused = state != "IDLE"   # пока сама слушает или говорит — фразу не ищем
         self.chat.set_recording(state == "LISTENING")
