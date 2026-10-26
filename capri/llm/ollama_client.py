@@ -95,7 +95,8 @@ class OllamaClient:
 
     def chat(self, messages: list[dict], tools: list[dict] | None = TOOLS) -> dict:
         """Возвращает message из ответа: {'content': str, 'tool_calls': [...]}."""
-        payload = {"model": self.model, "messages": messages, "stream": False}
+        # keep_alive — держать модель в видеопамяти 30 минут, чтобы не грузить её заново
+        payload = {"model": self.model, "messages": messages, "stream": False, "keep_alive": "30m"}
         if tools:
             payload["tools"] = tools
         if self.think is not None:
@@ -105,6 +106,20 @@ class OllamaClient:
             r.raise_for_status()
         except httpx.ConnectError as e:
             raise OllamaError("Ollama не отвечает. Запусти её (ollama serve) и проверь адрес в config.yaml.") from e
+        except httpx.TimeoutException as e:
+            raise OllamaError(
+                f"Модель не ответила за {self.timeout:g} сек. Проверь в терминале «ollama ps»: "
+                "если в колонке PROCESSOR не 100% GPU — модель работает на процессоре и очень медленная."
+            ) from e
         except httpx.HTTPStatusError as e:
             raise OllamaError(f"Ollama вернула ошибку {e.response.status_code}: {e.response.text[:200]}") from e
         return r.json().get("message", {})
+
+    def warmup(self) -> None:
+        """Заранее загрузить модель в видеопамять (первый запуск может занять до минуты)."""
+        try:
+            httpx.post(f"{self.url}/api/generate",
+                       json={"model": self.model, "prompt": "", "keep_alive": "30m"},
+                       timeout=max(self.timeout, 300))
+        except httpx.HTTPError:
+            pass  # если Ollama не запущена — ошибку покажем при первом сообщении

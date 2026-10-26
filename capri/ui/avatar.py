@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QMenu, QWidget
 STATUS_COLORS = {
     "ONLINE": QColor("#00f0ff"),
     "THINKING": QColor("#ffd23f"),
+    "LOADING": QColor("#8a5cff"),
     "CLAUDE": QColor("#ff7a1a"),
     "TALKING": QColor("#ff2a6d"),
     "ERROR": QColor("#ff0033"),

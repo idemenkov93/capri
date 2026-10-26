@@ -30,6 +30,15 @@ class Worker(QThread):
         self.done.emit(reply)
 
 
+class Warmup(QThread):
+    def __init__(self, agent: Agent):
+        super().__init__()
+        self.agent = agent
+
+    def run(self):
+        self.agent.llm.warmup()
+
+
 class CapriApp:
     def __init__(self):
         self.qt = QApplication(sys.argv)
@@ -56,6 +65,12 @@ class CapriApp:
         self.avatar.move(screen.right() - self.avatar.width() - 40, screen.bottom() - self.avatar.height() - 40)
         self.avatar.show()
         self.chat.add_capri(f"Йо, {self.cfg['user_name']}. Я в системе. Чем займёмся?", "rules")
+
+        # грузим модель в видеокарту сразу, пока пользователь ещё ничего не написал
+        self.avatar.set_status("LOADING")
+        self.warmup = Warmup(self.agent)
+        self.warmup.finished.connect(lambda: self.avatar.set_status("ONLINE"))
+        self.warmup.start()
 
     # чат -------------------------------------------------------------------
     def toggle_chat(self):
