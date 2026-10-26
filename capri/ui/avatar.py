@@ -194,14 +194,16 @@ class Avatar(QWidget):
         self.sprites.shuffle("idle")
         roll = random.random()
         scr = self.screen_rect()
-        if roll < 0.45:                                    # прогуляться по текущей поверхности
+        walk_chance = 0.0 if self.holo else 0.35          # голограмма не «плывёт», а прыгает
+        if roll < walk_chance:                             # прогуляться по текущей поверхности
             if self.mode == "perch":
                 rect = desktop.window_rect(self.perch_hwnd)
                 if rect:
                     self.walk_to = random.uniform(0, max(0, rect.width() - self.width()))
             else:
-                self.walk_to = random.uniform(scr.left(), scr.right() - self.width())
-        elif roll < 0.85:                                  # телепорт на верхний край другого окна
+                dist = random.uniform(150, 400) * random.choice((-1, 1))
+                self.walk_to = max(scr.left(), min(self.x() + dist, scr.right() - self.width()))
+        elif roll < 0.9:                                   # телепорт на верхний край другого окна
             spots = [w for w in desktop.perchable(desktop.list_windows(), scr, self.height()) if w.hwnd != self.perch_hwnd]
             if spots:
                 w = random.choice(spots)
@@ -271,8 +273,18 @@ class Avatar(QWidget):
         w, h = self.width(), self.height()
         color = STATUS_COLORS.get(self.status, STATUS_COLORS["ONLINE"])
         jitter = random.uniform(-5, 5) if self.glitch else 0
-        if self.mode == "teleport" and 6 < self._tp_frames < 18:
-            p.setOpacity(0.35)
+        if self.mode == "teleport":
+            # 24→12: схлопывание в светящуюся линию; 12→0: разворачивание на новом месте
+            t = self._tp_frames
+            k = (t - 12) / 12 if t > 12 else (12 - t) / 12      # 1 → 0 → 1
+            k = max(0.0, min(1.0, 1 - k))                         # 0 → 1 → 0 (сжатие)
+            sy = max(0.04, 1 - k)
+            sx = 1 + 0.25 * k
+            p.translate(w / 2, h / 2)
+            p.scale(sx, sy)
+            p.translate(-w / 2, -h / 2)
+            if k > 0.75:  # вспышка в момент переноса
+                p.fillRect(QRectF(0, h / 2 - 3, w, 6), QColor(color.red(), color.green(), color.blue(), 230))
         if self.holo:
             self._paint_holo(p, w, h, color, jitter)
             return
@@ -285,6 +297,8 @@ class Avatar(QWidget):
                 if self.facing < 0:
                     img = img.transformed(QTransform().scale(-1, 1))
                 x, y = (w - img.width()) / 2 + jitter, h - img.height()    # ногами вниз
+                if self.walk_to is not None and "walk" not in self.sprites.kinds():
+                    y -= abs(math.sin(self.phase * 4)) * 6           # нет анимации ходьбы — хотя бы «шагает»
                 if self.glitch:   # цветные «тени» глитча
                     p.setOpacity(0.35)
                     p.drawPixmap(int(x - 4), int(y), img)
