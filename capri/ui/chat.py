@@ -1,0 +1,81 @@
+"""Окно чата в киберпанк-стиле."""
+from __future__ import annotations
+
+import html
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QTextCursor
+from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QTextBrowser, QVBoxLayout, QWidget
+
+STYLE = """
+QWidget { background: #0b0b14; color: #e6e6f0; font-family: Consolas, 'JetBrains Mono', monospace; font-size: 13px; }
+QTextBrowser { border: 1px solid #ff2a6d; padding: 6px; }
+QLineEdit { border: 1px solid #00f0ff; padding: 6px; background: #12121f; }
+QPushButton { border: 1px solid #00f0ff; padding: 6px 12px; background: #12121f; color: #00f0ff; }
+QPushButton:hover { background: #00f0ff; color: #0b0b14; }
+"""
+
+ROUTE_LABEL = {"rules": "⚡", "local": "◆ local", "claude": "✦ Claude", "error": "✖"}
+
+
+class ChatWindow(QWidget):
+    submitted = Signal(str)
+
+    def __init__(self):
+        super().__init__(None, Qt.WindowStaysOnTopHint)
+        self.setWindowTitle("CAPRI // link")
+        self.setStyleSheet(STYLE)
+        self.resize(460, 560)
+
+        self.log = QTextBrowser(openExternalLinks=True)
+        self.input = QLineEdit(placeholderText="Напиши Капри… (/claude — сразу к Claude)")
+        self.send = QPushButton("SEND")
+
+        row = QHBoxLayout()
+        row.addWidget(self.input)
+        row.addWidget(self.send)
+        lay = QVBoxLayout(self)
+        lay.addWidget(self.log)
+        lay.addLayout(row)
+
+        self.input.returnPressed.connect(self._submit)
+        self.send.clicked.connect(self._submit)
+
+    def _submit(self):
+        text = self.input.text().strip()
+        if text:
+            self.input.clear()
+            self.add_user(text)
+            self.submitted.emit(text)
+
+    def set_busy(self, busy: bool):
+        self.input.setEnabled(not busy)
+        self.send.setEnabled(not busy)
+        if not busy:
+            self.input.setFocus()
+
+    def add_user(self, text: str):
+        self._append(f'<p style="color:#00f0ff"><b>&gt; {html.escape(text)}</b></p>')
+
+    def add_capri(self, text: str, route: str = "local"):
+        label = ROUTE_LABEL.get(route, "")
+        self._append(f'<p style="color:#ff2a6d"><b>CAPRI</b> <span style="color:#666">{label}</span></p>')
+        cur = self.log.textCursor()
+        cur.movePosition(QTextCursor.End)
+        cur.insertMarkdown(text)  # ответы Claude приходят в Markdown
+        cur.insertBlock()
+        self.log.setTextCursor(cur)
+        self.log.ensureCursorVisible()
+
+    def add_system(self, text: str):
+        self._append(f'<p style="color:#888"><i>{html.escape(text)}</i></p>')
+
+    def _append(self, html_text: str):
+        cur = self.log.textCursor()
+        cur.movePosition(QTextCursor.End)
+        if cur.block().text():
+            cur.insertBlock()
+        cur.insertHtml(html_text)
+        cur.insertBlock()
+        self.log.setTextCursor(cur)
+        self.log.ensureCursorVisible()

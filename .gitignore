@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+config.yaml
+# свои картинки/озвучка — не публикуем
+assets/custom/*
+!assets/custom/.gitkeep

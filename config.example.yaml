@@ -1,0 +1,41 @@
+# Скопируй этот файл в config.yaml и поменяй под себя.
+# config.yaml в git не попадает.
+
+user_name: Игорь
+
+ollama:
+  url: http://127.0.0.1:11434
+  model: qwen2.5:7b        # хорошо говорит по-русски и умеет вызывать инструменты
+  timeout: 120
+
+claude_code:
+  enabled: true
+  command: claude
+  # plan — Claude только читает и отвечает, ничего не меняет на диске.
+  # Не ставь bypassPermissions, если не понимаешь последствий.
+  permission_mode: plan
+  timeout: 300
+  workdir: ~/capri-workspace  # папка, в которой работает Claude
+
+# Белый список. Капри запускает ТОЛЬКО то, что здесь есть.
+# Слева — как ты называешь программу, справа — команда или ссылка.
+apps:
+  браузер: https://www.google.com
+  блокнот: notepad
+  калькулятор: calc
+  проводник: explorer
+  терминал: wt
+  steam: steam://open/main
+  # vscode: code
+
+search_url: https://www.google.com/search?q={query}
+
+# Спрашивать подтверждение перед запуском программ и сайтов
+confirm_actions: true
+
+notes_file: ~/.capri/notes.md
+
+avatar:
+  size: 140
+  # Своя картинка (PNG с прозрачным фоном). Положи её в assets/custom/ — эта папка не попадает в git.
+  custom_image: ""
