@@ -5,7 +5,7 @@ import html
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QTextCursor
-from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QTextBrowser, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QTextBrowser, QVBoxLayout, QWidget
 
 STYLE = """
 QWidget { background: #0b0b14; color: #e6e6f0; font-family: Consolas, 'JetBrains Mono', monospace; font-size: 13px; }
@@ -13,6 +13,7 @@ QTextBrowser { border: 1px solid #ff2a6d; padding: 6px; }
 QLineEdit { border: 1px solid #00f0ff; padding: 6px; background: #12121f; }
 QPushButton { border: 1px solid #00f0ff; padding: 6px 12px; background: #12121f; color: #00f0ff; }
 QPushButton:hover { background: #00f0ff; color: #0b0b14; }
+QLabel#live { color: #ffd23f; border: 1px dashed #ffd23f; padding: 6px; }
 """
 
 ROUTE_LABEL = {"rules": "⚡", "local": "◆ local", "claude": "✦ Claude", "error": "✖"}
@@ -36,6 +37,12 @@ class ChatWindow(QWidget):
         row.addWidget(self.send)
         lay = QVBoxLayout(self)
         lay.addWidget(self.log)
+        # «живой» ответ: текст появляется по мере того, как модель его печатает
+        self.live = QLabel(objectName="live", wordWrap=True)
+        self.live.hide()
+        self._live_text = ""
+        self._thinking = 0
+        lay.addWidget(self.live)
         lay.addLayout(row)
 
         self.input.returnPressed.connect(self._submit)
@@ -53,6 +60,21 @@ class ChatWindow(QWidget):
         self.send.setEnabled(not busy)
         if not busy:
             self.input.setFocus()
+
+    def stream(self, kind: str, piece: str):
+        if kind == "thinking":
+            self._thinking += len(piece)
+            if not self._live_text:
+                self.live.setText(f"🧠 размышляет… ({self._thinking} симв.)")
+        else:
+            self._live_text += piece
+            self.live.setText(self._live_text[-600:])
+        self.live.show()
+
+    def end_stream(self):
+        self._live_text, self._thinking = "", 0
+        self.live.clear()
+        self.live.hide()
 
     def add_user(self, text: str):
         self._append(f'<p style="color:#00f0ff"><b>&gt; {html.escape(text)}</b></p>')

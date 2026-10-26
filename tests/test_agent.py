@@ -11,7 +11,7 @@ class FakeLLM:
         self.message = message
         self.calls = 0
 
-    def chat(self, messages, tools=None):
+    def chat(self, messages, tools=None, on_token=None):
         self.calls += 1
         return self.message
 

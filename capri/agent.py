@@ -53,7 +53,8 @@ class Agent:
         self.history: list[dict] = []
 
     # публичный вход -------------------------------------------------------
-    def handle(self, text: str, on_status: Callable[[str], None] = lambda s: None) -> Reply:
+    def handle(self, text: str, on_status: Callable[[str], None] = lambda s: None,
+               on_token: Callable[[str, str], None] | None = None) -> Reply:
         text = text.strip()
         if not text:
             return Reply("Ну? Я слушаю.", route="rules")
@@ -62,7 +63,7 @@ class Agent:
             return reply
         if m := RE_CLAUDE.match(text):
             return self._ask_claude(m.group(1), on_status)
-        return self._local(text, on_status)
+        return self._local(text, on_status, on_token)
 
     # быстрые правила --------------------------------------------------------
     def _rules(self, text: str) -> Reply | None:
@@ -84,12 +85,12 @@ class Agent:
         return None  # не узнали команду — пусть думает модель
 
     # локальная модель -------------------------------------------------------
-    def _local(self, text: str, on_status) -> Reply:
+    def _local(self, text: str, on_status, on_token=None) -> Reply:
         on_status("THINKING")
         self._remember("user", text)
         messages = [{"role": "system", "content": system_prompt(self.cfg["user_name"])}, *self.history]
         try:
-            msg = self.llm.chat(messages)
+            msg = self.llm.chat(messages, on_token=on_token)
         except OllamaError as e:
             self.history.pop()
             return Reply(str(e), route="error")

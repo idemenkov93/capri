@@ -16,6 +16,7 @@ from .ui.chat import ChatWindow
 
 class Worker(QThread):
     status = Signal(str)
+    token = Signal(str, str)
     done = Signal(object)
 
     def __init__(self, agent: Agent, text: str):
@@ -24,7 +25,7 @@ class Worker(QThread):
 
     def run(self):
         try:
-            reply = self.agent.handle(self.text, on_status=self.status.emit)
+            reply = self.agent.handle(self.text, on_status=self.status.emit, on_token=self.token.emit)
         except Exception as e:  # чтобы поток никогда не падал молча
             reply = Reply(f"Что-то сломалось: {e}", route="error")
         self.done.emit(reply)
@@ -90,6 +91,7 @@ class CapriApp:
         self.chat.set_busy(True)
         self.worker = Worker(self.agent, text)
         self.worker.status.connect(self.on_status)
+        self.worker.token.connect(self.chat.stream)
         self.worker.done.connect(self.on_reply)
         self.worker.start()
 
@@ -101,6 +103,7 @@ class CapriApp:
     def on_reply(self, reply: Reply):
         self.avatar.set_status("ERROR" if reply.route == "error" else "TALKING")
         QTimer.singleShot(2500, lambda: self.avatar.set_status("ONLINE"))
+        self.chat.end_stream()
         self.chat.add_capri(reply.text, reply.route)
         for act in reply.actions:
             self.run_action(act)
