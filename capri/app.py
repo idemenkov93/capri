@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import time
 
 from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtCore import Qt
@@ -429,6 +430,12 @@ class CapriApp:
         self.wake.short = self.prefs.get("wake_short", True) and not (talking and strict_video)
         self.wake.strict = talking
 
+    def stop_dancing(self):
+        if self.music:
+            self.music.stop()
+            self.music = None
+        self.avatar.dance = 0.0
+
     def _on_music_level(self, level: float):
         if not self.prefs.get("dance", True):
             level = 0.0
@@ -682,29 +689,71 @@ class CapriApp:
 INSTANCE_NAME = "capri-desktop-companion"
 
 
+def _pid_file():
+    return expand("data/capri.pid")
+
+
+def _kill_stale(log) -> None:
+    """Старая Капри не отвечает (зависла при выходе и держит «замок» одного экземпляра) — завершаем её."""
+    import os
+    import subprocess
+    try:
+        pid = int(_pid_file().read_text().strip())
+    except (OSError, ValueError):
+        return
+    if pid == os.getpid():
+        return
+    log.warning("старая Капри (PID %s) не отвечает — завершаю её", pid)
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, creationflags=0x08000000)
+    else:
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+
+
 def main() -> int:
+    import os
+
     from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
     from .log import log, setup
     setup()
     log.info("=== Капри запускается ===")
 
-    # Только одна Капри: если она уже запущена — просто показываем её чат и выходим
+    # Только одна Капри: если она уже запущена — показываем её чат и выходим.
+    # Живая Капри отвечает «ok»; если ответа нет — это зависший процесс: завершаем его и запускаемся сами.
     probe = QLocalSocket()
     probe.connectToServer(INSTANCE_NAME)
-    if probe.waitForConnected(300):
+    if probe.waitForConnected(500):
         probe.write(b"show")
-        probe.waitForBytesWritten(300)
-        return 0
+        probe.waitForBytesWritten(500)
+        if probe.waitForReadyRead(1500) and probe.readAll().data().startswith(b"ok"):
+            log.info("Капри уже запущена — показываю её окно")
+            return 0
+        probe.abort()
+        _kill_stale(log)
+        time.sleep(1.0)
 
-    app = CapriApp()
+    try:
+        app = CapriApp()
+    except Exception:
+        log.exception("Капри не смогла запуститься")
+        raise
     QLocalServer.removeServer(INSTANCE_NAME)  # хвост от упавшего запуска
     server = QLocalServer()
     server.listen(INSTANCE_NAME)
+    try:
+        _pid_file().write_text(str(os.getpid()))
+    except OSError:
+        pass
 
     def on_connect():
         conn = server.nextPendingConnection()
         if conn:
+            conn.write(b"ok")
+            conn.flush()
             conn.disconnected.connect(conn.deleteLater)
             if not app.chat.isVisible():
                 app.toggle_chat()
@@ -713,4 +762,14 @@ def main() -> int:
 
     server.newConnection.connect(on_connect)
     app.instance_server = server
-    return app.run()
+    code = app.run()
+    log.info("=== Капри выключается ===")
+    server.close()
+    try:
+        _pid_file().unlink()
+    except OSError:
+        pass
+    # выходим сразу: фоновые потоки (микрофон, звук, сеть) не должны держать процесс «зомби» после выхода
+    for h in log.handlers:
+        h.flush()
+    os._exit(code)

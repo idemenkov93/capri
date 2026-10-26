@@ -43,3 +43,23 @@ def test_app_enters_and_leaves_eco(monkeypatch, tmp_path):
     assert app.models_unloaded and unloaded
     app.wake_up()                     # позвали — выходим и грузим модели обратно
     assert not app.eco and not app.avatar.eco and not app.models_unloaded and started
+
+
+def test_every_quit_hook_exists():
+    """Регрессия: при правке пропал stop_dancing — Капри падала при старте (run() подключает его к выходу)."""
+    import capri.app as appmod
+    for name in ("stop_wake", "stop_dancing", "_watch_hangs", "wake_up", "connect_google", "_apply_wake_mode"):
+        assert hasattr(appmod.CapriApp, name), name
+
+
+def test_app_runs_and_quits(monkeypatch):
+    """Запуск целиком: run() → цикл событий → выход (ловит ошибки вроде пропавших методов)."""
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    import capri.app as appmod
+    monkeypatch.setattr(appmod.CapriApp, "_init_voice", lambda self: None)
+    app = appmod.CapriApp()
+    app.warmup.wait(10_000)
+    QTimer.singleShot(300, app.qt.quit)
+    assert app.run() == 0
