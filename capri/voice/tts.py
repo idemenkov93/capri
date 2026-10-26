@@ -75,7 +75,7 @@ class EdgeSpeaker:
         import edge_tts
 
         voice = self.voices.get(lang) or self.voices.get("en")
-        comm = edge_tts.Communicate(text, voice, rate=self.rate, pitch=self.pitch)
+        comm = edge_tts.Communicate(text, voice, rate=self.rate, pitch=self.pitch, connect_timeout=5, receive_timeout=20)
         mp3 = b"".join(c["data"] for c in comm.stream_sync() if c.get("type") == "audio")
         audio, sr = decode_mp3(mp3)
         self._sd.play(audio, sr)

@@ -107,7 +107,7 @@ class CapriApp:
             self.chat.speak_toggled.connect(self.toggle_speak)
             self.chat.set_speak_icon(v["speak"])
         if hasattr(self.chat, "set_level"):
-            self._level_timer = QTimer(interval=50, timeout=lambda: self.chat.set_level(self.voice.recorder.level))
+            self._level_timer = QTimer(interval=50, timeout=lambda: self.chat.set_level(getattr(self.voice.recorder, "level", 0.0)))
             self._level_timer.start()
         self.voice.state.connect(self.on_voice_state)
         self.voice.transcribed.connect(self.on_transcribed)
