@@ -177,7 +177,8 @@ class OllamaClient:
         """Заранее загрузить модель в видеопамять (первый запуск может занять до минуты)."""
         try:
             httpx.post(f"{self.url}/api/generate",
-                       json={"model": self.model, "prompt": "", "keep_alive": "30m"},
+                       # те же options (num_ctx, num_gpu), что и в чате — иначе Ollama перезагрузит модель на первом сообщении
+                       json={"model": self.model, "prompt": "", "keep_alive": "30m", "options": self.options},
                        timeout=max(self.timeout, 300))
         except httpx.HTTPError:
             pass  # если Ollama не запущена — ошибку покажем при первом сообщении

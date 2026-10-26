@@ -11,6 +11,8 @@ ollama:
   options:
     num_predict: 700       # максимум длины ответа — защита от зацикливания
     repeat_penalty: 1.15   # штраф за повторы
+    # num_gpu: 99          # видеокарта: все слои модели на GPU (проверка: `ollama ps` → 100% GPU)
+    # num_ctx: 4096        # длина памяти разговора; больше — больше видеопамяти
 
 claude_code:
   enabled: true
