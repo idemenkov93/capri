@@ -1,0 +1,10 @@
+# Системные команды (музыка, громкость, яркость, проверка ПК, скриншот). Только Windows.
+psutil>=5.9
+Pillow>=10.0
+pycaw>=20240210; sys_platform == "win32"
+comtypes>=1.2; sys_platform == "win32"
+screen-brightness-control>=0.22; sys_platform == "win32"
+winrt-runtime>=2.0; sys_platform == "win32"
+winrt-Windows.Media.Control>=2.0; sys_platform == "win32"
+winrt-Windows.Foundation>=2.0; sys_platform == "win32"
+winrt-Windows.Foundation.Collections>=2.0; sys_platform == "win32"

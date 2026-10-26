@@ -147,7 +147,7 @@ class Viewport(QWidget):
         self.phase = 0.0
         self.level = 0.0
         self.glitch = 0
-        self.sprites = SpriteSet(custom_image)
+        self.sprites = SpriteSet(custom_image, fps)
         self.transition = 0
         self.stars = [(random.random(), random.random(), random.random()) for _ in range(70)]
         QTimer(self, interval=33, timeout=self._tick).start()

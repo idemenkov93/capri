@@ -7,20 +7,35 @@ SAMPLE_RATE = 16_000
 
 
 class Recorder:
-    """Запись с микрофона: start() … stop() → numpy float32, 16 кГц, моно."""
+    """Запись с микрофона: start() … stop() → numpy float32, 16 кГц, моно.
 
-    def __init__(self):
+    auto=True — для «Привет, Капри»: should_stop становится True, когда ты договорил
+    (пауза ~1.2 с после речи), если долго молчишь или говоришь дольше 12 секунд.
+    """
+
+    SPEECH_LEVEL = 0.12     # громкость (0..1), выше которой считаем, что это речь
+    SILENCE_AFTER = 1.2     # секунд тишины после речи — значит, договорил
+    NO_SPEECH = 6.0         # если за столько секунд не начал говорить — отбой
+    MAX_LEN = 12.0
+
+    def __init__(self, device=None):
         import sounddevice as sd  # импорт здесь, чтобы Капри работала и без голосового модуля
 
         self._sd = sd
+        self.device = device
         self._chunks: list[np.ndarray] = []
         self._stream = None
         self.level = 0.0  # текущая громкость 0..1 — для индикатора в интерфейсе
+        self.auto = False
+        self._elapsed = 0.0
+        self._heard = False
+        self._quiet_for = 0.0
 
-    def start(self) -> None:
+    def start(self, auto: bool = False) -> None:
         self._chunks = []
+        self.auto, self._elapsed, self._heard, self._quiet_for = auto, 0.0, False, 0.0
         self._stream = self._sd.InputStream(
-            samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+            samplerate=SAMPLE_RATE, channels=1, dtype="float32", device=self.device,
             callback=self._on_audio,
         )
         self._stream.start()
@@ -28,6 +43,25 @@ class Recorder:
     def _on_audio(self, data, *_):
         self._chunks.append(data.copy())
         self.level = float(min(1.0, np.sqrt(np.mean(data ** 2)) * 12))
+        self.track(self.level, len(data) / SAMPLE_RATE)
+
+    def track(self, level: float, seconds: float) -> None:
+        """Учёт речи и тишины (вынесено отдельно, чтобы проверить без микрофона)."""
+        self._elapsed += seconds
+        if level >= self.SPEECH_LEVEL:
+            self._heard, self._quiet_for = True, 0.0
+        else:
+            self._quiet_for += seconds
+
+    @property
+    def should_stop(self) -> bool:
+        if not self.auto:
+            return False
+        if self._elapsed >= self.MAX_LEN:
+            return True
+        if self._heard:
+            return self._quiet_for >= self.SILENCE_AFTER
+        return self._elapsed >= self.NO_SPEECH
 
     def stop(self) -> np.ndarray:
         self.level = 0.0

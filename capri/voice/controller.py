@@ -4,7 +4,7 @@ from __future__ import annotations
 import importlib.util
 from typing import Callable
 
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QObject, QThread, QTimer, Signal
 
 from ..config import expand
 from .lang import clean_for_speech, detect_lang
@@ -37,14 +37,15 @@ class VoiceController(QObject):
     transcribed = Signal(str, str)    # текст, язык
     error = Signal(str)
 
-    def __init__(self, cfg: dict):
+    def __init__(self, cfg: dict, device=None):
         super().__init__()
         from .stt import Recorder, Transcriber
         from .tts import EdgeSpeaker, FallbackSpeaker, Speaker
 
         v = cfg["voice"]
         self.cfg = v
-        self.recorder = Recorder()
+        self.recorder = Recorder(device)
+        self._auto_timer = QTimer(self, interval=100, timeout=self._check_auto_stop)
         self.stt = Transcriber(v["whisper_model"], v["languages"], str(expand(v["models_dir"]) / "whisper"),
                                preferred=v.get("preferred_language", "ru"))
         piper = None
@@ -77,19 +78,40 @@ class VoiceController(QObject):
         self._run(load, on_fail=lambda e: self.error.emit(f"Не удалось загрузить голосовые модели: {e}"))
 
     # микрофон ---------------------------------------------------------------
-    def toggle_record(self):
+    def set_device(self, device) -> None:
+        self.recorder.device = device
+
+    def quiet(self) -> None:
+        """Замолчать: оборвать озвучку."""
+        if self.speaker:
+            self.speaker.stop()
+
+    def listen_once(self) -> None:
+        """Слушать одну фразу и самой остановиться, когда договоришь (после «Привет, Капри»)."""
+        if self.recording:
+            return
+        self.toggle_record(auto=True)
+
+    def _check_auto_stop(self):
+        if self.recording and self.recorder.should_stop:
+            self.toggle_record()
+
+    def toggle_record(self, auto: bool = False):
         if self.speaker:
             self.speaker.stop()  # если Капри говорит — замолкает, когда начинаешь говорить ты
         if not self.recording:
             try:
-                self.recorder.start()
+                self.recorder.start(auto=auto)
             except Exception as e:  # noqa: BLE001
                 self.error.emit(f"Микрофон не работает: {e}")
                 return
+            if auto:
+                self._auto_timer.start()
             self.recording = True
             self.state.emit("LISTENING")
             return
         self.recording = False
+        self._auto_timer.stop()
         audio = self.recorder.stop()
         self.state.emit("RECOGNIZING")
 

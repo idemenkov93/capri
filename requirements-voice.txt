@@ -3,3 +3,4 @@ piper-tts>=1.2
 sounddevice>=0.4
 numpy>=1.26
 edge-tts>=7.0
+vosk>=0.3.45

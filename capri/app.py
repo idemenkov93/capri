@@ -6,11 +6,14 @@ import sys
 from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
-from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
+from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from . import actions as A
 from .agent import Agent, Reply
 from .config import expand, load_config
+from .i18n import t
+from .state import State
 from .ui.avatar import Avatar
 from .ui.chat import ChatWindow
 
@@ -48,7 +51,11 @@ class CapriApp:
         self.qt = QApplication(sys.argv)
         self.qt.setQuitOnLastWindowClosed(False)
         self.cfg = load_config()
+        self.prefs = State(expand("data/state.json"))
+        if self.prefs.data.get("speak") is not None:
+            self.cfg["voice"]["speak"] = bool(self.prefs.data["speak"])
         self.agent = Agent(self.cfg)
+        self.wake = None
 
         av = self.cfg["avatar"]
         custom = self._avatar_source(av, "desktop")
@@ -59,7 +66,9 @@ class CapriApp:
             custom = hud_source                  # нет прозрачных спрайтов — гуляет голограммой с клипами
         elif mode == "star":
             custom = ""
-        self.avatar = Avatar(av["size"], custom, av.get("fps", 12), wander=av.get("wander", True), holo=holo)
+        wander = av.get("wander", True) and self.prefs.get("wander", True)
+        self.avatar = Avatar(av["size"], custom, av.get("fps", 12), wander=wander, holo=holo)
+        self.avatar.menu_builder = self.build_menu
         if self.cfg.get("ui", {}).get("style", "hud") == "hud":
             from .ui.hud import HudWindow
             self.chat = HudWindow(hud_source, av.get("fps", 12))
@@ -69,7 +78,10 @@ class CapriApp:
 
         self.tray = QSystemTrayIcon(QIcon(self.avatar.grab()), self.qt)
         self.tray.setToolTip("Capri")
-        self.tray.activated.connect(lambda *_: self.toggle_chat())
+        self.tray.activated.connect(self._tray_clicked)
+        self.tray_menu = QMenu()
+        self.tray_menu.aboutToShow.connect(lambda: self.build_menu(None, self.tray_menu))
+        self.tray.setContextMenu(self.tray_menu)
         self.tray.show()
 
         self.avatar.clicked.connect(self.toggle_chat)
@@ -133,7 +145,7 @@ class CapriApp:
             self.chat.add_system(why + ". Установка: .venv\\Scripts\\python -m pip install -r requirements-voice.txt")
             return
         try:
-            self.voice = VoiceController(self.cfg)
+            self.voice = VoiceController(self.cfg, self.prefs.get("input_device"))
         except Exception as e:  # noqa: BLE001
             self.chat.add_system(f"Голос не запустился: {e}")
             return
@@ -151,22 +163,160 @@ class CapriApp:
         shortcut = QShortcut(QKeySequence(v.get("hotkey", "Ctrl+Space")), self.chat)
         shortcut.setContext(Qt.ApplicationShortcut)
         shortcut.activated.connect(self.voice.toggle_record)
-        self.avatar.menu_items = lambda: [
-            ("🎤 Сказать", self.voice.toggle_record),
-            ("🔇 Выключить озвучку" if self.cfg["voice"]["speak"] else "🔊 Включить озвучку", self.toggle_speak),
-        ]
         self.chat.add_system(f"🎤 Голос включён: кнопка 🎤 или {v.get('hotkey', 'Ctrl+Space')}. "
                              "Первый раз скачаются голосовые модели (~500 МБ).")
         self.voice.warmup()
+        self.start_wake()
+
+    # «Привет, Капри» ----------------------------------------------------------
+    def start_wake(self):
+        self.stop_wake()
+        if not self.voice or not self.prefs.get("wake_word", True):
+            return
+        from .voice.wake import WakeListener, wake_available
+
+        models = expand(self.cfg["voice"]["models_dir"])
+        ok, _why = wake_available(models)
+        if not ok:
+            self.chat.add_system(t("wake_missing", self.lang))
+            return
+        self.wake = WakeListener(models, self.prefs.get("input_device"))
+        self.wake.woke.connect(self.on_wake)
+        self.wake.failed.connect(lambda e: self.chat.add_system(f"«Привет, Капри»: {e}"))
+        self.wake.start()
+
+    def stop_wake(self):
+        if self.wake:
+            self.wake.stop()
+            self.wake = None
+
+    def on_wake(self, heard: str):
+        if not self.voice or self.voice.recording or (self.worker and self.worker.isRunning()):
+            return
+        if not self.avatar.isVisible():
+            self.avatar.show()
+        self.voice.quiet()
+        self.voice.listen_once()
+
+    def call_capri(self):
+        """Позвать: показаться, открыть окно и сразу слушать."""
+        if not self.avatar.isVisible():
+            self.avatar.show()
+        if not self.chat.isVisible():
+            self.toggle_chat()
+        if self.voice and not self.voice.recording:
+            self.voice.quiet()
+            self.voice.listen_once()
+
+    def be_quiet(self):
+        if self.voice:
+            self.voice.quiet()
+        self.stop_current()
+        self.set_status("ONLINE")
+
+    def check_pc(self):
+        self.chat.add_system(t("checking", self.lang))
+        self.on_message(t("pc_check_cmd", self.lang))
 
     def toggle_speak(self):
         v = self.cfg["voice"]
         v["speak"] = not v["speak"]
+        self.prefs.set("speak", v["speak"])
         if hasattr(self.chat, "set_speak_icon"):
             self.chat.set_speak_icon(v["speak"])
-        self.chat.add_system("Озвучка включена." if v["speak"] else "Озвучка выключена.")
+        self.chat.add_system(t("speak_set_on" if v["speak"] else "speak_set_off", self.lang))
+
+    # меню (одно и то же в трее и по правому клику на Капри) ------------------------
+    @property
+    def lang(self) -> str:
+        return self.prefs.get("language", "ru")
+
+    def _tray_clicked(self, reason):
+        if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
+            self.toggle_chat()
+
+    def build_menu(self, parent=None, menu: QMenu | None = None) -> QMenu:
+        L = self.lang
+        if menu is None:
+            menu = QMenu(parent)
+        else:
+            menu.clear()
+        menu.addAction(t("call", L), self.call_capri)
+        menu.addAction(t("chat", L), self.open_chat)
+        if self.voice:
+            menu.addAction(t("speak_now", L), self.voice.toggle_record)
+        menu.addAction(t("quiet", L), self.be_quiet)
+        menu.addAction(t("pc_check", L), self.check_pc)
+        menu.addSeparator()
+
+        if self.voice:
+            from .system import input_devices
+
+            mic = menu.addMenu(t("mic", L))
+            group = QActionGroup(mic)
+            current = self.prefs.get("input_device")
+            choices = [(None, t("mic_default", L))] + input_devices()
+            for idx, name in choices:
+                act = QAction(name, mic, checkable=True, checked=(idx == current))
+                act.triggered.connect(lambda _=False, i=idx, n=name: self.set_mic(i, n))
+                group.addAction(act)
+                mic.addAction(act)
+            if len(choices) == 1:
+                mic.addAction(t("mic_none", L)).setEnabled(False)
+            menu.addAction(self._check(menu, t("wake", L), self.prefs.get("wake_word", True), self.toggle_wake))
+            menu.addAction(self._check(menu, t("speak_on", L), self.cfg["voice"]["speak"], self.toggle_speak))
+        menu.addAction(self._check(menu, t("wander", L), self.avatar.wander, self.toggle_wander))
+        menu.addAction(t("hide", L) if self.avatar.isVisible() else t("show", L), self.toggle_avatar)
+
+        lm = menu.addMenu(t("language", L))
+        lg = QActionGroup(lm)
+        for code, name in (("ru", "Русский"), ("en", "English")):
+            act = QAction(name, lm, checkable=True, checked=(code == L))
+            act.triggered.connect(lambda _=False, c=code: self.set_language(c))
+            lg.addAction(act)
+            lm.addAction(act)
+        menu.addSeparator()
+        menu.addAction(t("quit", L), self.qt.quit)
+        return menu
+
+    @staticmethod
+    def _check(parent, label: str, checked: bool, slot) -> QAction:
+        act = QAction(label, parent, checkable=True, checked=checked)
+        act.triggered.connect(lambda *_: slot())
+        return act
+
+    def set_language(self, code: str):
+        self.prefs.set("language", code)
+        self.chat.add_system(t("lang_set", code))
+
+    def set_mic(self, index, name: str):
+        self.prefs.set("input_device", index)
+        if self.voice:
+            self.voice.set_device(index)
+        self.chat.add_system(t("mic_set", self.lang, name=name))
+        self.start_wake()
+
+    def toggle_wake(self):
+        on = not self.prefs.get("wake_word", True)
+        self.prefs.set("wake_word", on)
+        if on:
+            self.start_wake()
+            if self.wake:
+                self.chat.add_system(t("wake_on", self.lang))
+        else:
+            self.stop_wake()
+            self.chat.add_system(t("wake_off", self.lang))
+
+    def toggle_wander(self):
+        self.avatar._toggle_wander()
+        self.prefs.set("wander", self.avatar.wander)
+
+    def toggle_avatar(self):
+        self.avatar.setVisible(not self.avatar.isVisible())
 
     def on_voice_state(self, state: str):
+        if self.wake:
+            self.wake.paused = state != "IDLE"   # пока сама слушает или говорит — фразу не ищем
         self.chat.set_recording(state == "LISTENING")
         if state == "IDLE":
             self.set_status("ONLINE")
@@ -184,6 +334,14 @@ class CapriApp:
         self.on_message(text)
 
     # чат -------------------------------------------------------------------
+    def open_chat(self):
+        if not self.chat.isVisible():
+            self.toggle_chat()
+        else:
+            self.chat.raise_()
+            self.chat.activateWindow()
+            self.chat.input.setFocus()
+
     def toggle_chat(self):
         if self.chat.isVisible():
             self.chat.hide()
@@ -261,6 +419,7 @@ class CapriApp:
         QTimer.singleShot(5000, lambda: self.state == "TALKING" and self.set_status("ONLINE"))
 
     def run(self) -> int:
+        self.qt.aboutToQuit.connect(self.stop_wake)
         return self.qt.exec()
 
 

@@ -93,7 +93,8 @@ class Avatar(QWidget):
         self.phase = 0.0
         self.glitch = 0
         self.menu_items = lambda: []  # приложение может добавить свои пункты меню
-        self.sprites = SpriteSet(custom_image)
+        self.menu_builder = None      # или построить всё меню само (общее с треем)
+        self.sprites = SpriteSet(custom_image, fps)
 
         # поведение на рабочем столе
         self.wander = wander
@@ -398,6 +399,11 @@ class Avatar(QWidget):
         self._drag_from = None
 
     def contextMenuEvent(self, e):
+        if self.menu_builder:
+            menu = self.menu_builder(self)
+            menu.setAttribute(Qt.WA_DeleteOnClose)
+            menu.exec(e.globalPos())
+            return
         menu = QMenu(self)
         menu.addAction("Чат", self.clicked.emit)
         for label, callback in self.menu_items():

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from . import actions as A
+from . import commands as C
 from .llm import claude_code
 from .llm.ollama_client import OllamaClient, OllamaError
 from .persona import system_prompt
@@ -45,8 +46,13 @@ UNIT_TO_MIN = {
 
 class Agent:
     def __init__(self, config: dict, llm: OllamaClient | None = None,
-                 claude: Callable[[str, dict], str] = claude_code.ask):
+                 claude: Callable[[str, dict], str] = claude_code.ask, system=None):
         self.cfg = config
+        if system is None:
+            from .config import expand
+            from .system import SystemControl
+            system = SystemControl(expand("data"))
+        self.system = system
         o = config["ollama"]
         self.llm = llm or OllamaClient(o["url"], o["model"], o["timeout"], o.get("think"), o.get("options"))
         self.claude = claude
@@ -68,6 +74,10 @@ class Agent:
 
     # быстрые правила --------------------------------------------------------
     def _rules(self, text: str) -> Reply | None:
+        # системные команды (музыка, громкость, клавиши, проверка ПК…) — выполняем прямо здесь, в рабочем потоке
+        if cmd := C.match(text):
+            result = self.system.run(cmd)
+            return Reply(C.reply(cmd, C.lang_of(text), result), route="error" if result.get("error") else "rules")
         if m := RE_SEARCH.match(text):
             q = m.group(1).strip()
             return Reply(f"Ищу «{q}».", [A.make_web_search(q, self.cfg["search_url"])], "rules")
