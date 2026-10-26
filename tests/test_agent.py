@@ -102,3 +102,10 @@ def test_timer_multilang(cfg, text, minutes):
 
 def test_search_german(cfg):
     assert make(cfg).handle("suche nach DHCP Server").actions[0].kind == "web_search"
+
+
+def test_strip_thinking():
+    from capri.llm.ollama_client import strip_thinking
+    assert strip_thinking("Хорошо, пользователь спрашивает...\n</think>\n\nЙо! Всё ок.") == "Йо! Всё ок."
+    assert strip_thinking("<think>хм</think>Ответ") == "Ответ"
+    assert strip_thinking("Просто ответ") == "Просто ответ"

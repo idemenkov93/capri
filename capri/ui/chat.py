@@ -62,7 +62,10 @@ class ChatWindow(QWidget):
             self.input.setFocus()
 
     def stream(self, kind: str, piece: str):
-        if kind == "thinking":
+        if kind == "reset":  # модель закончила рассуждать — показываем только сам ответ
+            self._live_text = piece
+            self.live.setText(self._live_text[-600:])
+        elif kind == "thinking":
             self._thinking += len(piece)
             if not self._live_text:
                 self.live.setText(f"🧠 размышляет… ({self._thinking} симв.)")

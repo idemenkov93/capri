@@ -85,6 +85,13 @@ TOOLS = [
 ]
 
 
+def strip_thinking(text: str) -> str:
+    """Убрать рассуждения модели: всё до последнего </think> и сам тег."""
+    if "</think>" in text:
+        text = text.rsplit("</think>", 1)[1]
+    return text.replace("<think>", "").strip()
+
+
 class OllamaError(RuntimeError):
     pass
 
@@ -113,6 +120,7 @@ class OllamaClient:
             payload["think"] = self.think
 
         content, tool_calls = [], []
+        answer_started = False
         timeout = httpx.Timeout(connect=10, read=self.timeout, write=30, pool=10)
         try:
             with httpx.stream("POST", f"{self.url}/api/chat", json=payload, timeout=timeout) as r:
@@ -130,7 +138,16 @@ class OllamaClient:
                         on_token and on_token("thinking", piece)
                     if piece := msg.get("content"):
                         content.append(piece)
-                        on_token and on_token("content", piece)
+                        # Некоторые модели (qwen3 «thinking») игнорируют think=false и пишут
+                        # рассуждения прямо в ответ, закрывая их тегом </think>.
+                        joined = "".join(content)
+                        if "<think>" in joined and "</think>" not in joined:
+                            on_token and on_token("thinking", piece)
+                        elif "</think>" in piece or ("</think>" in joined and not answer_started):
+                            answer_started = True
+                            on_token and on_token("reset", strip_thinking(joined))
+                        elif "</think>" in joined or "<think>" not in joined:
+                            on_token and on_token("content", piece)
                     tool_calls.extend(msg.get("tool_calls") or [])
                     if chunk.get("done"):
                         break
@@ -141,7 +158,7 @@ class OllamaClient:
                 f"Модель молчала больше {self.timeout:g} сек. Проверь в терминале «ollama ps»: "
                 "если в колонке PROCESSOR стоит CPU — возьми модель полегче (например qwen3:1.7b)."
             ) from e
-        return {"content": "".join(content), "tool_calls": tool_calls}
+        return {"content": strip_thinking("".join(content)), "tool_calls": tool_calls}
 
     def warmup(self) -> None:
         """Заранее загрузить модель в видеопамять (первый запуск может занять до минуты)."""
