@@ -90,17 +90,21 @@ def unread_imap(address: str, app_password: str, limit: int = 3, imap_cls=imapli
     try:
         m.login(address, app_password.replace(" ", ""))
         m.select("INBOX", readonly=True)
-        _, data = m.search(None, "UNSEEN")
+        # только «Основные» — как вкладка в Gmail: без «Промоакций», «Соцсетей», «Оповещений» и, конечно, без спама
+        try:
+            _, data = m.search(None, "X-GM-RAW", '"category:primary is:unread"')
+        except imaplib.IMAP4.error:
+            _, data = m.search(None, "UNSEEN")
         ids = data[0].split() if data and data[0] else []
         if not ids:
-            return "Новых писем нет. Тишина."
+            return "В «Основных» новых писем нет. Реклама и рассылки не в счёт."
         lines = []
         for mid in reversed(ids[-limit:]):
             _, msg = m.fetch(mid, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
             hdr = email.message_from_bytes(msg[0][1])
             sender = re.sub(r"\s*<.*?>", "", _decode(hdr.get("From"))).strip('" ') or "?"
             lines.append(f"от {sender}: «{_decode(hdr.get('Subject')) or '(без темы)'}»")
-        more = f" Всего непрочитанных: {len(ids)}." if len(ids) > len(lines) else ""
+        more = f" Всего непрочитанных в «Основных»: {len(ids)}." if len(ids) > len(lines) else ""
         return "Новые письма: " + "; ".join(lines) + "." + more
     finally:
         try:

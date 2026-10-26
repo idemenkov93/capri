@@ -62,6 +62,7 @@ class FakeIMAP:
         assert readonly
 
     def search(self, *a):
+        assert a[1:] == ("X-GM-RAW", '"category:primary is:unread"')   # только «Основные», без рекламы и спама
         return "OK", [b"1 2 3 4"]
 
     def fetch(self, mid, what):
@@ -74,7 +75,7 @@ class FakeIMAP:
 
 def test_unread_imap():
     s = S.unread_imap("me@gmail.com", "abcd abcd abcd abcd", imap_cls=FakeIMAP)
-    assert s.startswith("Новые письма: от Ольга: «Termin morgen»") and "Всего непрочитанных: 4" in s
+    assert s.startswith("Новые письма: от Ольга: «Termin morgen»") and "Всего непрочитанных в «Основных»: 4" in s
 
 
 def test_local_todo(tmp_path):
