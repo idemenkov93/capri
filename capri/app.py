@@ -210,5 +210,34 @@ class CapriApp:
         return self.qt.exec()
 
 
+INSTANCE_NAME = "capri-desktop-companion"
+
+
 def main() -> int:
-    return CapriApp().run()
+    from PySide6.QtNetwork import QLocalServer, QLocalSocket
+
+    # Только одна Капри: если она уже запущена — просто показываем её чат и выходим
+    probe = QLocalSocket()
+    probe.connectToServer(INSTANCE_NAME)
+    if probe.waitForConnected(300):
+        probe.write(b"show")
+        probe.waitForBytesWritten(300)
+        return 0
+
+    app = CapriApp()
+    QLocalServer.removeServer(INSTANCE_NAME)  # хвост от упавшего запуска
+    server = QLocalServer()
+    server.listen(INSTANCE_NAME)
+
+    def on_connect():
+        conn = server.nextPendingConnection()
+        if conn:
+            conn.disconnected.connect(conn.deleteLater)
+            if not app.chat.isVisible():
+                app.toggle_chat()
+            app.chat.raise_()
+            app.chat.activateWindow()
+
+    server.newConnection.connect(on_connect)
+    app.instance_server = server
+    return app.run()

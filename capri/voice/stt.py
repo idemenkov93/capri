@@ -35,8 +35,10 @@ class Recorder:
 
 
 class Transcriber:
-    def __init__(self, model_size: str = "small", languages: list[str] | None = None, download_root: str | None = None):
+    def __init__(self, model_size: str = "small", languages: list[str] | None = None,
+                 download_root: str | None = None, preferred: str | None = "ru"):
         self.model_size = model_size
+        self.preferred = preferred
         self.languages = languages or ["ru", "de", "en", "he"]
         self.download_root = download_root
         self._model = None
@@ -60,7 +62,8 @@ class Transcriber:
             _, _, probs = model.detect_language(audio)
         except (AttributeError, TypeError, ValueError):
             return None
-        allowed = [(lang, p) for lang, p in probs if lang in self.languages]
+        # основной язык получает фору: короткие фразы whisper иногда путает (русское «как дела» → немецкий)
+        allowed = [(lang, p * (2.0 if lang == self.preferred else 1.0)) for lang, p in probs if lang in self.languages]
         return max(allowed, key=lambda x: x[1])[0] if allowed else None
 
     def transcribe(self, audio: np.ndarray) -> tuple[str, str]:

@@ -40,15 +40,20 @@ class VoiceController(QObject):
     def __init__(self, cfg: dict):
         super().__init__()
         from .stt import Recorder, Transcriber
-        from .tts import Speaker
+        from .tts import EdgeSpeaker, FallbackSpeaker, Speaker
 
         v = cfg["voice"]
         self.cfg = v
         self.recorder = Recorder()
-        self.stt = Transcriber(v["whisper_model"], v["languages"], str(expand(v["models_dir"]) / "whisper"))
-        self.speaker = None
+        self.stt = Transcriber(v["whisper_model"], v["languages"], str(expand(v["models_dir"]) / "whisper"),
+                               preferred=v.get("preferred_language", "ru"))
+        piper = None
         if importlib.util.find_spec("piper") is not None:
-            self.speaker = Speaker(v["piper_voices"], expand(v["models_dir"]) / "piper")
+            piper = Speaker(v["piper_voices"], expand(v["models_dir"]) / "piper")
+        self.speaker = piper
+        if v.get("tts_engine", "edge") == "edge" and importlib.util.find_spec("edge_tts") is not None:
+            edge = EdgeSpeaker(v["edge_voices"], v.get("edge_rate", "+0%"), v.get("edge_pitch", "+0Hz"))
+            self.speaker = FallbackSpeaker(edge, piper)
         self.recording = False
         self.last_lang = "ru"
         self._jobs: list[_Job] = []

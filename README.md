@@ -73,7 +73,9 @@
 ## Голос 🎤
 
 - **Распознавание** — [faster-whisper](https://github.com/SYSTRAN/faster-whisper), локально, сам определяет язык (RU/DE/EN/HE).
-- **Озвучка** — [Piper](https://github.com/OHF-Voice/piper1-gpl), локальные голоса RU/DE/EN; иврит — встроенным голосом Windows.
+- **Озвучка** — два движка (`voice.tts_engine` в `config.yaml`):
+  - `edge` (по умолчанию) — живые нейроголоса Microsoft через [edge-tts](https://github.com/rany2/edge-tts), RU/DE/EN/HE. Нужен интернет, текст ответа уходит в Microsoft.
+  - `piper` — [Piper](https://github.com/OHF-Voice/piper1-gpl), полностью офлайн, звучит проще. Используется и как запасной вариант без интернета.
 - Управление: кнопка 🎤 в чате, горячая клавиша `Ctrl+Space` или ПКМ по аватару → «🎤 Сказать».
 - Нажал → говоришь → нажал ещё раз. Если Капри говорит, а ты начал говорить — она замолкает.
 - Модели (~500 МБ) скачиваются один раз в `data/models/`.

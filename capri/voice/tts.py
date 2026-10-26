@@ -1,7 +1,9 @@
-"""Озвучка ответов.
+"""Озвучка ответов. Два движка:
 
-Piper (локально, хорошее качество) — для русского, немецкого и английского.
-Для остальных языков (например иврит) — встроенные голоса Windows, если они установлены.
+- edge  — нейроголоса Microsoft (живые, с интонацией, есть иврит). Нужен интернет:
+          текст ответа уходит в сервис Microsoft для синтеза.
+- piper — полностью локально, офлайн, но звучит заметно «роботнее».
+Если edge недоступен (нет интернета), Капри сама переключится на piper.
 """
 from __future__ import annotations
 
@@ -39,6 +41,76 @@ def ensure_voice(name: str, folder: Path) -> Path:
                     f.write(chunk)
         tmp.replace(target)
     return onnx
+
+
+def decode_mp3(data: bytes) -> tuple[np.ndarray, int]:
+    """MP3 → int16 моно через PyAV (он уже стоит вместе с faster-whisper)."""
+    import io
+
+    import av
+
+    with av.open(io.BytesIO(data)) as container:
+        resampler = av.AudioResampler(format="s16", layout="mono")
+        rate = container.streams.audio[0].rate
+        frames = []
+        for frame in container.decode(audio=0):
+            for out in resampler.resample(frame):
+                frames.append(out.to_ndarray().reshape(-1))
+    return (np.concatenate(frames) if frames else np.zeros(0, np.int16)), rate
+
+
+class EdgeSpeaker:
+    """Нейроголоса Microsoft через edge-tts."""
+
+    def __init__(self, voices: dict[str, str], rate: str = "+0%", pitch: str = "+0Hz"):
+        import sounddevice as sd
+
+        self._sd = sd
+        self.voices, self.rate, self.pitch = voices, rate, pitch
+
+    def warmup(self, lang: str) -> None:
+        pass
+
+    def say(self, text: str, lang: str) -> None:
+        import edge_tts
+
+        voice = self.voices.get(lang) or self.voices.get("en")
+        comm = edge_tts.Communicate(text, voice, rate=self.rate, pitch=self.pitch)
+        mp3 = b"".join(c["data"] for c in comm.stream_sync() if c.get("type") == "audio")
+        audio, sr = decode_mp3(mp3)
+        self._sd.play(audio, sr)
+        self._sd.wait()
+
+    def stop(self) -> None:
+        self._sd.stop()
+
+
+class FallbackSpeaker:
+    """Сначала пробуем основной движок, при ошибке (например, нет интернета) — запасной."""
+
+    def __init__(self, primary, backup):
+        self.primary, self.backup = primary, backup
+
+    def warmup(self, lang: str) -> None:
+        for s in (self.primary, self.backup):
+            if s:
+                try:
+                    s.warmup(lang)
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def say(self, text: str, lang: str) -> None:
+        try:
+            self.primary.say(text, lang)
+        except Exception:  # noqa: BLE001
+            if not self.backup:
+                raise
+            self.backup.say(text, lang)
+
+    def stop(self) -> None:
+        for s in (self.primary, self.backup):
+            if s:
+                s.stop()
 
 
 class Speaker:

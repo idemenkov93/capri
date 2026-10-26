@@ -53,6 +53,18 @@ voice:
   hotkey: Ctrl+Space          # нажал — говоришь, нажал ещё раз — Капри распознаёт
   whisper_model: small        # tiny | base | small | medium. На ноуте без видеокарты: base или small
   languages: [ru, de, en, he] # из каких языков выбирать при распознавании
+  preferred_language: ru      # фора при распознавании коротких фраз
+
+  # Озвучка: edge — живые нейроголоса Microsoft (нужен интернет, текст ответа уходит в Microsoft),
+  #          piper — полностью офлайн, но звучит «роботнее». Без интернета edge сам переключится на piper.
+  tts_engine: edge
+  edge_voices:                # все голоса: .venv\Scripts\edge-tts --list-voices
+    ru: ru-RU-SvetlanaNeural  # или ru-RU-DariyaNeural
+    de: de-DE-AmalaNeural     # или de-DE-KatjaNeural
+    en: en-US-AvaNeural       # или en-US-JennyNeural
+    he: he-IL-HilaNeural
+  edge_rate: "+8%"            # скорость речи
+  edge_pitch: "+6Hz"          # высота голоса
   speak: true                 # озвучивать ответы
   speak_only_voice: true      # озвучивать, только если вопрос был голосом
   max_speech_chars: 600       # длинные ответы читаются только до этого места

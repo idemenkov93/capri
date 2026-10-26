@@ -42,6 +42,16 @@ DEFAULTS: dict = {
         "hotkey": "Ctrl+Space",
         "whisper_model": "small",      # tiny | base | small | medium — больше = точнее, но медленнее
         "languages": ["ru", "de", "en", "he"],
+        "preferred_language": "ru",     # получает фору при распознавании коротких фраз
+        "tts_engine": "edge",           # edge — живые нейроголоса (нужен интернет), piper — офлайн
+        "edge_voices": {
+            "ru": "ru-RU-SvetlanaNeural",
+            "de": "de-DE-AmalaNeural",
+            "en": "en-US-AvaNeural",
+            "he": "he-IL-HilaNeural",
+        },
+        "edge_rate": "+8%",             # чуть быстрее обычного — бодрее
+        "edge_pitch": "+6Hz",           # чуть выше — моложе и звонче
         "speak": True,                 # озвучивать ответы
         "speak_only_voice": True,      # озвучивать, только если спросил голосом
         "max_speech_chars": 600,
