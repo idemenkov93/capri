@@ -70,6 +70,17 @@
 - `/claude <задача>` — сразу отправить задачу Claude.
 - Статусы: `ONLINE` · `THINKING` (локальная модель) · `CLAUDE` · `TALKING` · `ERROR`.
 
+## Голос 🎤
+
+- **Распознавание** — [faster-whisper](https://github.com/SYSTRAN/faster-whisper), локально, сам определяет язык (RU/DE/EN/HE).
+- **Озвучка** — [Piper](https://github.com/OHF-Voice/piper1-gpl), локальные голоса RU/DE/EN; иврит — встроенным голосом Windows.
+- Управление: кнопка 🎤 в чате, горячая клавиша `Ctrl+Space` или ПКМ по аватару → «🎤 Сказать».
+- Нажал → говоришь → нажал ещё раз. Если Капри говорит, а ты начал говорить — она замолкает.
+- Модели (~500 МБ) скачиваются один раз в `data/models/`.
+
+Голосовой модуль ставится автоматически при запуске `run_capri.bat`. Вручную:
+`.venv\Scripts\python -m pip install -r requirements-voice.txt`
+
 ## Свой аватар и анимация
 
 Положи файлы в `assets/custom/` (папка в git не попадает) и укажи путь в `config.yaml` → `avatar.custom_image`:
@@ -99,7 +110,7 @@ tests/              pytest
 ## Roadmap
 
 - [x] Аватар, чат, локальные команды, Ollama, Claude Code
-- [ ] Голос: faster-whisper (распознавание) + Piper (русская озвучка)
+- [x] Голос: faster-whisper (распознавание) + Piper (озвучка RU/DE/EN)
 - [ ] Поиск в интернете с кратким пересказом прямо в чате
 - [ ] Напоминания по времени, заметки с поиском
 - [ ] Автозапуск с Windows, сборка в .exe

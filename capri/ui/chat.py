@@ -22,6 +22,7 @@ ROUTE_LABEL = {"rules": "⚡", "local": "◆ local", "claude": "✦ Claude", "er
 class ChatWindow(QWidget):
     submitted = Signal(str)
     stop_requested = Signal()
+    mic_clicked = Signal()
 
     def __init__(self):
         super().__init__(None, Qt.WindowStaysOnTopHint)
@@ -35,8 +36,12 @@ class ChatWindow(QWidget):
         self.stop = QPushButton("STOP")
         self.stop.setStyleSheet("border-color:#ff2a6d; color:#ff2a6d;")
         self.stop.hide()
+        self.mic = QPushButton("🎤")
+        self.mic.setToolTip("Сказать голосом (нажми, говори, нажми ещё раз)")
+        self.mic.hide()
 
         row = QHBoxLayout()
+        row.addWidget(self.mic)
         row.addWidget(self.input)
         row.addWidget(self.send)
         row.addWidget(self.stop)
@@ -53,6 +58,7 @@ class ChatWindow(QWidget):
         self.input.returnPressed.connect(self._submit)
         self.send.clicked.connect(self._submit)
         self.stop.clicked.connect(self.stop_requested.emit)
+        self.mic.clicked.connect(self.mic_clicked.emit)
 
     def _submit(self):
         text = self.input.text().strip()
@@ -67,6 +73,10 @@ class ChatWindow(QWidget):
         self.stop.setVisible(busy)
         if not busy:
             self.input.setFocus()
+
+    def set_recording(self, on: bool):
+        self.mic.setText("⏺ REC" if on else "🎤")
+        self.mic.setStyleSheet("border-color:#ff0033; color:#ff0033;" if on else "")
 
     def stream(self, kind: str, piece: str):
         if kind == "reset":  # модель закончила рассуждать — показываем только сам ответ

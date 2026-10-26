@@ -21,6 +21,9 @@ STATUS_COLORS = {
     "CLAUDE": QColor("#ff7a1a"),
     "TALKING": QColor("#39ff88"),
     "ERROR": QColor("#ff0033"),
+    "LISTENING": QColor("#ff3df2"),
+    "RECOGNIZING": QColor("#ffd23f"),
+    "SPEAKING": QColor("#39ff88"),
 }
 
 
@@ -37,6 +40,7 @@ class Avatar(QWidget):
         self.glitch = 0
         self._drag_from: QPoint | None = None
         self._moved = False
+        self.menu_items = lambda: []  # приложение может добавить свои пункты меню
         self.frames: list[QPixmap] = []
         self.frame_i = 0
         self.movie: QMovie | None = None
@@ -162,5 +166,7 @@ class Avatar(QWidget):
     def contextMenuEvent(self, e):
         menu = QMenu(self)
         menu.addAction("Чат", self.clicked.emit)
+        for label, callback in self.menu_items():
+            menu.addAction(label, callback)
         menu.addAction("Выход", self.quit_requested.emit)
         menu.exec(e.globalPos())

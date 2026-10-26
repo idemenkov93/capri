@@ -47,3 +47,18 @@ avatar:
   #   assets/custom/frames/        — папка с кадрами 001.png, 002.png, ...
   custom_image: ""
   fps: 12
+
+voice:
+  enabled: true
+  hotkey: Ctrl+Space          # нажал — говоришь, нажал ещё раз — Капри распознаёт
+  whisper_model: small        # tiny | base | small | medium. На ноуте без видеокарты: base или small
+  languages: [ru, de, en, he] # из каких языков выбирать при распознавании
+  speak: true                 # озвучивать ответы
+  speak_only_voice: true      # озвучивать, только если вопрос был голосом
+  max_speech_chars: 600       # длинные ответы читаются только до этого места
+  models_dir: data/models     # сюда скачаются модели (~500 МБ)
+  piper_voices:               # голоса Piper: https://rhasspy.github.io/piper-samples/
+    ru: ru_RU-irina-medium
+    de: de_DE-kerstin-low
+    en: en_US-amy-medium
+    # для иврита Капри использует голос Windows (если установлен языковой пакет иврита)

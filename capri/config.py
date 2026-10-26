@@ -37,6 +37,21 @@ DEFAULTS: dict = {
     "confirm_actions": True,
     "notes_file": "data/notes.md",
     "avatar": {"size": 140, "custom_image": "", "fps": 12},
+    "voice": {
+        "enabled": True,
+        "hotkey": "Ctrl+Space",
+        "whisper_model": "small",      # tiny | base | small | medium — больше = точнее, но медленнее
+        "languages": ["ru", "de", "en", "he"],
+        "speak": True,                 # озвучивать ответы
+        "speak_only_voice": True,      # озвучивать, только если спросил голосом
+        "max_speech_chars": 600,
+        "models_dir": "data/models",
+        "piper_voices": {
+            "ru": "ru_RU-irina-medium",
+            "de": "de_DE-kerstin-low",
+            "en": "en_US-amy-medium",
+        },
+    },
 }
 
 

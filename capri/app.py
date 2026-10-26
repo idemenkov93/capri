@@ -4,7 +4,8 @@ from __future__ import annotations
 import sys
 
 from PySide6.QtCore import QThread, QTimer, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
 from . import actions as A
@@ -70,11 +71,69 @@ class CapriApp:
         self.avatar.show()
         self.chat.add_capri(f"Йо, {self.cfg['user_name']}. Я в системе. Чем займёмся?", "rules")
 
+        self.voice = None
+        self.last_input_was_voice = False
+        self._init_voice()
+
         # грузим модель в видеокарту сразу, пока пользователь ещё ничего не написал
         self.avatar.set_status("LOADING")
         self.warmup = Warmup(self.agent)
         self.warmup.finished.connect(lambda: self.avatar.set_status("ONLINE"))
         self.warmup.start()
+
+    # голос ------------------------------------------------------------------
+    def _init_voice(self):
+        v = self.cfg["voice"]
+        if not v.get("enabled", True):
+            return
+        from .voice.controller import VoiceController, voice_available
+
+        ok, why = voice_available()
+        if not ok:
+            self.chat.add_system(why + ". Установка: .venv\\Scripts\\python -m pip install -r requirements-voice.txt")
+            return
+        try:
+            self.voice = VoiceController(self.cfg)
+        except Exception as e:  # noqa: BLE001
+            self.chat.add_system(f"Голос не запустился: {e}")
+            return
+        self.chat.mic.show()
+        self.chat.mic_clicked.connect(self.voice.toggle_record)
+        self.voice.state.connect(self.on_voice_state)
+        self.voice.transcribed.connect(self.on_transcribed)
+        self.voice.error.connect(self.chat.add_system)
+        shortcut = QShortcut(QKeySequence(v.get("hotkey", "Ctrl+Space")), self.chat)
+        shortcut.setContext(Qt.ApplicationShortcut)
+        shortcut.activated.connect(self.voice.toggle_record)
+        self.avatar.menu_items = lambda: [
+            ("🎤 Сказать", self.voice.toggle_record),
+            ("🔇 Выключить озвучку" if self.cfg["voice"]["speak"] else "🔊 Включить озвучку", self.toggle_speak),
+        ]
+        self.chat.add_system(f"🎤 Голос включён: кнопка 🎤 или {v.get('hotkey', 'Ctrl+Space')}. "
+                             "Первый раз скачаются голосовые модели (~500 МБ).")
+        self.voice.warmup()
+
+    def toggle_speak(self):
+        v = self.cfg["voice"]
+        v["speak"] = not v["speak"]
+        self.chat.add_system("Озвучка включена." if v["speak"] else "Озвучка выключена.")
+
+    def on_voice_state(self, state: str):
+        self.chat.set_recording(state == "LISTENING")
+        if state == "IDLE":
+            self.avatar.set_status("ONLINE")
+        else:
+            self.avatar.set_status(state)
+        if state == "RECOGNIZING":
+            self.chat.add_system("Распознаю…")
+
+    def on_transcribed(self, text: str, lang: str):
+        if not text:
+            self.chat.add_system("Ничего не расслышала. Попробуй ещё раз.")
+            return
+        self.last_input_was_voice = True
+        self.chat.add_user(f"🎤 {text}")
+        self.on_message(text)
 
     # чат -------------------------------------------------------------------
     def toggle_chat(self):
@@ -115,6 +174,10 @@ class CapriApp:
         for act in reply.actions:
             self.run_action(act)
         self.chat.set_busy(False)
+        v = self.cfg["voice"]
+        if self.voice and v["speak"] and (self.last_input_was_voice or not v["speak_only_voice"]):
+            self.voice.speak(reply.text)
+        self.last_input_was_voice = False
 
     # действия --------------------------------------------------------------
     def run_action(self, act: A.Action):
@@ -139,6 +202,8 @@ class CapriApp:
         self.avatar.set_status("TALKING")
         self.tray.showMessage("Capri", f"⏰ {label}")
         self.chat.add_capri(f"⏰ Эй! {label}", "rules")
+        if self.voice and self.cfg["voice"]["speak"]:
+            self.voice.speak(f"Эй! {label}")
         QTimer.singleShot(5000, lambda: self.avatar.set_status("ONLINE"))
 
     def run(self) -> int:
