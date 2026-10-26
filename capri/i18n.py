@@ -6,6 +6,8 @@ TEXTS: dict[str, dict[str, str]] = {
     "chat": {"ru": "💬 Написать команду…", "en": "💬 Type a command…"},
     "speak_now": {"ru": "🎤 Сказать голосом", "en": "🎤 Speak"},
     "quiet": {"ru": "🤫 Замолчать", "en": "🤫 Be quiet"},
+    "google": {"ru": "🔗 Подключить Google", "en": "🔗 Connect Google"},
+    "google_cmd": {"ru": "подключи гугл", "en": "connect google"},
     "pc_check": {"ru": "🩺 Проверить ПК", "en": "🩺 Check PC"},
     "mic": {"ru": "🎙 Микрофон", "en": "🎙 Microphone"},
     "mic_default": {"ru": "По умолчанию (Windows)", "en": "Windows default"},

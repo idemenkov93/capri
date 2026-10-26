@@ -267,6 +267,7 @@ class CapriApp:
             menu.addAction(t("speak_now", L), self.voice.toggle_record)
         menu.addAction(t("quiet", L), self.be_quiet)
         menu.addAction(t("pc_check", L), self.check_pc)
+        menu.addAction(t("google", L), lambda: self.on_message(t("google_cmd", self.lang)))
         menu.addSeparator()
 
         if self.voice:

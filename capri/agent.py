@@ -65,6 +65,7 @@ class Agent:
             from .config import expand
             apps = AppIndex(expand("data/apps.json"))
         self.apps = apps
+        self.google = None   # создаётся при первой просьбе про почту/календарь/задачи
         if system is None:
             from .config import expand
             from .system import SystemControl
@@ -96,6 +97,43 @@ class Agent:
             return self._ask_claude(text, on_status)
         return self._local(text, on_status, on_token, should_stop)
 
+    def _google(self, text: str) -> Reply | None:
+        """Почта / календарь / задачи. None — фраза не про Google."""
+        from . import google_api as G
+        t = text.rstrip(".!? ")
+        kind = ("connect" if G.RE_CONNECT.search(t) else "task_add" if G.RE_ADD_TASK.match(t) else
+                "tasks" if G.RE_LIST_TASKS.search(t) else "event_add" if G.RE_ADD_EVENT.match(t) else
+                "mail" if G.RE_MAIL.search(t) else "agenda" if G.RE_AGENDA.search(t) else None)
+        if not kind:
+            return None
+        if self.google is None:
+            from .config import expand
+            self.google = G.Google(expand("data"))
+        try:
+            if kind == "connect":
+                return Reply(self.google.connect(), route="rules")
+            if kind == "mail":
+                return Reply(self.google.unread(), route="rules")
+            if kind == "tasks":
+                return Reply(self.google.tasks(), route="rules")
+            if kind == "agenda":
+                return Reply(self.google.agenda(t), route="rules")
+            if kind == "task_add":
+                m = G.RE_ADD_TASK.match(t)
+                title = (m.group("title") or m.group("title_en")).strip(" :«»\"")
+                return Reply(self.google.add_task(title[0].upper() + title[1:]), route="rules")
+            m = G.RE_ADD_EVENT.match(t)
+            ev = G.Google.parse_event(m.group("rest") or m.group("rest_en"))
+            if isinstance(ev, str):
+                return Reply(f"Не поняла: {ev}.", route="error")
+            # в календарь пишем только после «Да» — вдруг я не так расслышала дату
+            act = A.Action("gcal_add", f"Добавить в календарь {G.describe_event(ev)}", {"event": ev}, needs_confirm=True)
+            return Reply(f"Добавить в календарь {G.describe_event(ev)}?", [act], "rules")
+        except G.GoogleError as e:
+            return Reply(str(e), route="error")
+        except Exception as e:  # noqa: BLE001 — сеть, права, квоты
+            return Reply(f"Google ответил ошибкой: {str(e)[:200]}", route="error")
+
     def _weather(self, text: str) -> Reply:
         from . import weather
         lang = C.lang_of(text)
@@ -121,6 +159,8 @@ class Agent:
         if cmd := C.match(text):
             result = self.system.run(cmd)
             return Reply(C.reply(cmd, C.lang_of(text), result), route="error" if result.get("error") else "rules")
+        if (g := self._google(text)) is not None:
+            return g
         if m := RE_SEARCH.match(text):
             q = m.group(1).strip()
             return Reply(f"Ищу «{q}».", [A.make_web_search(q, self.cfg["search_url"])], "rules")

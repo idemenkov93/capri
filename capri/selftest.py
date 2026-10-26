@@ -253,6 +253,21 @@ def t_pc():
     return OK, f"CPU {r['cpu']:.0f}%, RAM {r['ram_percent']:.0f}%, проблемы: {'; '.join(r['issues']) or 'нет'}"
 
 
+@check("Google (почта, календарь, задачи)")
+def t_google():
+    from .google_api import Google, GoogleError
+    g = Google(expand("data"))
+    ok, why = g.ready()
+    if not ok:
+        return WARN, f"не подключён: {why}"
+    if not g.token_file.exists():
+        return WARN, "ключ есть, но вход не выполнен — скажи «Капри, подключи гугл»"
+    try:
+        return OK, g.agenda("сегодня")[:120]
+    except GoogleError as e:
+        return WARN, str(e)
+
+
 @check("Анимации")
 def t_sprites(cfg):
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -287,6 +302,7 @@ def main() -> int:
     t_mic_level()
     t_system()
     t_pc()
+    t_google()
     t_sprites(cfg)
 
     report = Path(expand("data/selftest.txt"))

@@ -129,6 +129,9 @@ def execute(action: Action, config: dict) -> str:
     if action.kind in ("mkdir", "mkfile", "trash", "open_folder"):
         from . import files
         return files.execute(action)
+    if action.kind == "gcal_add":
+        from .google_api import Google
+        return Google(expand("data")).add_event(action.params["event"])
     if action.kind == "start_app":
         from .applist import launch
         launch(action.params["id"])
