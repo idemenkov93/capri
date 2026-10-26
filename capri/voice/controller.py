@@ -51,10 +51,11 @@ class VoiceController(QObject):
         piper = None
         if importlib.util.find_spec("piper") is not None:
             piper = Speaker(v["piper_voices"], expand(v["models_dir"]) / "piper")
+        self.piper, self.edge = piper, None
         self.speaker = piper
         if v.get("tts_engine", "edge") == "edge" and importlib.util.find_spec("edge_tts") is not None:
-            edge = EdgeSpeaker(v["edge_voices"], v.get("edge_rate", "+0%"), v.get("edge_pitch", "+0Hz"))
-            self.speaker = FallbackSpeaker(edge, piper)
+            self.edge = EdgeSpeaker(dict(v["edge_voices"]), v.get("edge_rate", "+0%"), v.get("edge_pitch", "+0Hz"))
+            self.speaker = FallbackSpeaker(self.edge, piper)
         self.recording = False
         self.last_lang = "ru"
         self._jobs: list[_Job] = []
@@ -76,6 +77,31 @@ class VoiceController(QObject):
             if self.speaker:
                 self.speaker.warmup("ru")
         self._run(load, on_fail=lambda e: self.error.emit(f"Не удалось загрузить голосовые модели: {e}"))
+
+    # настройка голоса -------------------------------------------------------
+    def tune(self) -> dict:
+        """Текущие голоса Edge, скорость, высота и фильтры."""
+        e = self.edge
+        return {"voices": dict(e.voices) if e else dict(self.cfg["edge_voices"]),
+                "rate": e.rate if e else self.cfg.get("edge_rate", "+0%"),
+                "pitch": e.pitch if e else self.cfg.get("edge_pitch", "+0Hz"),
+                "fx": dict(getattr(self.piper or e, "fx", {}) or {})}
+
+    def apply_tune(self, tune: dict) -> None:
+        if self.edge:
+            self.edge.voices.update(tune.get("voices") or {})
+            self.edge.rate = tune.get("rate", self.edge.rate)
+            self.edge.pitch = tune.get("pitch", self.edge.pitch)
+            self.edge.fx = dict(tune.get("fx") or {})
+        if self.piper:
+            self.piper.fx = dict(tune.get("fx") or {})
+
+    def say_now(self, text: str, lang: str) -> None:
+        """Проговорить пробную фразу именно этим языком (для настройки голоса)."""
+        if self.speaker:
+            self.speaker.stop()
+        self.last_lang = lang
+        self.speak(text)
 
     # микрофон ---------------------------------------------------------------
     def set_device(self, device) -> None:

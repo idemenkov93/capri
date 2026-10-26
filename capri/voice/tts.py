@@ -67,6 +67,7 @@ class EdgeSpeaker:
 
         self._sd = sd
         self.voices, self.rate, self.pitch = voices, rate, pitch
+        self.fx: dict = {}   # фильтры голоса (см. fx.py), меняются из «🎛 Голос Капри…»
 
     def warmup(self, lang: str) -> None:
         pass
@@ -78,6 +79,8 @@ class EdgeSpeaker:
         comm = edge_tts.Communicate(text, voice, rate=self.rate, pitch=self.pitch, connect_timeout=5, receive_timeout=20)
         mp3 = b"".join(c["data"] for c in comm.stream_sync() if c.get("type") == "audio")
         audio, sr = decode_mp3(mp3)
+        from .fx import apply
+        audio = apply(audio, sr, self.fx)
         self._sd.play(audio, sr)
         self._sd.wait()
 
@@ -120,6 +123,7 @@ class Speaker:
         self._sd = sd
         self.voices = voices
         self.folder = folder
+        self.fx: dict = {}
         self._loaded: dict[str, object] = {}
 
     def _piper(self, lang: str):
@@ -160,6 +164,8 @@ class Speaker:
             return
         if lang in self.voices:
             audio, rate = self._synthesize(self._piper(lang), text)
+            from .fx import apply
+            audio = apply(audio, rate, self.fx)
             self._sd.play(audio, rate)
             self._sd.wait()
         elif sys.platform == "win32":

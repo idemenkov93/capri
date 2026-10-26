@@ -13,8 +13,9 @@ def test_classify():
 def test_frame_folder_is_one_animation(tmp_path):
     import os
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PySide6.QtGui import QGuiApplication, QImage
-    app = QGuiApplication.instance() or QGuiApplication([])  # noqa: F841
+    from PySide6.QtGui import QImage
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])  # noqa: F841 — одна на все тесты (нужна и виджетам)
     from capri.ui.sprites import SpriteSet, frame_folder
 
     walk = tmp_path / "walk"

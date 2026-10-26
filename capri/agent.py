@@ -99,7 +99,8 @@ class Agent:
     def _local(self, text: str, on_status, on_token=None, should_stop=None) -> Reply:
         on_status("THINKING")
         self._remember("user", text)
-        messages = [{"role": "system", "content": system_prompt(self.cfg["user_name"])}, *self.history]
+        attitude = self.cfg.get("persona", {}).get("attitude", "sassy")
+        messages = [{"role": "system", "content": system_prompt(self.cfg["user_name"], attitude)}, *self.history]
         try:
             msg = self.llm.chat(messages, on_token=on_token, should_stop=should_stop)
         except OllamaError as e:

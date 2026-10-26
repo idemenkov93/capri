@@ -16,6 +16,10 @@ PREFIX = (
 )
 
 
+RUDE = ("Сейчас Капри в грубом режиме (пользователь сам так попросил): отвечай резко, с сарказмом и ворчанием, "
+        "можно «блин», «чёрт», без мата и без настоящих оскорблений, но задачу решай полностью и правильно. ")
+
+
 class ClaudeError(RuntimeError):
     pass
 
@@ -42,7 +46,7 @@ def ask(task: str, cfg: dict) -> str:
     workdir.mkdir(parents=True, exist_ok=True)
 
     cmd = [
-        exe, "-p", PREFIX + task,
+        exe, "-p", PREFIX + (RUDE if cfg.get("attitude") == "rude" else "") + task,
         "--output-format", "json",
         "--permission-mode", cfg.get("permission_mode", "plan"),
     ]

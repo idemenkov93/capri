@@ -54,6 +54,7 @@ class CapriApp:
         self.prefs = State(expand("data/state.json"))
         if self.prefs.data.get("speak") is not None:
             self.cfg["voice"]["speak"] = bool(self.prefs.data["speak"])
+        self._apply_attitude(self.prefs.get("attitude", "sassy"))
         self.agent = Agent(self.cfg)
         self.wake = None
 
@@ -165,6 +166,8 @@ class CapriApp:
         shortcut.activated.connect(self.voice.toggle_record)
         self.chat.add_system(f"🎤 Голос включён: кнопка 🎤 или {v.get('hotkey', 'Ctrl+Space')}. "
                              "Первый раз скачаются голосовые модели (~500 МБ).")
+        if self.prefs.get("voice_tune"):
+            self.voice.apply_tune(self.prefs.get("voice_tune"))
         self.voice.warmup()
         self.start_wake()
 
@@ -265,6 +268,14 @@ class CapriApp:
                 mic.addAction(t("mic_none", L)).setEnabled(False)
             menu.addAction(self._check(menu, t("wake", L), self.prefs.get("wake_word", True), self.toggle_wake))
             menu.addAction(self._check(menu, t("speak_on", L), self.cfg["voice"]["speak"], self.toggle_speak))
+            menu.addAction(t("voice_lab", L), self.open_voice_lab)
+        am = menu.addMenu(t("attitude", L))
+        ag = QActionGroup(am)
+        for code in ("soft", "sassy", "rude"):
+            act = QAction(t(f"att_{code}", L), am, checkable=True, checked=(code == self.prefs.get("attitude", "sassy")))
+            act.triggered.connect(lambda _=False, c=code: self.set_attitude(c))
+            ag.addAction(act)
+            am.addAction(act)
         menu.addAction(self._check(menu, t("wander", L), self.avatar.wander, self.toggle_wander))
         menu.addAction(t("hide", L) if self.avatar.isVisible() else t("show", L), self.toggle_avatar)
 
@@ -284,6 +295,36 @@ class CapriApp:
         act = QAction(label, parent, checkable=True, checked=checked)
         act.triggered.connect(lambda *_: slot())
         return act
+
+    def _apply_attitude(self, code: str):
+        self.cfg.setdefault("persona", {})["attitude"] = code
+        self.cfg["claude_code"]["attitude"] = code
+
+    def set_attitude(self, code: str):
+        self.prefs.set("attitude", code)
+        self._apply_attitude(code)
+        self.chat.add_system(t("att_set", self.lang, name=t(f"att_{code}", self.lang)))
+
+    def open_voice_lab(self):
+        if not self.voice:
+            return
+        from .ui.voice_lab import VoiceLab
+
+        before = self.voice.tune()
+
+        def play(tune, text, lang):
+            self.voice.apply_tune(tune)
+            self.voice.say_now(text, lang)
+
+        def saved(tune):
+            self.voice.apply_tune(tune)
+            self.prefs.set("voice_tune", tune)
+            self.chat.add_system(t("voice_saved", self.lang))
+
+        dlg = VoiceLab(before, self.lang, play)
+        dlg.saved.connect(saved)
+        if dlg.exec() != VoiceLab.Accepted:
+            self.voice.apply_tune(before)   # «Отмена» — вернуть как было
 
     def set_language(self, code: str):
         self.prefs.set("language", code)

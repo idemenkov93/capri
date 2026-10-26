@@ -15,6 +15,13 @@ TEXTS: dict[str, dict[str, str]] = {
     "wander": {"ru": "🚶 Гулять по экрану", "en": "🚶 Walk around"},
     "hide": {"ru": "🙈 Спрятать", "en": "🙈 Hide"},
     "show": {"ru": "👀 Показать", "en": "👀 Show"},
+    "voice_lab": {"ru": "🎛 Голос Капри…", "en": "🎛 Capri's voice…"},
+    "attitude": {"ru": "😈 Характер", "en": "😈 Attitude"},
+    "att_soft": {"ru": "Мягкая", "en": "Soft"},
+    "att_sassy": {"ru": "Дерзкая", "en": "Sassy"},
+    "att_rude": {"ru": "Грубая", "en": "Rude"},
+    "att_set": {"ru": "Характер: {name}.", "en": "Attitude: {name}."},
+    "voice_saved": {"ru": "Голос сохранён.", "en": "Voice saved."},
     "language": {"ru": "🌐 Язык / Language", "en": "🌐 Language / Язык"},
     "quit": {"ru": "⏻ Выход", "en": "⏻ Quit"},
     # сообщения

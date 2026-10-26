@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-DEFAULT_STATE = {"language": "ru", "input_device": None, "wake_word": True, "wander": True, "speak": None}
+DEFAULT_STATE = {"language": "ru", "input_device": None, "wake_word": True, "wander": True, "speak": None,
+                 "attitude": "sassy", "voice_tune": None}
 
 
 class State:
