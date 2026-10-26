@@ -19,7 +19,7 @@ STATUS_COLORS = {
     "THINKING": QColor("#ffd23f"),
     "LOADING": QColor("#8a5cff"),
     "CLAUDE": QColor("#ff7a1a"),
-    "TALKING": QColor("#ff2a6d"),
+    "TALKING": QColor("#39ff88"),
     "ERROR": QColor("#ff0033"),
 }
 
