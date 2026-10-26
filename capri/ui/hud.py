@@ -142,7 +142,7 @@ class Viewport(QWidget):
 
     def __init__(self, custom_image: str = "", fps: int = 12):
         super().__init__()
-        self.setMinimumHeight(250)
+        self.setFixedHeight(300)  # примерно 4:3 — под кадры из видео
         self.state = "LOADING"
         self.phase = 0.0
         self.level = 0.0
@@ -205,8 +205,14 @@ class Viewport(QWidget):
         sprite = self.sprites.get(self.sprite_kind()) if self.sprites else None
         img = sprite.frame() if sprite else None
         if img is not None and not img.isNull():
-            img = img.scaled(int(size * 1.15), int(size * 1.15), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            p.drawPixmap(int(cx - img.width() / 2), int(cy - img.height() / 2), img)
+            if img.hasAlphaChannel() and img.toImage().pixelColor(0, 0).alpha() == 0:
+                # прозрачный спрайт — рисуем фигурку по центру экрана
+                img = img.scaled(int(size * 1.15), int(size * 1.15), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                p.drawPixmap(int(cx - img.width() / 2), int(cy - img.height() / 2), img)
+            else:
+                # кадр из видео с фоном — заполняем весь экран (лишнее обрезается), как в трансляции
+                img = img.scaled(w, h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                p.drawPixmap(int((w - img.width()) / 2), int((h - img.height()) / 2), img)
         else:
             # голографические кольца-орбиты вокруг стандартного аватара
             for k, (rad, speed, dash) in enumerate(((0.52, 0.6, [2, 6]), (0.62, -0.35, [12, 8]), (0.72, 0.2, [1, 10]))):
@@ -290,7 +296,7 @@ class HudWindow(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setWindowTitle("CAPRI // PERSONAL LINK")
         self.setStyleSheet(STYLE)
-        self.resize(430, 680)
+        self.resize(430, 560)
         self._drag = None
         self._live_text = ""
         self._thinking = 0
@@ -341,6 +347,8 @@ class HudWindow(QWidget):
         self.status = QLabel(objectName="status")
         root.addWidget(self.status)
         self.set_status("LOADING")
+
+        self.resize(430, self.sizeHint().height())  # окно ровно по содержимому
 
         self.input.returnPressed.connect(self._submit)
         self.input.textEdited.connect(lambda t: self.set_status("TYPING" if t else "ONLINE"))

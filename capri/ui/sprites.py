@@ -69,7 +69,13 @@ class SpriteSet:
             self._load(Path(source))
 
     def _load(self, src: Path):
-        files = [src] if src.is_file() else sorted(p for p in src.rglob("*") if p.suffix.lower() in EXTS) if src.is_dir() else []
+        if src.is_file():
+            files = [src]
+        elif src.is_dir():  # папки, начинающиеся с «_», пропускаем (например _old, _to_delete)
+            files = sorted(p for p in src.rglob("*") if p.suffix.lower() in EXTS
+                           and not any(part.startswith("_") for part in p.relative_to(src).parts))
+        else:
+            files = []
         for f in files:
             sp = Sprite(f)
             if sp.ok():

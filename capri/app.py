@@ -51,11 +51,12 @@ class CapriApp:
         self.agent = Agent(self.cfg)
 
         av = self.cfg["avatar"]
-        custom = self._avatar_source(av)
+        custom = self._avatar_source(av, "desktop")
         self.avatar = Avatar(av["size"], custom, av.get("fps", 12), wander=av.get("wander", True))
+        hud_source = self._avatar_source(av, "hud")
         if self.cfg.get("ui", {}).get("style", "hud") == "hud":
             from .ui.hud import HudWindow
-            self.chat = HudWindow(custom, av.get("fps", 12))
+            self.chat = HudWindow(hud_source, av.get("fps", 12))
         else:
             self.chat = ChatWindow()
         self.worker: Worker | None = None
@@ -72,9 +73,10 @@ class CapriApp:
 
         self.avatar.place_on_ground()
         self.avatar.show()
-        if self.avatar.sprites:
-            kinds = ", ".join(f"{k}×{n}" for k, n in self.avatar.sprites.kinds().items())
-            self.chat.add_system(f"Анимации загружены: {kinds}")
+        for name, sprites in (("рабочий стол", self.avatar.sprites), ("экран HUD", getattr(getattr(self.chat, "view", None), "sprites", None))):
+            if sprites:
+                kinds = ", ".join(f"{k}×{n}" for k, n in sprites.kinds().items())
+                self.chat.add_system(f"Анимации ({name}): {kinds}")
         self.chat.add_capri(f"Йо, {self.cfg['user_name']}. Я в системе. Чем займёмся?", "rules")
 
         self.voice = None
@@ -88,13 +90,30 @@ class CapriApp:
         self.warmup.start()
 
     @staticmethod
-    def _avatar_source(av: dict) -> str:
-        """Своя внешность: путь из config.yaml, а если он пустой — папка assets/custom, если в ней есть картинки."""
+    def _avatar_source(av: dict, where: str) -> str:
+        """Откуда брать анимации.
+
+        assets/custom/desktop/ — для Капри на рабочем столе (лучше GIF с прозрачным фоном),
+        assets/custom/hud/     — для экрана в окне «Personal Link» (подойдут кадры из видео с фоном).
+        Если папки нет — берём assets/custom целиком. Путь из config.yaml имеет приоритет.
+        """
+        key = "desktop_images" if where == "desktop" else "hud_images"
+        if av.get(key):
+            return str(expand(av[key]))
         if av.get("custom_image"):
             return str(expand(av["custom_image"]))
-        folder = expand("assets/custom")
-        has_images = folder.is_dir() and any(p.suffix.lower() in (".gif", ".png", ".webp") for p in folder.rglob("*"))
-        return str(folder) if has_images else ""
+
+        def has_images(folder):
+            return folder.is_dir() and any(p.suffix.lower() in (".gif", ".png", ".webp") for p in folder.rglob("*"))
+
+        sub = expand(f"assets/custom/{where}")
+        if has_images(sub):
+            return str(sub)
+        root = expand("assets/custom")
+        # общая папка годится, только если в ней лежат картинки не в подпапках desktop/hud
+        if root.is_dir() and any(p.suffix.lower() in (".gif", ".png", ".webp") and p.parent == root for p in root.iterdir()):
+            return str(root)
+        return ""
 
     # голос ------------------------------------------------------------------
     def _init_voice(self):
