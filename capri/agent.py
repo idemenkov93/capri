@@ -296,7 +296,8 @@ class Agent:
             else:
                 notes.append(f"(не могу: {name} {args})")
 
-        content = (msg.get("content") or "").strip()
+        # модели иногда пишут вызов инструмента текстом: «(вызывает инструмент open_app с параметром …)» — убираем
+        content = re.sub(r"\((?:вызывает|вызываю|calls?|calling)[^)]*\)\s*", "", (msg.get("content") or "")).strip()
         if not content:
             content = " ".join(a.description + "." for a in acts) or "Хм, не поняла. Переформулируешь?"
         if notes:

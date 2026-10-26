@@ -117,3 +117,17 @@ def test_simple_mode_asks_to_connect_then_works(simple_agent, monkeypatch):
     assert "Купить молоко" in a.handle("добавь задачу купить молоко").text
     assert "Купить молоко" in a.handle("какие у меня задачи").text
     assert "Вычеркнула" in a.handle("отметь задачу молоко").text
+
+
+@pytest.mark.parametrize("text", ["Сколько у меня не прочитанных и мейлов?", "есть ли новые имейлы", "что пришло на почту", "any new emails?"])
+def test_mail_questions_go_to_mail(simple_agent, text):
+    a, _ = simple_agent
+    assert a.handle(text).actions[0].kind == "connect_mail"      # не подключено → предлагает подключить, а не болтает
+
+
+def test_tool_call_text_is_stripped():
+    class LLM:
+        def chat(self, *a, **k):
+            return {"content": "Проверяю… (вызывает инструмент open_app с параметром \\"почта\\") Ты в курсе?"}
+    a = Agent(copy.deepcopy(DEFAULTS), llm=LLM(), claude=lambda t, c: "", apps=AppIndex(Path("/x")))
+    assert a.handle("как дела").text == "Проверяю… Ты в курсе?"
