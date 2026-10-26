@@ -62,7 +62,8 @@
    ```
    При первом запуске создастся `.venv` и `config.yaml`.
 
-Запуск вручную: `python -m capri`. Тесты: `pip install pytest && pytest`.
+Запуск вручную: `python -m capri`. **Самопроверка** всех частей (Ollama и видеокарта, Claude, озвучка, Whisper,
+«Привет, Капри», микрофон, системные команды, анимации): `selftest.bat` → отчёт в `data/selftest.txt`. Тесты: `pip install pytest && pytest`.
 
 ## Управление
 
