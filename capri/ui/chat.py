@@ -21,6 +21,7 @@ ROUTE_LABEL = {"rules": "⚡", "local": "◆ local", "claude": "✦ Claude", "er
 
 class ChatWindow(QWidget):
     submitted = Signal(str)
+    stop_requested = Signal()
 
     def __init__(self):
         super().__init__(None, Qt.WindowStaysOnTopHint)
@@ -31,10 +32,14 @@ class ChatWindow(QWidget):
         self.log = QTextBrowser(openExternalLinks=True)
         self.input = QLineEdit(placeholderText="Напиши Капри… (/claude — сразу к Claude)")
         self.send = QPushButton("SEND")
+        self.stop = QPushButton("STOP")
+        self.stop.setStyleSheet("border-color:#ff2a6d; color:#ff2a6d;")
+        self.stop.hide()
 
         row = QHBoxLayout()
         row.addWidget(self.input)
         row.addWidget(self.send)
+        row.addWidget(self.stop)
         lay = QVBoxLayout(self)
         lay.addWidget(self.log)
         # «живой» ответ: текст появляется по мере того, как модель его печатает
@@ -47,6 +52,7 @@ class ChatWindow(QWidget):
 
         self.input.returnPressed.connect(self._submit)
         self.send.clicked.connect(self._submit)
+        self.stop.clicked.connect(self.stop_requested.emit)
 
     def _submit(self):
         text = self.input.text().strip()
@@ -57,7 +63,8 @@ class ChatWindow(QWidget):
 
     def set_busy(self, busy: bool):
         self.input.setEnabled(not busy)
-        self.send.setEnabled(not busy)
+        self.send.setVisible(not busy)
+        self.stop.setVisible(busy)
         if not busy:
             self.input.setFocus()
 

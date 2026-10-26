@@ -22,10 +22,12 @@ class Worker(QThread):
     def __init__(self, agent: Agent, text: str):
         super().__init__()
         self.agent, self.text = agent, text
+        self.stop_requested = False
 
     def run(self):
         try:
-            reply = self.agent.handle(self.text, on_status=self.status.emit, on_token=self.token.emit)
+            reply = self.agent.handle(self.text, on_status=self.status.emit, on_token=self.token.emit,
+                                      should_stop=lambda: self.stop_requested)
         except Exception as e:  # чтобы поток никогда не падал молча
             reply = Reply(f"Что-то сломалось: {e}", route="error")
         self.done.emit(reply)
@@ -61,6 +63,7 @@ class CapriApp:
         self.avatar.clicked.connect(self.toggle_chat)
         self.avatar.quit_requested.connect(self.qt.quit)
         self.chat.submitted.connect(self.on_message)
+        self.chat.stop_requested.connect(self.stop_current)
 
         screen = self.qt.primaryScreen().availableGeometry()
         self.avatar.move(screen.right() - self.avatar.width() - 40, screen.bottom() - self.avatar.height() - 40)
@@ -94,6 +97,10 @@ class CapriApp:
         self.worker.token.connect(self.chat.stream)
         self.worker.done.connect(self.on_reply)
         self.worker.start()
+
+    def stop_current(self):
+        if self.worker and self.worker.isRunning():
+            self.worker.stop_requested = True
 
     def on_status(self, status: str):
         self.avatar.set_status(status)

@@ -8,6 +8,9 @@ ollama:
   model: qwen3:8b          # RU/DE/EN/HE, умеет вызывать инструменты, влезает в 8 ГБ видеопамяти
   timeout: 120
   think: false             # без «размышлений» — быстрее отвечает
+  options:
+    num_predict: 700       # максимум длины ответа — защита от зацикливания
+    repeat_penalty: 1.15   # штраф за повторы
 
 claude_code:
   enabled: true
