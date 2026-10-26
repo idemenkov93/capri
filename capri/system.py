@@ -91,6 +91,43 @@ class SystemControl:
     def _keys(self, cmd: Command):
         self.press(key_codes(cmd.keys or []), cmd.repeat)
 
+    # ------------------------------------------------------------ мышь, текст, окна (control.py)
+    def _type(self, cmd: Command):
+        from . import control
+        control.type_text(cmd.text or "")
+
+    def _scroll(self, cmd: Command):
+        from . import control
+        control.scroll(int(cmd.value or -5))
+
+    def _click(self, cmd: Command):
+        from . import control
+        control.click("right" if cmd.text == "right" else "left", double=cmd.text == "double")
+
+    def _mouse_center(self, cmd: Command):
+        from . import control
+        control.mouse_center()
+
+    def _window(self, cmd: Command):
+        from . import control
+        return {"title": control.window(cmd.text or "minimize")}
+
+    def _click_name(self, cmd: Command, confirmed: bool = False):
+        """Найти кнопку по названию в текущем окне и нажать. Рискованное («Удалить», «Отправить», «Оплатить»…) —
+        только после «Да»: тогда возвращаем confirm, а нажимает уже действие click_confirmed."""
+        import uiautomation as auto
+
+        from . import control
+        with auto.UIAutomationInitializerInThread():
+            ctrl, found, score = control.find_element(cmd.text or "")
+            if ctrl is None or score < 0.72:
+                hint = f" (похожее: «{found}»)" if found and score > 0.5 else ""
+                return {"error": f"не нашла в окне кнопку «{cmd.text}»{hint}"}
+            if not confirmed and control.RISKY.search(found or cmd.text or ""):
+                return {"confirm": True, "found": found}
+            control.click_element(ctrl)
+            return {"found": found}
+
     # ------------------------------------------------------------ музыка (системные мультимедиа-элементы)
     @staticmethod
     async def _session():

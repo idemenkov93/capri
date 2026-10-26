@@ -15,6 +15,7 @@ class Command:
     value: float | None = None
     keys: list[str] | None = None
     repeat: int = 1
+    text: str | None = None   # что напечатать / какую кнопку нажать / что сделать с окном
 
 
 def lang_of(text: str) -> str:
@@ -200,6 +201,11 @@ def key_codes(keys: list[str]) -> list[tuple[int, bool]]:
 
 
 # ---------------------------------------------------------------- разбор фразы
+def _strip_name(text: str) -> str:
+    """Убрать обращение («Привет, Капри, …») из исходной фразы, не трогая регистр остального."""
+    return re.sub(r"^\s*(?:(?:привет|эй|окей|ок|hey|hi)\s*,?\s*)?(?:капри|capri|kapri)[\s,!.:-]*", "", text, flags=re.I)
+
+
 def _clean(text: str) -> str:
     t = text.lower().replace("ё", "е").strip()
     t = re.sub(r"^(привет\s*,?\s*)?(капри|capri|kapri)[\s,!.:-]*", "", t)
@@ -211,7 +217,8 @@ def _clean(text: str) -> str:
 def match(text: str) -> Command | None:
     """Прямая системная команда или None (тогда фразу разбирают другие правила или модель)."""
     t = _clean(text)
-    if not t or len(t) > 80:
+    typing = re.match(r"^(?:напечатай|впечатай|набери|введи|type|tippe|schreib\w* text)\s+", t)
+    if not t or (len(t) > 80 and not typing):
         return None
 
     # «нажми play», «нажми на паузу» — это про плеер, а не про клавиши
@@ -219,9 +226,56 @@ def match(text: str) -> Command | None:
         return Command("play")
     if re.fullmatch(r"(?:нажми|нажать|press|hit)\s+(?:на\s+)?(?:pause|паузу|пауза)(?:\s+(?:в|на|in)\s+.+)?", t):
         return Command("pause")
+    # --- печать текста (текст берём из исходной фразы — с заглавными буквами и знаками)
+    if re.match(r"^(?:напечатай|впечатай|набери|введи текст|введи|type|tippe|schreib\w* text)\s+", t):
+        raw = _strip_name(text)
+        m = re.match(r"^\s*(?:напечатай|впечатай|набери|введи текст|введи|type|tippe|schreib\w* text)\s*[:,]?\s*(.+?)\s*$", raw, re.I | re.S)
+        if m:
+            body = m.group(1).strip().strip("«»\"“”")
+            body = re.sub(r"\s*(?:и нажми энтер|и отправь|and press enter)$", "\n", body, flags=re.I)
+            return Command("type", text=body)
+
+    # --- прокрутка
+    if m := re.fullmatch(r"(?:прокрути|пролистай|листай|мотай|scroll|scrolle?)\s*(?:страницу\s+)?(вниз|вверх|наверх|down|up|runter|hoch)"
+                         r"(?:\s+(?:на\s+)?(\S+)\s*(?:раз\w*|times|mal)?)?(?:\s+(немного|чуть-?чуть|сильно|много))?", t):
+        up = m.group(1) in ("вверх", "наверх", "up", "hoch")
+        how = " ".join(x for x in (m.group(2), m.group(3)) if x)
+        n = numbers(how)[0] if numbers(how) else 2 if re.search(r"немного|чуть", how) else 10 if re.search(r"сильно|много", how) else 5
+        return Command("scroll", value=n if up else -n)
+
+    # --- клики мышью там, где сейчас курсор
+    if re.fullmatch(r"(?:сделай\s+)?(?:двойной клик|кликни дважды|дабл ?клик|double ?click|doppelklick)", t):
+        return Command("click", text="double")
+    if re.fullmatch(r"(?:сделай\s+)?(?:правый клик|кликни правой(?: кнопкой)?(?: мыши)?|нажми правой кнопкой(?: мыши)?|right ?click|rechtsklick)", t):
+        return Command("click", text="right")
+    if re.fullmatch(r"(?:кликни|щелкни|клик|нажми левой кнопкой(?: мыши)?|кликни мышкой|click|klick)", t):
+        return Command("click", text="left")
+    if re.fullmatch(r"(?:мышь|мышку|курсор)\s+(?:в|на)\s+(?:центр|середину)(?:\s+окна|\s+экрана)?", t):
+        return Command("mouse_center")
+
+    # --- окна
+    for rx, action in ((r"сверни (?:это |текущее )?окно|minimi[sz]e(?: the)? window|fenster minimieren", "minimize"),
+                       (r"разверни (?:это |текущее )?окно(?: на весь экран)?|maximi[sz]e(?: the)? window|fenster maximieren", "maximize"),
+                       (r"закрой (?:это |текущее )?окно|закрой (?:эту )?программу|close(?: the| this)? window|fenster schließen", "close"),
+                       (r"(?:передвинь|подвинь|прилепи|окно) (?:окно )?(?:влево|налево)|window left", "left"),
+                       (r"(?:передвинь|подвинь|прилепи|окно) (?:окно )?(?:вправо|направо)|window right", "right")):
+        if re.fullmatch(rx, t):
+            return Command("window", text=action)
+    if re.fullmatch(r"сверни все(?: окна)?|покажи рабочий стол|show desktop|alles minimieren", t):
+        return Command("keys", keys=["win", "d"])
+    if re.fullmatch(r"(?:переключи|смени|следующее) окно|переключись на (?:другое|следующее) окно|switch window", t):
+        return Command("keys", keys=["alt", "tab"])
+
     if m := re.match(r"^(?:нажми|нажать|зажми|press|hit|drück|drücke)\s+(.+)$", t):
         parsed = parse_keys(m.group(1))
-        return Command("keys", keys=parsed[0], repeat=parsed[1]) if parsed else None
+        if parsed:
+            return Command("keys", keys=parsed[0], repeat=parsed[1])
+    # --- клик по кнопке по названию: «нажми кнопку Сохранить», «кликни по Настройки», «открой меню Файл»
+    if m := re.match(r"^(?:нажми|нажать|кликни|щелкни|ткни|click|klick\w*|drück\w*)\s+(?:на\s+|по\s+|on\s+|auf\s+)?"
+                     r"(?:кнопк\w+|пункт\w*|ссылк\w+|вкладк\w+|button|link|tab|knopf)?\s*(.+)$|^открой (?:меню|вкладку)\s+(.+)$", t):
+        name = (m.group(1) or m.group(2)).strip().strip("«»\"“”")
+        if name:
+            return Command("click_name", text=name)
 
     # --- музыка и видео
     if re.search(r"^(что|чо|че)\s+(сейчас\s+|щас\s+|у нас\s+)?(играет|звучит|за (песня|трек|музыка))|"
@@ -312,6 +366,24 @@ def reply(cmd: Command, lang: str, result: dict) -> str:
     if op == "keys":
         k = "+".join(cmd.keys or [])
         return L(f"Нажала {k}.", f"Pressed {k}.", f"{k} gedrückt.")
+    if op == "type":
+        return L("Напечатала.", "Typed it.", "Getippt.")
+    if op == "scroll":
+        return L("Листаю.", "Scrolling.", "Scrolle.")
+    if op == "click":
+        return L({"double": "Двойной клик.", "right": "Правый клик."}.get(cmd.text, "Клик."), "Clicked.", "Geklickt.")
+    if op == "mouse_center":
+        return L("Мышь в центре окна.", "Mouse centred.", "Maus in der Mitte.")
+    if op == "window":
+        w = result.get("title") or L("окно", "window", "Fenster")
+        names = {"minimize": ("Свернула", "Minimised", "Minimiert"), "maximize": ("Развернула", "Maximised", "Maximiert"),
+                 "close": ("Закрываю", "Closing", "Schließe"), "left": ("Подвинула влево", "Moved left", "Nach links"),
+                 "right": ("Подвинула вправо", "Moved right", "Nach rechts")}[cmd.text]
+        return L(f"{names[0]}: {w}.", f"{names[1]}: {w}.", f"{names[2]}: {w}.")
+    if op == "click_name":
+        if result.get("confirm"):
+            return L(f"Нашла «{result['found']}». Нажать?", f"Found “{result['found']}”. Click it?", f"„{result['found']}“ gefunden. Klicken?")
+        return L(f"Нажала «{result.get('found', cmd.text)}».", f"Clicked “{result.get('found', cmd.text)}”.", f"„{result.get('found', cmd.text)}“ geklickt.")
     if op in ("pause", "play", "next", "previous") and result.get("nothing"):
         return L("Сейчас ничего не играет.", "Nothing is playing.", "Gerade läuft nichts.")
     if op == "pause":

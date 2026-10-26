@@ -213,6 +213,9 @@ class Agent:
         # системные команды (музыка, громкость, клавиши, проверка ПК…) — выполняем прямо здесь, в рабочем потоке
         if cmd := C.match(text):
             result = self.system.run(cmd)
+            if cmd.op == "click_name" and result.get("confirm"):
+                act = A.Action("click_confirmed", f"Нажать «{result['found']}»", {"name": cmd.text}, needs_confirm=True)
+                return Reply(C.reply(cmd, C.lang_of(text), result), [act], "rules")
             if cmd.op == "play" and result.get("nothing"):
                 # ничего не играет — открываем YouTube Music (приложение, если есть, иначе сайт)
                 app = self.apps.find("youtube music", threshold=0.95)

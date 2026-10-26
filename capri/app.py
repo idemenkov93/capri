@@ -121,6 +121,10 @@ class CapriApp:
         self.models_unloaded = False
         self._eco_timer = QTimer(interval=15_000, timeout=self._eco_check)
         self._eco_timer.start()
+        # запоминаем последнее «чужое» окно: «напечатай…», «нажми кнопку…» из чата Капри идут туда, а не в чат
+        from . import control
+        self._fg_timer = QTimer(interval=1000, timeout=control.remember_foreground)
+        self._fg_timer.start()
 
         # грузим модель в видеокарту сразу, пока пользователь ещё ничего не написал
         self.set_status("LOADING")

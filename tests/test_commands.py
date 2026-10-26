@@ -70,8 +70,9 @@ def test_keys(text, keys, repeat):
     assert cmd.op == "keys" and cmd.keys == keys and cmd.repeat == repeat
 
 
-def test_unknown_key_word_is_not_a_command():
-    assert C.match("нажми на кнопку счастья") is None
+def test_unknown_key_word_becomes_click_by_name():
+    c = C.match("нажми на кнопку счастья")
+    assert c.op == "click_name" and c.text == "счастья"
 
 
 def test_key_codes():

@@ -129,6 +129,11 @@ def execute(action: Action, config: dict) -> str:
     if action.kind in ("mkdir", "mkfile", "trash", "open_folder"):
         from . import files
         return files.execute(action)
+    if action.kind == "click_confirmed":
+        from .commands import Command
+        from .system import SystemControl
+        r = SystemControl(expand("data"))._click_name(Command("click_name", text=action.params["name"]), confirmed=True)
+        return f"Не вышло: {r['error']}" if r.get("error") else f"Нажала «{r.get('found')}»."
     if action.kind == "gcal_add":
         from .google_api import Google
         return Google(expand("data")).add_event(action.params["event"])
