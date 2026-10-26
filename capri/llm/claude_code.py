@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from pathlib import Path
 
 from ..config import expand
 
@@ -17,8 +18,18 @@ class ClaudeError(RuntimeError):
     pass
 
 
+def find_claude(command: str) -> str | None:
+    """Ищем Claude Code в PATH, а если его там нет — в стандартной папке установщика."""
+    if exe := shutil.which(command):
+        return exe
+    for candidate in (Path.home() / ".local" / "bin" / "claude.exe", Path.home() / ".local" / "bin" / "claude"):
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
 def ask(task: str, cfg: dict) -> str:
-    exe = shutil.which(cfg.get("command", "claude"))
+    exe = find_claude(cfg.get("command", "claude"))
     if not exe:
         raise ClaudeError(
             "Не нашла Claude Code. Установи его в PowerShell: irm https://claude.ai/install.ps1 | iex — "
