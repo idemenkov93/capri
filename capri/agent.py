@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -47,6 +48,10 @@ RE_COMPLEX = re.compile(
     r"\bпочему\s+(не\s+работает|ошибк\w*|падает|не\s+запускается)|\bкак\s+(настроить|исправить|починить|автоматизировать)|"
     r"\bпомоги\s+(с|мне с)\s+(код\w*|ошибк\w*|скрипт\w*|задач\w*)|\b(powershell|bash|python|sql|ansible|terraform|docker)\b.*\b(скрипт|команд\w*|ошибк\w*)|"
     r"\b(write|create)\s+(a\s+)?(script|function|program)|\bschreib\w*\s+(ein\s+)?(skript|programm)", re.I)
+# «открой вторую ссылку», «включи третье видео», «открой первый результат в хроме»
+RE_NTH = re.compile(r"^(?:открой|включи|запусти|кликни|нажми)\s+(?:на\s+)?(?P<n>\S+?)\s+(?:ссылк\w*|видео|ролик\w*|результат\w*|link|video|result)"
+                    r"(?:\s+(?:в|на)\s+\S+)?$|^(?:open|play)\s+the\s+(?P<n2>\S+)\s+(?:link|video|result)$", re.I)
+RE_VIDEO_WORDS = re.compile(r"\b(выпуск\w*|сери[яюи]|сезон\w*|видео|ролик\w*|клип\w*|трейлер\w*|обзор\w*|подкаст\w*|стрим\w*)\b|#\d+", re.I)
 RE_DOMAIN = re.compile(r"^[\w-]+(\.[\w-]+)+(/\S*)?$")
 
 UNIT_TO_MIN = {
@@ -71,6 +76,8 @@ class Agent:
             from .system import SystemControl
             system = SystemControl(expand("data"))
         self.system = system
+        if hasattr(system, "apps"):
+            system.apps = apps            # чтобы узнавать YouTube Music по его ID
         o = config["ollama"]
         self.llm = llm or OllamaClient(o["url"], o["model"], o["timeout"], o.get("think"), o.get("options"))
         self.claude = claude
@@ -84,6 +91,8 @@ class Agent:
         if not text:
             return Reply("Ну? Я слушаю.", route="rules")
         reply = self._rules(text)
+        if reply and reply.route == "vision":
+            return self._vision_click(reply.text, on_status)
         if reply:
             return reply
         if m := RE_CLAUDE.match(text):
@@ -189,6 +198,80 @@ class Agent:
             return f"{when} в календаре пусто. Свобода."
         return f"{when}: " + "; ".join(f"{a} — {b}" for a, b in items) + "."
 
+    # ------------------------------------------------------------------ то, что на экране
+    def _open_nth(self, word: str) -> Reply:
+        from . import control
+        n = control.ordinal(word)
+        if not n:
+            return Reply(f"Не поняла, какую по счёту: «{word}».", route="error")
+        try:
+            import uiautomation as auto
+            with auto.UIAutomationInitializerInThread():
+                links = control.page_links()
+                if not links:              # Chrome включает «доступность» по первому запросу — пробуем ещё раз
+                    time.sleep(0.6)
+                    links = control.page_links()
+                if not links:
+                    return Reply("Не вижу ссылок в этом окне. Открой страницу в браузере и повтори.", route="error")
+                name, ctrl = links[n - 1] if n > 0 and n <= len(links) else links[-1] if n == -1 else (None, None)
+                if not ctrl:
+                    return Reply(f"На странице только {len(links)} ссылок.", route="error")
+                control.click_element(ctrl)
+        except ImportError:
+            return Reply("Не установлен пакет uiautomation — перезапусти run_capri.bat.", route="error")
+        except Exception as e:  # noqa: BLE001
+            return Reply(f"Не вышло: {e}", route="error")
+        return Reply(f"Открываю: «{name[:80]}».", route="rules")
+
+    def _open_on_screen(self, target: str) -> Reply | None:
+        """«Открой подземелье чикен карри 54 выпуск»: ищем такую ссылку на открытой странице и кликаем;
+        не нашли, но это похоже на видео — ищем на YouTube. None — пусть решает модель."""
+        from . import control
+        try:
+            title, exe = control.context_window()
+        except Exception:  # noqa: BLE001
+            title, exe = "", ""
+        in_browser = exe in control.BROWSERS
+        if in_browser:
+            try:
+                import uiautomation as auto
+                with auto.UIAutomationInitializerInThread():
+                    links = control.page_links(min_len=4) or (time.sleep(0.6) or control.page_links(min_len=4))
+                    score, found, ctrl = max(((control.name_score(target, nm), nm, c) for nm, c in links),
+                                             key=lambda x: x[0], default=(0.0, "", None))
+                    if ctrl is not None and score >= 0.8:
+                        control.click_element(ctrl)
+                        return Reply(f"Открываю: «{found[:80]}».", route="rules")
+            except Exception:  # noqa: BLE001
+                pass
+        if RE_VIDEO_WORDS.search(target) or "youtube" in title.lower():
+            return Reply(f"Ищу на YouTube «{target}».", [A.make_youtube_search(target)], "rules")
+        return None
+
+    def _vision_click(self, what: str, on_status) -> Reply:
+        """Кнопки нет в «дереве» окна (игры, видео, свои интерфейсы) — Claude смотрит на скриншот и говорит, куда нажать."""
+        from . import control, screen
+        from .config import expand
+        if not self.cfg["claude_code"].get("enabled", True):
+            return Reply(f"Не нашла в окне «{what}». (Посмотреть на экран могу через Claude — он выключен в config.yaml.)", route="error")
+        on_status("CLAUDE")
+        try:
+            path, scale, x0, y0, w, h = screen.screenshot_for_locate(expand(self.cfg["claude_code"].get("workdir", "workspace")))
+            answer = self.claude(screen.locate_prompt(what, path, w, h), self.cfg["claude_code"])
+        except claude_code.ClaudeError as e:
+            return Reply(str(e), route="error")
+        except Exception as e:  # noqa: BLE001
+            return Reply(f"Не смогла посмотреть на экран: {e}", route="error")
+        pt = screen.parse_point(answer)
+        if not pt:
+            return Reply(f"Посмотрела — не вижу на экране «{what}».", route="claude")
+        if control.RISKY.search(what):
+            x, y = screen.to_screen(pt, scale, x0, y0)
+            act = A.Action("click_at", f"Нажать «{what}»", {"x": x, "y": y}, needs_confirm=True)
+            return Reply(f"Нашла «{what}». Нажать?", [act], "claude")
+        control.click(at=screen.to_screen(pt, scale, x0, y0))
+        return Reply(f"Нажала «{what}» (посмотрела на экран).", route="claude")
+
     def _weather(self, text: str) -> Reply:
         from . import weather
         lang = C.lang_of(text)
@@ -210,9 +293,14 @@ class Agent:
 
     # быстрые правила --------------------------------------------------------
     def _rules(self, text: str) -> Reply | None:
+        # «открой вторую ссылку / третье видео» — до системных команд, иначе «нажми …» уйдёт в поиск кнопки
+        if m := RE_NTH.match(text.rstrip(".!? ")):
+            return self._open_nth(m.group("n") or m.group("n2"))
         # системные команды (музыка, громкость, клавиши, проверка ПК…) — выполняем прямо здесь, в рабочем потоке
         if cmd := C.match(text):
             result = self.system.run(cmd)
+            if cmd.op == "click_name" and str(result.get("error", "")).startswith("не нашла"):
+                return Reply(cmd.text, route="vision")       # кнопки нет в дереве окна — посмотрим глазами (Claude)
             if cmd.op == "click_name" and result.get("confirm"):
                 act = A.Action("click_confirmed", f"Нажать «{result['found']}»", {"name": cmd.text}, needs_confirm=True)
                 return Reply(C.reply(cmd, C.lang_of(text), result), [act], "rules")
@@ -267,6 +355,8 @@ class Agent:
             if RE_DOMAIN.match(target) and (act := A.make_open_url(target)):
                 act.needs_confirm = False
                 return Reply(f"{act.description}.", [act], "rules")
+            if (r := self._open_on_screen(target)) is not None:
+                return r
         return None  # не узнали команду — пусть думает модель
 
     # локальная модель -------------------------------------------------------

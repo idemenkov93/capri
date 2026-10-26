@@ -132,15 +132,23 @@ class VoiceController(QObject):
         if self.speaker:
             self.speaker.stop()
 
+    chime_volume = 0.7   # 0…1 — громкость «дзынь» после «Капри»
+
     def chime(self) -> None:
-        """Короткий «дзынь» — услышала имя и слушаю (0.15 с, не мешает распознаванию)."""
+        """Заметный «дзынь-дзынь» — услышала имя и слушаю (~0.25 с, распознаванию не мешает)."""
         try:
             import numpy as np
             import sounddevice as sd
             sr = 24000
-            t = np.arange(int(sr * 0.07)) / sr
-            tone = np.concatenate([np.sin(2 * np.pi * 880 * t), np.sin(2 * np.pi * 1320 * t)])
-            tone *= np.hanning(len(tone)) * 0.25
+
+            def note(freq: float, dur: float):
+                t = np.arange(int(sr * dur)) / sr
+                wave = np.sin(2 * np.pi * freq * t) + 0.35 * np.sin(2 * np.pi * 2 * freq * t)   # обертон — слышно даже под музыку
+                env = np.minimum(1.0, t / 0.008) * np.exp(-t * 9)                                   # быстрый старт, мягкое затухание
+                return wave * env
+
+            tone = np.concatenate([note(988, 0.11), note(1480, 0.15)])
+            tone = tone / np.abs(tone).max() * max(0.05, min(1.0, self.chime_volume))
             sd.play(tone.astype(np.float32), sr)
         except Exception:  # noqa: BLE001
             pass

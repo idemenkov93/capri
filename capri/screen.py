@@ -79,3 +79,49 @@ def prompt(question: str, paths: list[str], title: str) -> str:
             f"Скриншоты лежат в текущей папке: {files}. Открой их инструментом Read и посмотри внимательно. "
             "Если там ошибка — скажи, что она значит и как её исправить (точные команды). "
             "Ответ короткий, для озвучки: 2–5 предложений, команды — отдельной строкой.")
+
+
+# ----------------------------------------------------------------- «посмотри и нажми»: Claude находит место на экране
+def screenshot_for_locate(workdir: Path) -> tuple[str, float, int, int, int, int]:
+    """Снимок всех экранов (уменьшенный до 1600 по ширине). → (путь, масштаб, x0, y0, ширина, высота)."""
+    import ctypes
+
+    from PIL import ImageGrab
+    img = ImageGrab.grab(all_screens=True)
+    x0 = y0 = 0
+    if sys.platform == "win32":
+        x0 = ctypes.windll.user32.GetSystemMetrics(76)   # SM_XVIRTUALSCREEN: левый край всех мониторов
+        y0 = ctypes.windll.user32.GetSystemMetrics(77)
+    scale = min(1.0, 1600 / img.width)
+    if scale < 1.0:
+        img = img.resize((round(img.width * scale), round(img.height * scale)))
+    folder = Path(workdir) / "screens"
+    folder.mkdir(parents=True, exist_ok=True)
+    name = f"locate-{dt.datetime.now():%Y%m%d-%H%M%S}.png"
+    img.save(folder / name)
+    return f"screens/{name}", scale, x0, y0, img.width, img.height
+
+
+def locate_prompt(what: str, path: str, w: int, h: int) -> str:
+    return (f"Это скриншот экрана пользователя ({w}×{h} пикселей): {path}. Открой его инструментом Read.\n"
+            f"Найди на нём: «{what}» — кнопку, ссылку, видео, вкладку или пункт меню, на который нужно нажать.\n"
+            "Ответь ТОЛЬКО одной строкой JSON без пояснений: {\"x\": число, \"y\": число} — центр этого места "
+            "в пикселях ЭТОГО изображения. Если такого нет — {\"none\": true}.")
+
+
+def parse_point(answer: str) -> tuple[int, int] | None:
+    import json
+    for m in re.finditer(r"\{[^{}]*\}", answer or ""):
+        try:
+            d = json.loads(m.group(0))
+        except ValueError:
+            continue
+        if d.get("none"):
+            return None
+        if isinstance(d.get("x"), (int, float)) and isinstance(d.get("y"), (int, float)):
+            return int(d["x"]), int(d["y"])
+    return None
+
+
+def to_screen(pt: tuple[int, int], scale: float, x0: int, y0: int) -> tuple[int, int]:
+    return round(x0 + pt[0] / scale), round(y0 + pt[1] / scale)

@@ -129,6 +129,10 @@ def execute(action: Action, config: dict) -> str:
     if action.kind in ("mkdir", "mkfile", "trash", "open_folder"):
         from . import files
         return files.execute(action)
+    if action.kind == "click_at":
+        from . import control
+        control.click(at=(action.params["x"], action.params["y"]))
+        return "Нажала."
     if action.kind == "click_confirmed":
         from .commands import Command
         from .system import SystemControl

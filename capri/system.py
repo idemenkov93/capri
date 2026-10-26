@@ -112,6 +112,10 @@ class SystemControl:
         from . import control
         return {"title": control.window(cmd.text or "minimize")}
 
+    def _move_monitor(self, cmd: Command):
+        from . import control
+        return control.move_to_monitor(cmd.text, (cmd.keys or ["next"])[0])
+
     def _click_name(self, cmd: Command, confirmed: bool = False):
         """Найти кнопку по названию в текущем окне и нажать. Рискованное («Удалить», «Отправить», «Оплатить»…) —
         только после «Да»: тогда возвращаем confirm, а нажимает уже действие click_confirmed."""
@@ -129,16 +133,54 @@ class SystemControl:
             return {"found": found}
 
     # ------------------------------------------------------------ музыка (системные мультимедиа-элементы)
-    @staticmethod
-    async def _session():
+    apps = None   # AppIndex (ставит агент) — чтобы узнать ID приложения YouTube Music на этом ПК
+
+    def _kind_of(self, app_id: str) -> str:
+        """Какой это плеер: music (YouTube Music, Яндекс Музыка…) | spotify | browser | other."""
+        a = (app_id or "").lower()
+        try:
+            from .music import music_app_ids
+            if a in music_app_ids(self.apps):
+                return "music"
+        except Exception:  # noqa: BLE001
+            pass
+        if "spotify" in a:
+            return "spotify"
+        if "_crx_" in a or "music" in a:
+            return "music"          # сайт-приложение (YouTube Music и т.п.)
+        if any(b in a for b in ("chrome", "msedge", "firefox", "opera", "brave", "vivaldi")):
+            return "browser"
+        return "other"
+
+    async def _session(self, target: str | None = None, for_play: bool = False):
+        """Какой плеер слушается команды. Порядок: то, что ты назвал («в ютуб мюзик»), → то, что у тебя перед
+        глазами (окно YouTube Music / вкладка браузера) → то, что играет → последнее, что играло."""
         from winrt.windows.media.control import GlobalSystemMediaTransportControlsSessionManager as M
         mgr = await M.request_async()
         sessions = list(mgr.get_sessions())
         if not sessions:
             return None
-        for s in sessions:
-            if s.get_playback_info().playback_status == PLAYING:
-                return s
+        want = target
+        if not want:
+            try:
+                from . import control
+                want = control.media_context()
+            except Exception:  # noqa: BLE001
+                want = None
+        if want:
+            mine = [x for x in sessions if self._kind_of(x.source_app_user_model_id) == want]
+            if mine:
+                playing = [x for x in mine if x.get_playback_info().playback_status == PLAYING]
+                return (playing or mine)[0]
+            if target:
+                return None             # назвал плеер, а его нет — не трогаем чужой
+        playing = [x for x in sessions if x.get_playback_info().playback_status == PLAYING]
+        if playing and not for_play:
+            return playing[0]
+        if for_play:
+            paused = [x for x in sessions if x.get_playback_info().playback_status != PLAYING]
+            music = [x for x in paused if self._kind_of(x.source_app_user_model_id) in ("music", "spotify")]
+            return (music or paused or playing or [None])[0] or mgr.get_current_session()
         return mgr.get_current_session() or sessions[0]
 
     @staticmethod
@@ -151,7 +193,7 @@ class SystemControl:
             return f"{artist} — {title}"
         return title
 
-    def _media(self, action: str) -> dict:
+    def _media(self, action: str, target: str | None = None) -> dict:
         try:
             import winrt.windows.media.control  # noqa: F401
         except ImportError:
@@ -159,9 +201,13 @@ class SystemControl:
             return {}
 
         async def go():
-            s = await self._session()
+            s = await self._session(target, for_play=action == "play")
+            if (not s or self._kind_of(s.source_app_user_model_id) == "browser") and self._music_tab(target):
+                from . import control
+                if control.press_player_button(action):
+                    return {}
             if not s:
-                return {"nothing": True}
+                return {"nothing": True, "target": target}
             if action == "pause" and s.get_playback_info().playback_status != PLAYING:
                 return {}
             f = {"pause": s.try_pause_async, "play": s.try_play_async,
@@ -173,21 +219,36 @@ class SystemControl:
             return {}
         return asyncio.run(go())
 
+    @staticmethod
+    def _music_tab(target: str | None) -> bool:
+        """YouTube Music открыт вкладкой в браузере (не приложением): у вкладок общий сеанс с YouTube,
+        поэтому команду надо нажать кнопкой на самой странице."""
+        if target not in (None, "music"):
+            return False
+        try:
+            from . import control
+            if target is None and control.media_context() != "music":
+                return False
+            h = control.find_app_window("youtube music")
+            return bool(h) and "youtube music" in control.window_title(h).lower()
+        except Exception:  # noqa: BLE001
+            return False
+
     def _pause(self, cmd):
-        return self._media("pause")
+        return self._media("pause", cmd.text)
 
     def _play(self, cmd):
-        return self._media("play")
+        return self._media("play", cmd.text)
 
     def _next(self, cmd):
-        return self._media("next")
+        return self._media("next", cmd.text)
 
     def _previous(self, cmd):
-        return self._media("previous")
+        return self._media("previous", cmd.text)
 
     def _now_playing(self, cmd):
         async def go():
-            s = await self._session()
+            s = await self._session(cmd.text)
             return {"track": await self._describe(s)} if s else {}
         return asyncio.run(go())
 

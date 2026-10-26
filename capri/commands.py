@@ -214,6 +214,56 @@ def _clean(text: str) -> str:
     return t.strip()
 
 
+def _media(t: str) -> Command | None:
+    """Команды плееру: пауза, играй, следующий, что играет, перемотка."""
+    # «нажми play», «нажми на паузу» — это про плеер, а не про клавиши
+    if re.fullmatch(r"(?:нажми|нажать|press|hit)\s+(?:на\s+)?(?:play|плей|плэй|воспроизведение)", t):
+        return Command("play")
+    if re.fullmatch(r"(?:нажми|нажать|press|hit)\s+(?:на\s+)?(?:pause|паузу|пауза)", t):
+        return Command("pause")
+    if re.search(r"^(что|чо|че)\s+(сейчас\s+|щас\s+|у нас\s+)?(играет|звучит|за (песня|трек|музыка))|"
+                 r"^(какая|какой) (это |сейчас )?(песня|трек)|^what('s| is)( this| now)? (playing|song)|^was läuft", t):
+        return Command("now_playing")
+    if re.fullmatch(r"пауза|на паузу|поставь (на )?паузу|постав\w* (музыку |видео )?на паузу|"
+                    r"останови (музыку|видео|трек)|выключи (музыку|видео)|pause( (the )?(music|video))?|pausier\w*", t):
+        return Command("pause")
+    if re.fullmatch(r"продолжи|продолжай|играй|сними с паузы|сними паузу|включи дальше|продолжи (музыку|видео)|"
+                    r"(воспроизвед\w*|поспроизвед\w*|запусти|включи|врубай|вруби|поставь)\s+(какую-?нибудь\s+|мою\s+|немного\s+)?(музык\w*|песн\w*|трек\w*)|"
+                    r"воспроизведени\w* музык\w*|музыку|"
+                    r"resume|play|play (some )?music|unpause|continue playing|weiter( abspielen)?|fortsetzen|musik (an|abspielen)", t):
+        return Command("play")
+    if re.fullmatch(r"следующ\w* (трек|песн\w*|видео|композици\w*)|пропусти( трек| песню)?|переключи (трек|песню)|"
+                    r"next( track| song| video)?|skip( (this|the) (song|track))?|nächst\w* (titel|lied|song)", t):
+        return Command("next")
+    if re.fullmatch(r"предыдущ\w* (трек|песн\w*|видео)|прошл\w* (трек|песн\w*)|верни (трек|песню)|"
+                    r"previous( track| song)?|last (track|song)|vorherig\w* (titel|lied)", t):
+        return Command("previous")
+    if re.match(r"^(включи|начни|поставь|запусти)\s+(сначала|с начала|заново)|^(start over|restart the (song|video))$|^von vorne$", t):
+        return Command("seek_to", 0)
+    if m := re.match(r"^(перемотай|промотай|отмотай|мотни|skip|jump|spul\w*)\s+(.+)$", t):
+        if not re.search(r"\bна\s+\d{1,2}[:.]\d{2}", t):
+            back = bool(re.search(r"назад|обратно|back|zurück", t)) or m.group(1) == "отмотай"
+            secs = parse_seconds(re.sub(r"вперед|назад|обратно|forward|backwards?|zurück|\bvor\b", " ", m.group(2)))
+            if secs:
+                return Command("seek_by", -secs if back else secs)
+    if m := re.match(r"^(?:поставь|перемотай|включи|начни|go to|jump to|skip to|spring zu)\s+(?:на|с|со|to|auf|zu)\s+(.+)$", t):
+        if re.search(r"\d|минут|секунд|minute|second|час", m.group(1)) and not re.search(r"громкост|яркост", t):
+            secs = parse_seconds(re.sub(r"^тайминг\s+", "", m.group(1)))
+            if secs is not None:
+                return Command("seek_to", secs)
+
+    return None
+
+
+RE_MOVE_MON = re.compile(
+    r"(?:перетащи|перенеси|перемести|передвинь|подвинь|кинь|закинь|отправь|move|drag|verschieb\w*)\s+(?P<what>.*?)\s*"
+    r"(?:на|в|to(?: the)?|auf(?: den)?)\s+(?P<where>\S+)\s+(?:экран\w*|монитор\w*|дисплей\w*|screen|monitor|display|bildschirm)", re.I)
+MON_WORDS = (("перв", "1"), ("втор", "2"), ("трет", "3"), ("1", "1"), ("2", "2"), ("3", "3"), ("друг", "next"), ("соседн", "next"),
+             ("следующ", "next"), ("лев", "left"), ("прав", "right"), ("first", "1"), ("second", "2"), ("third", "3"),
+             ("other", "next"), ("next", "next"), ("left", "left"), ("right", "right"), ("erst", "1"), ("zweit", "2"),
+             ("ander", "next"), ("link", "left"), ("recht", "right"))
+
+
 def match(text: str) -> Command | None:
     """Прямая системная команда или None (тогда фразу разбирают другие правила или модель)."""
     t = _clean(text)
@@ -221,11 +271,18 @@ def match(text: str) -> Command | None:
     if not t or (len(t) > 80 and not typing):
         return None
 
-    # «нажми play», «нажми на паузу» — это про плеер, а не про клавиши
-    if re.fullmatch(r"(?:нажми|нажать|press|hit)\s+(?:на\s+)?(?:play|плей|плэй|воспроизведение)(?:\s+(?:в|на|in)\s+.+)?", t):
-        return Command("play")
-    if re.fullmatch(r"(?:нажми|нажать|press|hit)\s+(?:на\s+)?(?:pause|паузу|пауза)(?:\s+(?:в|на|in)\s+.+)?", t):
-        return Command("pause")
+    # --- музыка и видео; «… в ютуб мюзик», «… на ютубе», «… в спотифай» — какой плеер
+    tm = re.search(r"\s+(?:в|во|на|in|on|auf)?\s*(ютуб[\s-]*м[юь]?\w*зик\w*|youtube[\s-]*m\w*sic|ютьюб[\s-]*мюзик\w*|спотифа\w*|spotify|"
+                   r"ютуб\w*|youtube|хром\w*|chrome|браузер\w*|browser)\s*$", t)
+    if tm:
+        word = tm.group(1)
+        target = ("music" if re.search(r"м[юь]?\w*зик|m\w*sic", word) else "spotify" if re.search(r"спотиф|spotify", word) else "browser")
+        if (c := _media(t[: tm.start()].strip())) is not None:
+            c.text = target
+            return c
+    if (c := _media(t)) is not None:
+        return c
+
     # --- печать текста (текст берём из исходной фразы — с заглавными буквами и знаками)
     if re.match(r"^(?:напечатай|впечатай|набери|введи текст|введи|type|tippe|schreib\w* text)\s+", t):
         raw = _strip_name(text)
@@ -263,6 +320,14 @@ def match(text: str) -> Command | None:
             return Command("window", text=action)
     if re.fullmatch(r"сверни все(?: окна)?|покажи рабочий стол|show desktop|alles minimieren", t):
         return Command("keys", keys=["win", "d"])
+    # «перетащи хром на второй экран», «перенеси окно на другой монитор», «move chrome to the second screen»
+    if m := RE_MOVE_MON.search(t):
+        what = (m.group("what") or "").strip()
+        what = None if what in ("", "окно", "это окно", "его", "её", "ее", "это", "window", "the window", "this window") else what
+        where = m.group("where").lower()
+        n = next((v for k, v in MON_WORDS if where.startswith(k)), None)
+        if n:
+            return Command("move_monitor", text=what, keys=[n])
     if re.fullmatch(r"(?:переключи|смени|следующее) окно|переключись на (?:другое|следующее) окно|switch window", t):
         return Command("keys", keys=["alt", "tab"])
 
@@ -276,38 +341,6 @@ def match(text: str) -> Command | None:
         name = (m.group(1) or m.group(2)).strip().strip("«»\"“”")
         if name:
             return Command("click_name", text=name)
-
-    # --- музыка и видео
-    if re.search(r"^(что|чо|че)\s+(сейчас\s+|щас\s+|у нас\s+)?(играет|звучит|за (песня|трек|музыка))|"
-                 r"^(какая|какой) (это |сейчас )?(песня|трек)|^what('s| is)( this| now)? (playing|song)|^was läuft", t):
-        return Command("now_playing")
-    if re.fullmatch(r"пауза|на паузу|поставь (на )?паузу|постав\w* (музыку |видео )?на паузу|"
-                    r"останови (музыку|видео|трек)|выключи (музыку|видео)|pause( (the )?(music|video))?|pausier\w*", t):
-        return Command("pause")
-    if re.fullmatch(r"продолжи|продолжай|играй|сними с паузы|сними паузу|включи дальше|продолжи (музыку|видео)|"
-                    r"(воспроизвед\w*|поспроизвед\w*|запусти|включи|врубай|вруби|поставь)\s+(какую-?нибудь\s+|мою\s+|немного\s+)?(музык\w*|песн\w*|трек\w*)|"
-                    r"воспроизведени\w* музык\w*|музыку|"
-                    r"resume|play|play (some )?music|unpause|continue playing|weiter( abspielen)?|fortsetzen|musik (an|abspielen)", t):
-        return Command("play")
-    if re.fullmatch(r"следующ\w* (трек|песн\w*|видео|композици\w*)|пропусти( трек| песню)?|переключи (трек|песню)|"
-                    r"next( track| song| video)?|skip( (this|the) (song|track))?|nächst\w* (titel|lied|song)", t):
-        return Command("next")
-    if re.fullmatch(r"предыдущ\w* (трек|песн\w*|видео)|прошл\w* (трек|песн\w*)|верни (трек|песню)|"
-                    r"previous( track| song)?|last (track|song)|vorherig\w* (titel|lied)", t):
-        return Command("previous")
-    if re.match(r"^(включи|начни|поставь|запусти)\s+(сначала|с начала|заново)|^(start over|restart the (song|video))$|^von vorne$", t):
-        return Command("seek_to", 0)
-    if m := re.match(r"^(перемотай|промотай|отмотай|мотни|skip|jump|spul\w*)\s+(.+)$", t):
-        if not re.search(r"\bна\s+\d{1,2}[:.]\d{2}", t):
-            back = bool(re.search(r"назад|обратно|back|zurück", t)) or m.group(1) == "отмотай"
-            secs = parse_seconds(re.sub(r"вперед|назад|обратно|forward|backwards?|zurück|\bvor\b", " ", m.group(2)))
-            if secs:
-                return Command("seek_by", -secs if back else secs)
-    if m := re.match(r"^(?:поставь|перемотай|включи|начни|go to|jump to|skip to|spring zu)\s+(?:на|с|со|to|auf|zu)\s+(.+)$", t):
-        if re.search(r"\d|минут|секунд|minute|second|час", m.group(1)) and not re.search(r"громкост|яркост", t):
-            secs = parse_seconds(re.sub(r"^тайминг\s+", "", m.group(1)))
-            if secs is not None:
-                return Command("seek_to", secs)
 
     # --- громкость
     if re.match(r"^(какая|какой|сколько) (сейчас |у меня )?([гк]ромкость|звук)|^what('s| is) the volume|^wie laut", t):
@@ -380,6 +413,13 @@ def reply(cmd: Command, lang: str, result: dict) -> str:
                  "close": ("Закрываю", "Closing", "Schließe"), "left": ("Подвинула влево", "Moved left", "Nach links"),
                  "right": ("Подвинула вправо", "Moved right", "Nach rechts")}[cmd.text]
         return L(f"{names[0]}: {w}.", f"{names[1]}: {w}.", f"{names[2]}: {w}.")
+    if op == "move_monitor":
+        w = result.get("title") or L("окно", "the window", "das Fenster")
+        if result.get("same"):
+            return L(f"{w} и так на мониторе {result.get('monitor')}.", f"{w} is already on screen {result.get('monitor')}.",
+                     f"{w} ist schon auf Bildschirm {result.get('monitor')}.")
+        return L(f"Перетащила {w} на монитор {result.get('monitor')}.", f"Moved {w} to screen {result.get('monitor')}.",
+                 f"{w} auf Bildschirm {result.get('monitor')} verschoben.")
     if op == "click_name":
         if result.get("confirm"):
             return L(f"Нашла «{result['found']}». Нажать?", f"Found “{result['found']}”. Click it?", f"„{result['found']}“ gefunden. Klicken?")

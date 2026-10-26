@@ -172,6 +172,7 @@ class CapriApp:
             return
         try:
             self.voice = VoiceController(self.cfg, self.prefs.get("input_device"))
+            self.voice.chime_volume = float(self.prefs.get("chime_volume", 0.7))   # в data/state.json можно поменять 0…1
         except Exception as e:  # noqa: BLE001
             self.chat.add_system(f"Голос не запустился: {e}")
             return
