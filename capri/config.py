@@ -22,7 +22,7 @@ DEFAULTS: dict = {
         # plan = только чтение и ответы, Claude ничего не меняет на диске
         "permission_mode": "plan",
         "timeout": 300,
-        "workdir": "~/capri-workspace",
+        "workdir": "workspace",
     },
     # Белый список: имя -> команда запуска. Ничего вне списка Капри не запускает.
     "apps": {
@@ -35,7 +35,7 @@ DEFAULTS: dict = {
     },
     "search_url": "https://www.google.com/search?q={query}",
     "confirm_actions": True,
-    "notes_file": "~/.capri/notes.md",
+    "notes_file": "data/notes.md",
     "avatar": {"size": 140, "custom_image": "", "fps": 12},
 }
 

@@ -16,7 +16,7 @@ claude_code:
   # Не ставь bypassPermissions, если не понимаешь последствий.
   permission_mode: plan
   timeout: 300
-  workdir: ~/capri-workspace  # папка, в которой работает Claude
+  workdir: workspace        # папка внутри проекта, в которой работает Claude
 
 # Белый список. Капри запускает ТОЛЬКО то, что здесь есть.
 # Слева — как ты называешь программу (синонимы через |), справа — команда или ссылка.
@@ -34,7 +34,7 @@ search_url: https://www.google.com/search?q={query}
 # Спрашивать подтверждение перед запуском программ и сайтов
 confirm_actions: true
 
-notes_file: ~/.capri/notes.md
+notes_file: data/notes.md   # относительные пути считаются от папки проекта
 
 avatar:
   size: 140

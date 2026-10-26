@@ -6,3 +6,5 @@ config.yaml
 # свои картинки/озвучка — не публикуем
 assets/custom/*
 !assets/custom/.gitkeep
+data/
+workspace/
