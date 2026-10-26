@@ -128,6 +128,6 @@ def test_mail_questions_go_to_mail(simple_agent, text):
 def test_tool_call_text_is_stripped():
     class LLM:
         def chat(self, *a, **k):
-            return {"content": "Проверяю… (вызывает инструмент open_app с параметром \\"почта\\") Ты в курсе?"}
+            return {"content": "Проверяю… (вызывает инструмент open_app с параметром «почта») Ты в курсе?"}
     a = Agent(copy.deepcopy(DEFAULTS), llm=LLM(), claude=lambda t, c: "", apps=AppIndex(Path("/x")))
     assert a.handle("как дела").text == "Проверяю… Ты в курсе?"
