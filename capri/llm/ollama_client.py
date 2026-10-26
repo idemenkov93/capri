@@ -173,6 +173,13 @@ class OllamaClient:
             ) from e
         return {"content": strip_thinking("".join(content)), "tool_calls": tool_calls}
 
+    def unload(self) -> None:
+        """Выгрузить модель из видеопамяти (режим ожидания). Следующий вопрос загрузит её снова."""
+        try:
+            httpx.post(f"{self.url}/api/generate", json={"model": self.model, "keep_alive": 0}, timeout=15)
+        except httpx.HTTPError:
+            pass
+
     def warmup(self) -> None:
         """Заранее загрузить модель в видеопамять (первый запуск может занять до минуты)."""
         try:

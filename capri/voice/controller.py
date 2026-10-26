@@ -57,18 +57,38 @@ class VoiceController(QObject):
             self.edge = EdgeSpeaker(dict(v["edge_voices"]), v.get("edge_rate", "+0%"), v.get("edge_pitch", "+0Hz"))
             self.speaker = FallbackSpeaker(self.edge, piper)
         self.recording = False
+        self._speaking = 0
         self.last_lang = "ru"
         self._jobs: list[_Job] = []
 
     # фоновые задачи ---------------------------------------------------------
     def _run(self, fn, on_ok=None, on_fail=None):
+        """Фоновая задача. Ответ возвращается в главный поток: сигналы потока подключены к методам этого
+        QObject, поэтому Qt доставляет их через очередь главного потока (раньше лямбды выполнялись прямо
+        в фоновом потоке и трогали окна оттуда — отсюда «зависания» и вечное SPEAKING)."""
         job = _Job(fn)
-        if on_ok:
-            job.ok.connect(on_ok)
-        job.fail.connect(on_fail or self.error.emit)
-        job.finished.connect(lambda: self._jobs.remove(job))
+        job.on_ok, job.on_fail = on_ok, on_fail or self.error.emit
+        job.ok.connect(self._job_ok)
+        job.fail.connect(self._job_fail)
+        job.finished.connect(self._job_done)
         self._jobs.append(job)
         job.start()
+
+    def _job_ok(self, result):
+        job = self.sender()
+        if job is not None and job.on_ok:
+            job.on_ok(result)
+
+    def _job_fail(self, err):
+        job = self.sender()
+        if job is not None:
+            job.on_fail(err)
+
+    def _job_done(self):
+        job = self.sender()
+        if job in self._jobs:
+            self._jobs.remove(job)
+            job.deleteLater()
 
     def warmup(self):
         """Скачать/загрузить модели заранее, чтобы первая фраза не ждала."""
@@ -179,9 +199,17 @@ class VoiceController(QObject):
         lang = detect_lang(clean, fallback=self.last_lang)
         if self.speaker is None and lang != "he":
             return
+        self._speaking += 1
         self.state.emit("SPEAKING")
 
+        def finished():
+            self._speaking = max(0, self._speaking - 1)
+            if not self._speaking and not self.recording:
+                self.state.emit("IDLE")
+
         def say():
+            from ..log import log
+            log.debug("tts: говорю %d символов [%s]", len(clean), lang)
             if self.speaker:
                 self.speaker.say(clean, lang)
             else:
@@ -191,7 +219,7 @@ class VoiceController(QObject):
         def failed(e):
             from ..log import log
             log.error("tts: %s", e)
-            self.state.emit("IDLE")
+            finished()
             self.error.emit(f"Озвучка не сработала: {e}")
 
-        self._run(say, lambda _: self.state.emit("IDLE"), failed)
+        self._run(say, lambda _: finished(), failed)

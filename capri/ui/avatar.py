@@ -95,6 +95,7 @@ class Avatar(QWidget):
         self.menu_items = lambda: []  # приложение может добавить свои пункты меню
         self.menu_builder = None      # или построить всё меню само (общее с треем)
         self._tp_style, self._tp_seed, self._tp_frames = "crt", 0, 0
+        self.eco = False              # режим ожидания: пока стоит на месте — 10 кадров в секунду вместо 30
         self.dance = 0.0              # 0 — не танцует, 0..1 — сила (громкость музыки сейчас)
         self._dance_t = 0.0
         self._idle_glitch = ""        # короткий случайный глитч в покое: slices | rgb
@@ -166,6 +167,11 @@ class Avatar(QWidget):
         if (self.wander and self.mode in ("ground", "perch") and self.walk_to is None and not self.dance
                 and not self.busy() and time.monotonic() > self.next_decision):
             self._decide()
+        # в режиме ожидания стоящая Капри рисуется реже; как только идёт, прыгает или танцует — снова плавно
+        moving = self.walk_to is not None or self.mode in ("teleport", "fall", "drag") or self.dance or self.glitch
+        want = 100 if self.eco and not moving else 33
+        if self._tick.interval() != want:
+            self._tick.setInterval(want)
         self.update()
 
     def _follow_window(self):

@@ -175,6 +175,12 @@ class Viewport(QWidget):
         return "idle"
 
     def _tick(self):
+        if not self.isVisible():          # окно свёрнуто — не рисуем и не крутим GIF-ы
+            if not getattr(self, "_paused", False):
+                self.sprites.pause_all()
+                self._paused = True
+            return
+        self._paused = False
         self.phase += 0.06
         if self.transition:
             self.transition -= 1

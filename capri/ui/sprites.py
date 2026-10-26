@@ -92,8 +92,15 @@ class Sprite:
         return (self.movie is not None and self.movie.isValid()) or (self.pixmap is not None and not self.pixmap.isNull())
 
     def start(self):
-        if isinstance(self.movie, QMovie) and self.movie.state() != QMovie.Running:
-            self.movie.start()
+        if isinstance(self.movie, QMovie):
+            if self.movie.state() == QMovie.Paused:
+                self.movie.setPaused(False)
+            elif self.movie.state() != QMovie.Running:
+                self.movie.start()
+
+    def pause(self):
+        if isinstance(self.movie, QMovie) and self.movie.state() == QMovie.Running:
+            self.movie.setPaused(True)
 
     def frame(self) -> QPixmap:
         return self.movie.currentPixmap() if self.movie else self.pixmap
@@ -145,6 +152,12 @@ class SpriteSet:
             self._current[kind] = sp
         sp.start()
         return sp
+
+    def pause_all(self):
+        """Окно скрыто — GIF-ы не нужно декодировать (большие GIF-ы ощутимо грузят процессор)."""
+        for pool in self.by_kind.values():
+            for sp in pool:
+                sp.pause()
 
     def shuffle(self, kind: str):
         """Сменить вариант анимации (например, другой idle через какое-то время)."""

@@ -57,11 +57,13 @@ class MusicWatcher(QThread):
     level = Signal(float)      # 0 — не танцуем
     kick = Signal()
     playing = Signal(str)      # что играет (для журнала), "" — перестало
+    talking = Signal(bool)     # играет НЕ музыка (видео, подкаст, стрим) — там много речи, «Капри» может послышаться
 
     def __init__(self, any_media: bool = False, apps=None):
         super().__init__()
         self.any_media = any_media
         self.apps = apps      # AppIndex — чтобы узнать YouTube Music и др. по их ID
+        self.slow = False     # режим ожидания: реже спрашивать Windows, что играет
         self._stop = False
 
     def stop(self):
@@ -98,16 +100,21 @@ class MusicWatcher(QThread):
             log.warning("танцы выключены: нет доступа к звуку (%s)", e)
             return
         beat = Beat()
-        music, last_check, last_title = False, 0.0, ""
+        music, last_check, last_title, talk = False, 0.0, "", False
         while not self._stop:
             now = time.monotonic()
-            if now - last_check > 1.5:
+            if now - last_check > (1.5 if music or not self.slow else 5.0):   # в режиме ожидания — реже
                 last_check = now
                 try:
                     np_ = asyncio.run(self._now_playing())
                 except Exception:  # noqa: BLE001
                     np_ = None
                 music = bool(np_) and is_music(np_[0], np_[1], np_[2], self.any_media, music_app_ids(self.apps))
+                real_music = bool(np_) and is_music(np_[0], np_[1], np_[2], False, music_app_ids(self.apps))
+                new_talk = bool(np_) and not real_music
+                if new_talk != talk:
+                    talk = new_talk
+                    self.talking.emit(talk)
                 title = f"{np_[2]} — {np_[3]}" if np_ and music else ""
                 if title != last_title:
                     last_title = title
@@ -124,4 +131,4 @@ class MusicWatcher(QThread):
                     self.kick.emit()
             else:
                 self.level.emit(0.0)
-            time.sleep(0.05)
+            time.sleep(0.05 if music else 0.5)   # без музыки громкость колонок не нужна — спим дольше

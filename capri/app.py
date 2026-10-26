@@ -48,7 +48,7 @@ class Warmup(QThread):
 
 class CapriApp:
     def __init__(self):
-        self.qt = QApplication(sys.argv)
+        self.qt = QApplication.instance() or QApplication(sys.argv)
         self.qt.setQuitOnLastWindowClosed(False)
         self.cfg = load_config()
         self.prefs = State(expand("data/state.json"))
@@ -112,7 +112,15 @@ class CapriApp:
         self.last_input_was_voice = False
         self._init_voice()
         self.music = None
+        self.talking_media = False
         self.start_dancing()
+        # режим ожидания: через несколько минут без дела — меньше кадров, реже опросы, модели выгружаются из памяти
+        import time as _t
+        self._last_active = _t.monotonic()
+        self.eco = False
+        self.models_unloaded = False
+        self._eco_timer = QTimer(interval=15_000, timeout=self._eco_check)
+        self._eco_timer.start()
 
         # грузим модель в видеокарту сразу, пока пользователь ещё ничего не написал
         self.set_status("LOADING")
@@ -195,7 +203,8 @@ class CapriApp:
         if not ok:
             self.chat.add_system(t("wake_missing", self.lang))
             return
-        self.wake = WakeListener(models, self.prefs.get("input_device"), short=self.prefs.get("wake_short", True))
+        short = self.prefs.get("wake_short", True) and not getattr(self, "talking_media", False)
+        self.wake = WakeListener(models, self.prefs.get("input_device"), short=short)
         self.wake.woke.connect(self.on_wake)
         self.wake.failed.connect(lambda e: self.chat.add_system(f"«Привет, Капри»: {e}"))
         self.wake.start()
@@ -207,6 +216,7 @@ class CapriApp:
 
     def on_wake(self, heard: str):
         from .log import log
+        self.wake_up()
         if not self.voice or self.voice.recording:
             log.info("wake пропущен: уже слушаю")
             return
@@ -380,13 +390,25 @@ class CapriApp:
 
     # танцы -----------------------------------------------------------------------
     def start_dancing(self):
-        if self.music or not self.prefs.get("dance", True):
+        # следим за музыкой всегда: даже без танцев это нужно, чтобы во время видео не реагировать на «Капри» из колонок
+        if self.music:
             return
         from .music import MusicWatcher
         self.music = MusicWatcher(any_media=self.prefs.get("dance_any", False), apps=self.agent.apps)
         self.music.level.connect(self._on_music_level)
         self.music.kick.connect(self.avatar.kick)
+        self.music.talking.connect(self._on_talking_media)
         self.music.start()
+
+    def _on_talking_media(self, talking: bool):
+        """Играет видео/подкаст: там много речи, и «Капри» может послышаться из колонок —
+        на это время хватает только «Привет, Капри» / «Эй, Капри»."""
+        from .log import log
+        self.talking_media = talking
+        if self.wake:
+            self.wake.short = self.prefs.get("wake_short", True) and not talking
+        log.info("видео/речь в колонках: %s → «Капри» без «привет» %s", talking,
+                 "выкл" if talking else ("вкл" if self.prefs.get("wake_short", True) else "выкл"))
 
     def stop_dancing(self):
         if self.music:
@@ -395,19 +417,64 @@ class CapriApp:
         self.avatar.dance = 0.0
 
     def _on_music_level(self, level: float):
+        if not self.prefs.get("dance", True):
+            level = 0.0
         # пока сама слушает или говорит — не танцует
         busy = getattr(self, "state", "") in ("LISTENING", "RECOGNIZING", "SPEAKING", "THINKING", "CLAUDE")
         self.avatar.set_dance(0.0 if busy else level)
 
     def toggle_dance(self):
-        on = not self.prefs.get("dance", True)
-        self.prefs.set("dance", on)
-        self.start_dancing() if on else self.stop_dancing()
+        self.prefs.set("dance", not self.prefs.get("dance", True))
 
     def toggle_dance_any(self):
         self.prefs.set("dance_any", not self.prefs.get("dance_any", False))
         if self.music:
             self.music.any_media = self.prefs.get("dance_any", False)
+
+    # режим ожидания ---------------------------------------------------------------
+    ECO_AFTER = 3 * 60        # без дела 3 мин — экономим кадры и опросы
+    UNLOAD_AFTER = 10 * 60    # 10 мин — выгружаем модели из видеопамяти
+
+    def wake_up(self, *_):
+        """Позвали, тыкнули, написали — выходим из ожидания и заранее грузим модели, пока ты говоришь."""
+        import time as _t
+        from .log import log
+        self._last_active = _t.monotonic()
+        if self.eco:
+            self.eco = False
+            self.avatar.eco = False
+            if self.music:
+                self.music.slow = False
+            log.info("режим ожидания: выход")
+        if self.models_unloaded:
+            self.models_unloaded = False
+            log.info("загружаю модели обратно")
+            self.warmup = Warmup(self.agent)
+            self.warmup.start()
+            if self.voice:
+                self.voice.warmup()
+
+    def _eco_check(self):
+        import time as _t
+        from .log import log
+        idle = _t.monotonic() - self._last_active
+        busy = (self.worker and self.worker.isRunning()) or (self.voice and (self.voice.recording or self.voice._speaking))
+        if busy or getattr(self, "state", "ONLINE") not in ("ONLINE", "ERROR"):
+            self._last_active = _t.monotonic()
+            return
+        if not self.eco and idle > self.ECO_AFTER:
+            self.eco = True
+            self.avatar.eco = True
+            if self.music:
+                self.music.slow = True
+            log.info("режим ожидания: вход (меньше кадров и опросов)")
+        if not self.models_unloaded and idle > self.UNLOAD_AFTER and self.prefs.get("eco_unload", True):
+            self.models_unloaded = True
+            log.info("режим ожидания: выгружаю модели из памяти")
+            import threading
+            threading.Thread(target=self.agent.llm.unload, daemon=True).start()
+            if self.voice:
+                self.voice.stt.unload()
 
     def toggle_wander(self):
         self.avatar._toggle_wander()
@@ -447,6 +514,7 @@ class CapriApp:
             self.chat.input.setFocus()
 
     def toggle_chat(self):
+        self.wake_up()
         if self.chat.isVisible():
             self.chat.hide()
             return
@@ -459,6 +527,7 @@ class CapriApp:
 
     def on_message(self, text: str):
         from .log import log
+        self.wake_up()
         if self.worker and self.worker.isRunning():
             # раньше новый запрос молча терялся; теперь — ставим в очередь (последний побеждает)
             log.info("занята, откладываю: «%s»", text)

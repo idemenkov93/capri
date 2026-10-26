@@ -59,6 +59,20 @@ def decode_mp3(data: bytes) -> tuple[np.ndarray, int]:
     return (np.concatenate(frames) if frames else np.zeros(0, np.int16)), rate
 
 
+def play_blocking(sd, audio, sr: int, should_stop) -> None:
+    """Проиграть звук своим потоком вывода, кусками по 0.1 с, проверяя «стоп» между кусками.
+    Не трогает глобальный sd.play/sd.wait — раньше они иногда «зависали», и Капри навсегда оставалась в SPEAKING."""
+    import numpy as np
+    audio = np.ascontiguousarray(audio.reshape(-1, 1))
+    step = max(1, sr // 10)
+    with sd.OutputStream(samplerate=sr, channels=1, dtype=audio.dtype.name) as out:
+        for i in range(0, len(audio), step):
+            if should_stop():
+                out.abort()
+                return
+            out.write(audio[i:i + step])
+
+
 def split_sentences(text: str, min_len: int = 40) -> list[str]:
     """Режем на предложения, но слишком короткие склеиваем с соседним («Ну привет.» + следующее)."""
     import re
@@ -110,14 +124,12 @@ class EdgeSpeaker:
                     nxt = ex.submit(self._synth, parts[i + 1], voice)
                 if self._stopped:
                     break
-                self._sd.play(audio, sr)
-                self._sd.wait()
+                play_blocking(self._sd, audio, sr, lambda: self._stopped)
                 if self._stopped:
                     break
 
     def stop(self) -> None:
         self._stopped = True
-        self._sd.stop()
 
 
 class FallbackSpeaker:
@@ -155,6 +167,7 @@ class Speaker:
         self._sd = sd
         self.voices = voices
         self.folder = folder
+        self._stopped = False
         self.fx: dict = {}
         self._loaded: dict[str, object] = {}
 
@@ -198,13 +211,13 @@ class Speaker:
             audio, rate = self._synthesize(self._piper(lang), text)
             from .fx import apply
             audio = apply(audio, rate, self.fx)
-            self._sd.play(audio, rate)
-            self._sd.wait()
+            self._stopped = False
+            play_blocking(self._sd, audio, rate, lambda: self._stopped)
         elif sys.platform == "win32":
             windows_say(text, lang)
 
     def stop(self) -> None:
-        self._sd.stop()
+        self._stopped = True
 
 
 def windows_say(text: str, lang: str) -> None:

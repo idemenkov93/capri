@@ -108,6 +108,12 @@ class Transcriber:
         self._model = None
 
     def _load(self):
+        import threading
+        lock = self.__dict__.setdefault("_lock", threading.Lock())
+        with lock:   # прогрев и распознавание могут прийти одновременно — грузим модель один раз
+            return self._load_locked()
+
+    def _load_locked(self):
         if self._model is None:
             from faster_whisper import WhisperModel
 
@@ -132,6 +138,13 @@ class Transcriber:
 
     def warmup(self) -> None:
         self._load()
+
+    def unload(self) -> None:
+        """Освободить видеопамять/память (режим ожидания). Загрузится снова при следующей фразе (~2 с)."""
+        if self._model is not None:
+            self._model = None
+            import gc
+            gc.collect()
 
     def _pick_language(self, audio: np.ndarray) -> str | None:
         """Выбираем язык только из разрешённых (чтобы whisper не «услышал» португальский)."""
