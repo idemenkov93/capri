@@ -174,10 +174,14 @@ class Preset:
         return {"fast": "Быстрая", "medium": "Средняя", "smart": "Умная"}[self.level]
 
 
+# Имена в Ollama. Важно: обычные qwen3:4b и qwen3:30b там теперь — «думающие» версии 2507: они не умеют
+# отключать рассуждения (think=false не помогает), и на процессоре минуту «думают» вслух, прежде чем ответить.
+# Поэтому 4B берём instruct-версию (без рассуждений), а вместо 30B — 32B (гибридная, рассуждения отключаются).
+Q4B = "qwen3:4b-instruct-2507-q4_K_M"
 # размер скачивания и сколько видеопамяти нужно модели (с запасом под контекст 4096)
 MODELS = {
-    "qwen3:1.7b": (1.4, 2.2), "qwen3:4b": (2.5, 3.6), "qwen3:8b": (5.2, 6.2),
-    "qwen3:14b": (9.3, 10.8), "qwen3:30b": (19.0, 21.0),
+    "qwen3:1.7b": (1.4, 2.2), Q4B: (2.5, 3.6), "qwen3:8b": (5.2, 6.2),
+    "qwen3:14b": (9.3, 10.8), "qwen3:32b": (20.2, 22.5),
     "qwen3-vl:4b": (3.3, 4.5), "qwen3-vl:8b": (6.1, 7.5),
 }
 
@@ -190,11 +194,11 @@ def vision_model(hw: "Hardware") -> str:
 def presets(hw: Hardware) -> list[Preset]:
     vram = hw.vram_gb
     if vram >= 20:
-        names = ("qwen3:8b", "qwen3:14b", "qwen3:30b")
+        names = ("qwen3:8b", "qwen3:14b", "qwen3:32b")
     elif vram >= 7:
-        names = ("qwen3:4b", "qwen3:8b", "qwen3:14b")
+        names = (Q4B, "qwen3:8b", "qwen3:14b")
     else:
-        names = ("qwen3:1.7b", "qwen3:4b", "qwen3:8b")
+        names = ("qwen3:1.7b", Q4B, "qwen3:8b")
     whisper_gpu = hw.nvidia is not None and hw.nvidia.vram_gb >= 2
     out = []
     for level, name in zip(("fast", "medium", "smart"), names):
@@ -206,9 +210,9 @@ def presets(hw: Hardware) -> list[Preset]:
             fits, note = True, "не влезает в видеокарту целиком — часть на процессоре, медленнее"
         else:
             ram_ok = hw.ram_gb >= need * 1.5
-            slow = name in ("qwen3:8b", "qwen3:14b", "qwen3:30b")
+            slow = name in ("qwen3:8b", "qwen3:14b", "qwen3:32b")
             fits = ram_ok and not (slow and hw.cores <= 8)
-            note = "на процессоре — " + ("очень медленно" if slow else "терпимо" if name == "qwen3:4b" else "быстро")
+            note = "на процессоре — " + ("очень медленно" if slow else "терпимо" if name == Q4B else "быстро")
             if not ram_ok:
                 note += ", мало оперативной памяти"
         whisper = "small" if whisper_gpu or level != "fast" else "base"

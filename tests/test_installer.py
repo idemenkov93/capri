@@ -28,8 +28,8 @@ def pick(hw):
 # ------------------------------------------------------------------ железо → модель
 def test_laptop_without_gpu_gets_medium_cpu_model():
     ps = H.presets(LAPTOP)
-    assert [p.model for p in ps] == ["qwen3:1.7b", "qwen3:4b", "qwen3:8b"]
-    assert pick(LAPTOP).model == "qwen3:4b" and not pick(LAPTOP).on_gpu
+    assert [p.model for p in ps] == ["qwen3:1.7b", H.Q4B, "qwen3:8b"]
+    assert pick(LAPTOP).model == H.Q4B and not pick(LAPTOP).on_gpu
     assert not ps[2].fits                         # 8b на процессоре ноутбука — не советуем
     assert H.ollama_options(pick(LAPTOP)) == {"num_ctx": 4096}
 
@@ -40,12 +40,12 @@ def test_gtx_1070_gets_8b_on_gpu():
 
 
 def test_big_gpu_gets_bigger_models():
-    assert pick(RTX_4090).model == "qwen3:30b"
+    assert pick(RTX_4090).model == "qwen3:32b"
 
 
 def test_vram_matters_not_series():
     rtx3050 = H.Hardware("x", 16, 32, [H.GPU("NVIDIA GeForce RTX 3050", "nvidia", 4.0)])
-    assert pick(rtx3050).model == "qwen3:4b"      # новее 1070, но памяти меньше — модель проще
+    assert pick(rtx3050).model == H.Q4B      # новее 1070, но памяти меньше — модель проще
 
 
 def test_nvidia_smi_parse_and_integrated():
@@ -73,7 +73,7 @@ def test_wizard_writes_config(tmp_path):
     from capri.ui.setup_wizard import config_values, save_config
     path = save_config(config_values(pick(LAPTOP), "Аня", "Berlin", claude=False), tmp_path / "config.yaml")
     d = yaml.safe_load(path.read_text(encoding="utf-8"))
-    assert d["user_name"] == "Аня" and d["ollama"]["model"] == "qwen3:4b" and d["claude_code"]["enabled"] is False
+    assert d["user_name"] == "Аня" and d["ollama"]["model"] == H.Q4B and d["claude_code"]["enabled"] is False
     assert "num_gpu" not in (d["ollama"].get("options") or {})
 
 
@@ -102,7 +102,7 @@ def test_wizard_runs_through(tmp_path, monkeypatch, qapp):
     w._next()                      # «Установить»
     w.worker.wait(5000)
     qapp.processEvents()
-    assert calls == ["ollama", "qwen3:4b", "vosk", "claude"]
+    assert calls == ["ollama", H.Q4B, "vosk", "claude"]
     assert w.worker.failed == ["Распознавание речи"] and not w.retry.isHidden()
     d = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
     assert d["user_name"] == "Тест" and d["brain"]["provider"] == "claude" and d["claude_code"]["enabled"] is True
@@ -205,3 +205,10 @@ def test_wizard_gemini_needs_working_key(tmp_path, monkeypatch, qapp):
     assert d["brain"]["provider"] == "gemini" and d["brain"]["gemini"]["model"] == "gemini-flash-lite-latest"
     assert saved == ["AIzaTEST"] and "AIzaTEST" not in (tmp_path / "config.yaml").read_text(encoding="utf-8")
     w.close()
+
+
+def test_no_thinking_only_models_in_presets():
+    """qwen3:4b и qwen3:30b в Ollama — «думающие» 2507: рассуждают вслух и не отключаются. Их не предлагаем."""
+    for hw in (LAPTOP, PC_1070, RTX_4090):
+        for p in H.presets(hw):
+            assert p.model not in ("qwen3:4b", "qwen3:30b"), p.model
