@@ -47,7 +47,7 @@ jobs:
           $tail = (Get-Content pytest.txt -Tail 3) -join ' | '
           "::notice title=pytest exit $code::$tail"
           # падение процесса (access violation и т.п.): где именно — строки из tests/ и capri/ в трассировке
-          $crash = Select-String -Path pytest.txt -Pattern 'Fatal Python error|Windows fatal exception|\\(tests|capri)\\[^"]+", line' | Select-Object -First 12
+          $crash = Select-String -Path pytest.txt -Pattern 'Windows fatal exception|Current thread|Thread 0x|\\(tests|capri|PySide6)\\[^"]+", line' | Select-Object -First 14
           $last = Select-String -Path pytest.txt -Pattern '^tests[/\\]' | Select-Object -Last 1
           if ($last) { "::notice title=last test::$($last.Line)" }
           if ($crash) { "::warning title=pytest crash::$((($crash | ForEach-Object { $_.Line.Trim() }) -join ' | '))" }
