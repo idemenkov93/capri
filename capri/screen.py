@@ -72,11 +72,11 @@ def capture(workdir: Path, keep: int = 10) -> tuple[list[str], str]:
     return paths, title
 
 
-def prompt(question: str, paths: list[str], title: str) -> str:
+def prompt(question: str, title: str = "") -> str:
+    """Текст задачи; сами скриншоты прикладывает agent (Claude — файлами, Gemini и локальной модели — картинками)."""
     where = f" Активное окно: «{title}»." if title else ""
-    files = ", ".join(paths)
     return (f"Пользователь спрашивает про то, что сейчас у него на экране: «{question}».{where}\n"
-            f"Скриншоты лежат в текущей папке: {files}. Открой их инструментом Read и посмотри внимательно. "
+            "К вопросу приложены скриншоты: активное окно крупно и весь экран. Посмотри на них внимательно. "
             "Если там ошибка — скажи, что она значит и как её исправить (точные команды). "
             "Ответ короткий, для озвучки: 2–5 предложений, команды — отдельной строкой.")
 
@@ -102,8 +102,8 @@ def screenshot_for_locate(workdir: Path) -> tuple[str, float, int, int, int, int
     return f"screens/{name}", scale, x0, y0, img.width, img.height
 
 
-def locate_prompt(what: str, path: str, w: int, h: int) -> str:
-    return (f"Это скриншот экрана пользователя ({w}×{h} пикселей): {path}. Открой его инструментом Read.\n"
+def locate_prompt(what: str, w: int, h: int) -> str:
+    return (f"К сообщению приложен скриншот экрана пользователя ({w}×{h} пикселей).\n"
             f"Найди на нём: «{what}» — кнопку, ссылку, видео, вкладку или пункт меню, на который нужно нажать.\n"
             "Ответь ТОЛЬКО одной строкой JSON без пояснений: {\"x\": число, \"y\": число} — центр этого места "
             "в пикселях ЭТОГО изображения. Если такого нет — {\"none\": true}.")

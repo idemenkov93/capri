@@ -34,11 +34,11 @@ STATE_LABEL = {
 }
 STATE_LINE = {
     "ONLINE": "Capri is online.", "LOADING": "Capri is booting up…", "THINKING": "Capri is thinking…",
-    "RECOGNIZING": "Decoding your voice…", "CLAUDE": "Capri is asking Claude…",
+    "RECOGNIZING": "Decoding your voice…", "CLAUDE": "Capri is on the uplink…",
     "TALKING": "Capri is replying…", "SPEAKING": "Capri is speaking…", "LISTENING": "Capri is listening…",
     "ERROR": "Something broke.", "TYPING": "You are typing…",
 }
-ROUTE_LABEL = {"rules": "⚡ DIRECT", "local": "◆ LOCAL", "claude": "✦ CLAUDE", "error": "✖ ERROR"}
+ROUTE_LABEL = {"rules": "⚡ DIRECT", "local": "◆ LOCAL", "claude": "✦ CLAUDE", "gemini": "✧ GEMINI", "error": "✖ ERROR"}
 
 STYLE = """
 QWidget { color: #d8e3f5; font-family: 'Cascadia Mono', Consolas, 'JetBrains Mono', monospace; font-size: 12px; }

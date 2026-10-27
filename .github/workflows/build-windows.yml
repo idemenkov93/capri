@@ -36,12 +36,16 @@ jobs:
         shell: pwsh
         env:
           QT_QPA_PLATFORM: offscreen
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
         run: |
-          python -m pytest -q -rf -p no:cacheprovider 2>&1 | Tee-Object -FilePath pytest.txt
+          python -m pytest -q -rfE -p no:cacheprovider *> pytest.txt
           $code = $LASTEXITCODE
-          # упавшие тесты — аннотациями, их видно на странице запуска без входа
-          Select-String -Path pytest.txt -Pattern '^(FAILED|ERROR) ' | Select-Object -First 10 | ForEach-Object { "::warning title=Windows test::$($_.Line)" }
-          Select-String -Path pytest.txt -Pattern ' in [0-9.]+s' | Select-Object -Last 1 | ForEach-Object { "::notice title=pytest::$($_.Line)" }
+          Get-Content pytest.txt
+          # итог и упавшие тесты — аннотациями (их видно на странице запуска без входа в GitHub)
+          Select-String -Path pytest.txt -Pattern '^(FAILED|ERROR) ' | Select-Object -First 9 | ForEach-Object { "::warning title=Windows test::$($_.Line)" }
+          $tail = (Get-Content pytest.txt -Tail 3) -join ' | '
+          "::notice title=pytest exit $code::$tail"
           exit $code
 
       - name: Build Capri.exe

@@ -10,12 +10,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
                                QListWidget, QProgressBar, QPushButton, QRadioButton, QStackedWidget, QVBoxLayout,
                                QWidget)
 
 from .. import hardware, installer
+from ..llm import gemini
 from ..config import DEFAULTS, FROZEN, PROJECT_ROOT, expand, load_config, resource
 from ..setup_config import REMOVE, apply
 
@@ -43,6 +44,10 @@ QListWidget { background: #0b1222; border: 1px solid #1d3550; }
 """
 
 
+HELLO, HARDWARE, BRAIN, COMPONENTS, INSTALL = range(5)
+BRAINS = ("claude", "gemini_free", "gemini_paid", "ollama")
+
+
 def config_path() -> Path:
     return PROJECT_ROOT / "config.yaml"
 
@@ -52,8 +57,10 @@ def needs_setup() -> bool:
     return not config_path().exists()
 
 
-def config_values(preset: hardware.Preset, name: str, city: str, claude: bool) -> dict:
-    return {
+def config_values(preset: hardware.Preset, name: str, city: str, claude: bool, brain: str = "claude",
+                  gemini_model: str = "", vision_model: str = "") -> dict:
+    provider = {"gemini_free": "gemini", "gemini_paid": "gemini"}.get(brain, brain)
+    values = {
         ("user_name",): name or DEFAULTS["user_name"],
         ("city",): city or DEFAULTS["city"],
         ("ollama", "model"): preset.model,
@@ -61,7 +68,12 @@ def config_values(preset: hardware.Preset, name: str, city: str, claude: bool) -
         ("ollama", "options", "num_ctx"): 4096,
         ("voice", "whisper_model"): preset.whisper,
         ("claude_code", "enabled"): bool(claude),
+        ("brain", "provider"): provider,
+        ("brain", "vision_model"): vision_model,
     }
+    if gemini_model:
+        values[("brain", "gemini", "model")] = gemini_model
+    return values
 
 
 def save_config(values: dict, path: Path | None = None) -> Path:
@@ -139,6 +151,7 @@ class SetupWizard(QDialog):
 
         self.pages.addWidget(self._page_hello())
         self.pages.addWidget(self._page_hardware())
+        self.pages.addWidget(self._page_brain())
         self.pages.addWidget(self._page_components())
         self.pages.addWidget(self._page_install())
         self._go(0)
@@ -201,6 +214,101 @@ class SetupWizard(QDialog):
         lay.addWidget(note)
         lay.addStretch(1)
         return w
+
+    def _page_brain(self):
+        w, lay = self._page("// УМНЫЙ ПОМОЩНИК", "Кто решает сложные задачи (скрипты, разбор ошибок, длинные тексты) "
+                            "и смотрит на экран. Команды и обычный разговор работают и без него.")
+        self.brain_group = QButtonGroup(self)
+        texts = {
+            "claude": "Claude — подписка Pro или Max. Самый умный вариант.",
+            "gemini_free": "Gemini бесплатно — ключ Google AI Studio, без карты.",
+            "gemini_paid": "Gemini платно — тот же ключ с оплатой в AI Studio, модель Pro.",
+            "ollama": "Только локально — без интернета и аккаунтов, сложное — попроще.",
+        }
+        self.brain_radio = {}
+        for i, code in enumerate(BRAINS):
+            r = QRadioButton(texts[code])
+            self.brain_group.addButton(r, i)
+            self.brain_radio[code] = r
+            lay.addWidget(r)
+        self.brain_group.idToggled.connect(lambda *_: self._refresh_brain())
+
+        self.gem_box = QFrame()
+        self.gem_box.setObjectName("card")
+        gl = QVBoxLayout(self.gem_box)
+        info = QLabel("1. Нажми «Получить ключ» → войди в Google → «Create API key» → скопируй.<br>"
+                      "2. Вставь сюда и нажми «Проверить».<br>"
+                      "<span style='color:#f5e663'>Бесплатный уровень: мало запросов в день, а Google может "
+                      "использовать запросы для улучшения моделей — личное туда не отправляй.</span>")
+        info.setWordWrap(True)
+        info.setTextFormat(Qt.RichText)
+        gl.addWidget(info)
+        row = QHBoxLayout()
+        self.gem_key = QLineEdit(gemini.get_key() or "")
+        self.gem_key.setEchoMode(QLineEdit.Password)
+        self.gem_key.setPlaceholderText("API-ключ Gemini (AIza…)")
+        self.gem_key.textChanged.connect(lambda *_: setattr(self, "gem_model", ""))
+        get = QPushButton("Получить ключ")
+        get.clicked.connect(lambda: __import__("webbrowser").open(gemini.KEY_PAGE))
+        chk = QPushButton("Проверить")
+        chk.clicked.connect(self._check_gemini)
+        row.addWidget(self.gem_key, 1)
+        row.addWidget(get)
+        row.addWidget(chk)
+        gl.addLayout(row)
+        self.gem_smart = QCheckBox("Flash вместо Flash-Lite: умнее, но бесплатно всего ~20 запросов в день")
+        self.gem_smart.toggled.connect(lambda *_: setattr(self, "gem_model", ""))
+        gl.addWidget(self.gem_smart)
+        self.gem_status = QLabel("")
+        self.gem_status.setWordWrap(True)
+        gl.addWidget(self.gem_status)
+        lay.addWidget(self.gem_box)
+        self.gem_model = ""
+
+        self.cb_vision = QCheckBox()
+        lay.addWidget(self.cb_vision)
+        lay.addStretch(1)
+        have = bool(installer.claude_exe())
+        self.brain_radio["claude" if have else "ollama"].setChecked(True)
+        if have:
+            self.brain_radio["claude"].setText(texts["claude"] + "  ✓ установлен")
+        return w
+
+    def _brain(self) -> str:
+        i = self.brain_group.checkedId()
+        return BRAINS[i] if 0 <= i < len(BRAINS) else "ollama"
+
+    def _gemini_tier(self) -> str:
+        if self._brain() == "gemini_paid":
+            return "paid"
+        return "free_smart" if self.gem_smart.isChecked() else "free"
+
+    def _refresh_brain(self, reset: bool = True):
+        b = self._brain()
+        self.gem_box.setVisible(b.startswith("gemini"))
+        self.gem_smart.setVisible(b == "gemini_free")
+        vm = hardware.vision_model(self.hw) if self.hw else "qwen3-vl:4b"
+        size = hardware.MODELS.get(vm, (3.3, 0))[0]
+        self.cb_vision.setText(f"Локальная модель со зрением ({vm}, ~{size:.1f} ГБ): «посмотри на экран» без интернета"
+                               + ("" if b == "ollama" else " — запасной вариант"))
+        if reset:
+            self.cb_vision.setChecked(b == "ollama")
+
+    def _check_gemini(self) -> bool:
+        key = self.gem_key.text().strip()
+        if not key:
+            self.gem_status.setText("<span style='color:#ff3355'>Вставь ключ.</span>")
+            return False
+        self.gem_status.setText("Проверяю…")
+        self.gem_status.repaint()
+        try:
+            self.gem_model = gemini.check_key(key, self._gemini_tier())
+        except Exception as e:  # noqa: BLE001
+            self.gem_model = ""
+            self.gem_status.setText(f"<span style='color:#ff3355'>✗ {e}</span>")
+            return False
+        self.gem_status.setText(f"<span style='color:#3ff3ff'>✓ Ключ работает. Модель: {self.gem_model}</span>")
+        return True
 
     def _page_components(self):
         w, lay = self._page("// ЧТО ПОСТАВИТЬ")
@@ -276,33 +384,42 @@ class SetupWizard(QDialog):
         have_claude = bool(installer.claude_exe())
         self.cb_claude.setText("Claude Code — уже установлен ✓" if have_claude else "Claude Code — для сложных задач")
         self.cb_claude.setEnabled(not have_claude)
+        self.cb_claude.setVisible(self._brain() == "claude")
         gb = (0 if have_ollama else 1.0) + (p.download_gb if p and self.cb_model.isChecked() else 0) \
-            + (0.5 if self.cb_voice.isChecked() else 0) + (1.3 if self.cb_cuda.isVisible() and self.cb_cuda.isChecked() else 0)
+            + (0.5 if self.cb_voice.isChecked() else 0) + (1.3 if not self.cb_cuda.isHidden() and self.cb_cuda.isChecked() else 0) \
+            + (hardware.MODELS.get(self._vision(), (0, 0))[0] if self._vision() else 0)
         self.total.setText(f"Скачается примерно {gb:.1f} ГБ.")
 
     def _go(self, i: int):
         i = max(0, min(i, self.pages.count() - 1))
         self.pages.setCurrentIndex(i)
-        self.back.setVisible(0 < i < 3)
-        self.next.setText({2: "Установить", 3: "Готово"}.get(i, "Далее →"))
-        self.next.setEnabled(i != 3)
-        self.cancel.setVisible(i != 3)
-        if i == 2:
+        self.back.setVisible(HELLO < i < INSTALL)
+        self.next.setText({COMPONENTS: "Установить", INSTALL: "Готово"}.get(i, "Далее →"))
+        self.next.setEnabled(i != INSTALL)
+        self.cancel.setVisible(i != INSTALL)
+        if i == BRAIN:
+            self._refresh_brain(reset=False)
+        if i == COMPONENTS:
             self._refresh_components()
 
     def _next(self):
         i = self.pages.currentIndex()
-        if i == 1 and not self._preset():
+        if i == HARDWARE and not self._preset():
             return
-        if i == 2:
-            self._go(3)
+        if i == BRAIN and self._brain().startswith("gemini") and not self.gem_model and not self._check_gemini():
+            return                                   # без рабочего ключа дальше не пускаем
+        if i == COMPONENTS:
+            self._go(INSTALL)
             self._start_install()
             self.next.setEnabled(False)
             return
-        if i == 3:
+        if i == INSTALL:
             self.accept()
             return
         self._go(i + 1)
+
+    def _vision(self) -> str:
+        return (hardware.vision_model(self.hw) if self.hw else "qwen3-vl:4b") if self.cb_vision.isChecked() else ""
 
     def _steps(self) -> list:
         p = self._preset()
@@ -315,17 +432,29 @@ class SetupWizard(QDialog):
         if self.cb_voice.isChecked():
             steps.append(("Модель для «Капри»", lambda pr: installer.install_vosk(models, pr)))
             steps.append(("Распознавание речи", lambda pr: installer.install_whisper(p.whisper if p else "small", models, pr)))
-        if self.cb_cuda.isVisible() and self.cb_cuda.isChecked():
+        if not self.cb_cuda.isHidden() and self.cb_cuda.isChecked():
             steps.append(("Ускорение на видеокарте", installer.install_cuda))
-        if self.cb_claude.isEnabled() and self.cb_claude.isChecked():
+        if vm := self._vision():
+            steps.append((f"Модель со зрением {vm}", lambda pr: installer.pull_model(self.url, vm, pr)))
+        if not self.cb_claude.isHidden() and self.cb_claude.isEnabled() and self.cb_claude.isChecked():
             steps.append(("Claude Code", installer.install_claude))
         return steps
 
     def _start_install(self):
         p = self._preset()
-        claude = bool(installer.claude_exe()) or self.cb_claude.isChecked()
+        brain = self._brain()
+        claude = bool(installer.claude_exe()) or (brain == "claude" and self.cb_claude.isChecked())
+        gem_model = ""
+        if brain.startswith("gemini"):
+            gem_model = self.gem_model
+            try:
+                gemini.set_key(self.gem_key.text())
+                self.log.addItem("✓ Ключ Gemini сохранён в Диспетчере учётных данных Windows")
+            except Exception as e:  # noqa: BLE001
+                self.log.addItem(f"✗ Не смогла сохранить ключ Gemini: {e}")
         try:
-            path = save_config(config_values(p, self.name.text().strip(), self.city.text().strip(), claude))
+            path = save_config(config_values(p, self.name.text().strip(), self.city.text().strip(), claude,
+                                             brain, gem_model, self._vision()))
             self.log.addItem(f"✓ Настройки сохранены: {path}")
         except OSError as e:
             self.log.addItem(f"✗ Не смогла сохранить настройки: {e}")

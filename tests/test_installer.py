@@ -93,14 +93,19 @@ def test_wizard_runs_through(tmp_path, monkeypatch, qapp):
     w.detect.wait(5000)
     qapp.processEvents()
     w.name.setText("Тест")
-    w._next()
-    w._next()
+    w._next()                      # → железо
+    w._next()                      # → умный помощник (Claude не установлен — по умолчанию «только локально»)
+    assert w._brain() == "ollama" and w.cb_vision.isChecked()
+    w.brain_radio["claude"].setChecked(True)
+    assert not w.cb_vision.isChecked() and w.gem_box.isHidden()
+    w._next()                      # → что поставить
     w._next()                      # «Установить»
     w.worker.wait(5000)
     qapp.processEvents()
     assert calls == ["ollama", "qwen3:4b", "vosk", "claude"]
     assert w.worker.failed == ["Распознавание речи"] and not w.retry.isHidden()
-    assert yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))["user_name"] == "Тест"
+    d = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
+    assert d["user_name"] == "Тест" and d["brain"]["provider"] == "claude" and d["claude_code"]["enabled"] is True
     w.close()
 
 
@@ -167,3 +172,36 @@ def test_avatar_plays_own_dance(tmp_path, qapp):
     for _ in range(40):
         a.set_dance(0.0)
     assert a.sprite_kind() == "idle"
+
+
+def test_wizard_gemini_needs_working_key(tmp_path, monkeypatch, qapp):
+    from capri.llm import gemini
+    from capri.ui import setup_wizard as W
+    monkeypatch.setattr(W, "config_path", lambda: tmp_path / "config.yaml")
+    monkeypatch.setattr(W.hardware, "detect", lambda: LAPTOP)
+    monkeypatch.setattr(installer, "claude_exe", lambda: None)
+    monkeypatch.setattr(gemini, "get_key", lambda cfg=None: None)
+    saved = []
+    monkeypatch.setattr(gemini, "set_key", saved.append)
+    w = W.SetupWizard()
+    w.detect.wait(5000)
+    qapp.processEvents()
+    w._go(W.BRAIN)
+    w.brain_radio["gemini_free"].setChecked(True)
+    assert not w.gem_box.isHidden()
+    w._next()
+    assert w.pages.currentIndex() == W.BRAIN                 # без ключа не пускает
+    monkeypatch.setattr(gemini, "check_key", lambda k, tier: {"free": "gemini-flash-lite-latest"}[tier])
+    w.gem_key.setText("AIzaTEST")
+    w._next()
+    assert w.pages.currentIndex() == W.COMPONENTS and w.gem_model == "gemini-flash-lite-latest"
+    assert w.cb_claude.isHidden()
+    for name in ("install_ollama", "pull_model", "install_vosk", "install_whisper"):
+        monkeypatch.setattr(installer, name, lambda *a: None)
+    w._next()
+    w.worker.wait(5000)
+    qapp.processEvents()
+    d = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
+    assert d["brain"]["provider"] == "gemini" and d["brain"]["gemini"]["model"] == "gemini-flash-lite-latest"
+    assert saved == ["AIzaTEST"] and "AIzaTEST" not in (tmp_path / "config.yaml").read_text(encoding="utf-8")
+    w.close()

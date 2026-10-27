@@ -16,7 +16,7 @@ QPushButton:hover { background: #00f0ff; color: #0b0b14; }
 QLabel#live { color: #ffd23f; border: 1px dashed #ffd23f; padding: 6px; }
 """
 
-ROUTE_LABEL = {"rules": "⚡", "local": "◆ local", "claude": "✦ Claude", "error": "✖"}
+ROUTE_LABEL = {"rules": "⚡", "local": "◆ local", "claude": "✦ Claude", "gemini": "✧ Gemini", "error": "✖"}
 
 
 class ChatWindow(QWidget):

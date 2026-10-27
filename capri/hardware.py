@@ -178,7 +178,13 @@ class Preset:
 MODELS = {
     "qwen3:1.7b": (1.4, 2.2), "qwen3:4b": (2.5, 3.6), "qwen3:8b": (5.2, 6.2),
     "qwen3:14b": (9.3, 10.8), "qwen3:30b": (19.0, 21.0),
+    "qwen3-vl:4b": (3.3, 4.5), "qwen3-vl:8b": (6.1, 7.5),
 }
+
+
+def vision_model(hw: "Hardware") -> str:
+    """Локальная модель, которая видит картинки: побольше, если хватает видеопамяти."""
+    return "qwen3-vl:8b" if hw.vram_gb >= 8 else "qwen3-vl:4b"
 
 
 def presets(hw: Hardware) -> list[Preset]:

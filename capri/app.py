@@ -131,6 +131,7 @@ class CapriApp:
         self._fg_timer = QTimer(interval=1000, timeout=control.remember_foreground)
         self._fg_timer.start()
 
+        self._update_uplink_label()
         # грузим модель в видеокарту сразу, пока пользователь ещё ничего не написал
         self.set_status("LOADING")
         self.warmup = Warmup(self.agent)
@@ -329,6 +330,18 @@ class CapriApp:
         dm = menu.addMenu(t("dance", L))
         dm.addAction(self._check(dm, t("dance_on", L), self.prefs.get("dance", True), self.toggle_dance))
         dm.addAction(self._check(dm, t("dance_any", L), self.prefs.get("dance_any", False), self.toggle_dance_any))
+        bm = menu.addMenu(t("brain", L))
+        bg = QActionGroup(bm)
+        want = self.cfg.get("brain", {}).get("provider", "claude")
+        for code in ("claude", "gemini", "ollama"):
+            act = QAction(t(f"brain_{code}", L), bm, checkable=True, checked=(code == want))
+            act.triggered.connect(lambda _=False, c=code: self.set_brain(c))
+            bg.addAction(act)
+            bm.addAction(act)
+        now = self.agent.provider()
+        if now != want:
+            bm.addSeparator()
+            bm.addAction(t("brain_now", L).format(t(f"brain_{now}", L))).setEnabled(False)
         sm = menu.addMenu(t("skin", L))
         sg = QActionGroup(sm)
         current_skin = self.prefs.get("skin") or ""
@@ -356,6 +369,29 @@ class CapriApp:
         menu.addAction(t("restart", L), self.restart)
         menu.addAction(t("quit", L), self.qt.quit)
         return menu
+
+    def set_brain(self, code: str):
+        """Сменить умного помощника сразу, без перезапуска (и записать в config.yaml)."""
+        self.cfg.setdefault("brain", {})["provider"] = code
+        try:
+            from .setup_config import apply
+            from .ui.setup_wizard import config_path
+            path = config_path()
+            if path.exists():
+                path.write_text(apply(path.read_text(encoding="utf-8"), {("brain", "provider"): code}), encoding="utf-8")
+        except OSError:
+            pass
+        self._update_uplink_label()
+        now = self.agent.provider()
+        if now != code:
+            self.chat.add_system(t("brain_missing", self.lang).format(t(f"brain_{code}", self.lang), t(f"brain_{now}", self.lang)))
+
+    def _update_uplink_label(self):
+        try:
+            from .ui import hud
+            hud.STATE_LABEL["CLAUDE"] = "UPLINK // " + {"claude": "CLAUDE", "gemini": "GEMINI"}.get(self.agent.provider(), "VISION")
+        except Exception:  # noqa: BLE001
+            pass
 
     # внешность, мастер настройки, перезапуск -----------------------------------
     def set_skin(self, code: str):
@@ -646,7 +682,8 @@ class CapriApp:
     def on_status(self, status: str):
         self.set_status(status)
         if status == "CLAUDE":
-            self.chat.add_system("Передаю задачу Claude… это может занять минуту.")
+            who = {"claude": "Claude", "gemini": "Gemini"}.get(self.agent.provider(), "локальной модели со зрением")
+            self.chat.add_system(f"Передаю задачу {who}… это может занять минуту.")
 
     def on_reply(self, reply: Reply):
         from .log import log

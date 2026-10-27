@@ -24,6 +24,14 @@ DEFAULTS: dict = {
         "timeout": 300,
         "workdir": "workspace",
     },
+    # Кто решает сложные задачи и смотрит на экран (выбирается в мастере настройки):
+    #   claude — Claude Code по подписке Pro/Max; gemini — ключ Google AI Studio (бесплатный или платный);
+    #   ollama — только локально. Если выбранного нет (не установлен, нет ключа) — берётся следующий.
+    "brain": {
+        "provider": "claude",
+        "gemini": {"model": "gemini-flash-lite-latest", "timeout": 120},
+        "vision_model": "",          # локальная модель со зрением для «посмотри на экран» без Claude/Gemini
+    },
     # Белый список: имя -> команда запуска. Ничего вне списка Капри не запускает.
     "apps": {
         "браузер|browser": "https://www.google.com",

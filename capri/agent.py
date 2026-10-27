@@ -5,6 +5,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from . import actions as A
@@ -16,11 +17,15 @@ from .persona import system_prompt
 HISTORY_LIMIT = 20
 
 
+class BrainError(RuntimeError):
+    pass
+
+
 @dataclass
 class Reply:
     text: str
     actions: list[A.Action] = field(default_factory=list)
-    route: str = "local"   # rules | local | claude | error
+    route: str = "local"   # rules | local | claude | gemini | error
 
 
 # --- быстрые правила: отрабатывают мгновенно, без ИИ -------------------------
@@ -63,7 +68,8 @@ UNIT_TO_MIN = {
 
 class Agent:
     def __init__(self, config: dict, llm: OllamaClient | None = None,
-                 claude: Callable[[str, dict], str] = claude_code.ask, system=None, apps=None):
+                 claude: Callable[[str, dict], str] = claude_code.ask, system=None, apps=None,
+                 gemini: Callable | None = None):
         self.cfg = config
         if apps is None:
             from .applist import AppIndex
@@ -81,6 +87,7 @@ class Agent:
         o = config["ollama"]
         self.llm = llm or OllamaClient(o["url"], o["model"], o["timeout"], o.get("think"), o.get("options"))
         self.claude = claude
+        self.gemini = gemini            # None — настоящий Gemini (llm/gemini.py); в тестах — заглушка
         self.history: list[dict] = []
 
     # публичный вход -------------------------------------------------------
@@ -249,28 +256,26 @@ class Agent:
         return None
 
     def _vision_click(self, what: str, on_status) -> Reply:
-        """Кнопки нет в «дереве» окна (игры, видео, свои интерфейсы) — Claude смотрит на скриншот и говорит, куда нажать."""
+        """Кнопки нет в «дереве» окна (игры, видео, свои интерфейсы) — умный помощник смотрит на скриншот
+        (Claude, Gemini или локальная модель со зрением) и говорит, куда нажать."""
         from . import control, screen
-        from .config import expand
-        if not self.cfg["claude_code"].get("enabled", True):
-            return Reply(f"Не нашла в окне «{what}». (Посмотреть на экран могу через Claude — он выключен в config.yaml.)", route="error")
         on_status("CLAUDE")
         try:
-            path, scale, x0, y0, w, h = screen.screenshot_for_locate(expand(self.cfg["claude_code"].get("workdir", "workspace")))
-            answer = self.claude(screen.locate_prompt(what, path, w, h), self.cfg["claude_code"])
-        except claude_code.ClaudeError as e:
-            return Reply(str(e), route="error")
+            path, scale, x0, y0, w, h = screen.screenshot_for_locate(self._workdir())
+            answer, route = self._brain(screen.locate_prompt(what, w, h), [self._workdir() / path], persona=False)
+        except BrainError as e:
+            return Reply(f"Не нашла в окне «{what}», а посмотреть на экран не вышло: {e}", route="error")
         except Exception as e:  # noqa: BLE001
             return Reply(f"Не смогла посмотреть на экран: {e}", route="error")
         pt = screen.parse_point(answer)
         if not pt:
-            return Reply(f"Посмотрела — не вижу на экране «{what}».", route="claude")
+            return Reply(f"Посмотрела — не вижу на экране «{what}».", route=route)
         if control.RISKY.search(what):
             x, y = screen.to_screen(pt, scale, x0, y0)
             act = A.Action("click_at", f"Нажать «{what}»", {"x": x, "y": y}, needs_confirm=True)
-            return Reply(f"Нашла «{what}». Нажать?", [act], "claude")
+            return Reply(f"Нашла «{what}». Нажать?", [act], route)
         control.click(at=screen.to_screen(pt, scale, x0, y0))
-        return Reply(f"Нажала «{what}» (посмотрела на экран).", route="claude")
+        return Reply(f"Нажала «{what}» (посмотрела на экран).", route=route)
 
     def _weather(self, text: str) -> Reply:
         from . import weather
@@ -281,15 +286,15 @@ class Agent:
             return Reply(f"Погоду узнать не вышло: {e}", route="error")
 
     def _screen(self, text: str, on_status) -> Reply:
-        """Снимок экрана → Claude смотрит и отвечает (локальная модель картинки не видит)."""
+        """Снимок экрана → умный помощник смотрит и отвечает (обычная локальная модель картинки не видит)."""
         from . import screen
-        from .config import expand
         on_status("CLAUDE")
         try:
-            paths, title = screen.capture(expand(self.cfg["claude_code"].get("workdir", "workspace")))
+            paths, title = screen.capture(self._workdir())
         except Exception as e:  # noqa: BLE001
             return Reply(f"Не смогла сделать снимок экрана: {e}", route="error")
-        return self._ask_claude(screen.prompt(text, paths, title), on_status, label=text)
+        return self._ask_claude(screen.prompt(text, title), on_status, label=text,
+                                images=[self._workdir() / p for p in paths])
 
     # быстрые правила --------------------------------------------------------
     def _rules(self, text: str) -> Reply | None:
@@ -360,9 +365,11 @@ class Agent:
         return None  # не узнали команду — пусть думает модель
 
     # локальная модель -------------------------------------------------------
-    def _local(self, text: str, on_status, on_token=None, should_stop=None) -> Reply:
+    def _local(self, text: str, on_status, on_token=None, should_stop=None, escalate: bool = True,
+               remembered: bool = False) -> Reply:
         on_status("THINKING")
-        self._remember("user", text)
+        if not remembered:
+            self._remember("user", text)
         attitude = self.cfg.get("persona", {}).get("attitude", "sassy")
         messages = [{"role": "system", "content": system_prompt(self.cfg["user_name"], attitude)}, *self.history]
         try:
@@ -382,7 +389,9 @@ class Agent:
                 except json.JSONDecodeError:
                     args = {}
             if name == "ask_claude":
-                return self._ask_claude(args.get("task") or text, on_status, remembered=True)
+                if escalate and self.provider() != "ollama":
+                    return self._ask_claude(args.get("task") or text, on_status, remembered=True)
+                continue                       # отдать некому — модель отвечает сама
             act = self._tool_to_action(name, args)
             if act:
                 acts.append(act)
@@ -421,19 +430,84 @@ class Agent:
             return None
         return None
 
-    # Claude ---------------------------------------------------------------------
-    def _ask_claude(self, task: str, on_status, remembered: bool = False, label: str | None = None) -> Reply:
-        if not self.cfg["claude_code"].get("enabled", True):
-            return Reply("Claude выключен в config.yaml.", route="error")
+    # умный помощник: Claude / Gemini / локальная модель ---------------------------
+    def _workdir(self):
+        from .config import expand
+        return expand(self.cfg["claude_code"].get("workdir", "workspace"))
+
+    def _claude_ready(self) -> bool:
+        c = self.cfg["claude_code"]
+        if not c.get("enabled", True):
+            return False
+        return self.claude is not claude_code.ask or bool(claude_code.find_claude(c.get("command", "claude")))
+
+    def _gemini_ready(self) -> bool:
+        if self.gemini is not None:
+            return True
+        from .llm import gemini
+        return bool(gemini.get_key(self.cfg["brain"].get("gemini")))
+
+    def provider(self) -> str:
+        """Кто решает сложное: выбранный в мастере, а если его нет (не установлен, нет ключа) — следующий."""
+        want = self.cfg.get("brain", {}).get("provider", "claude")
+        order = {"claude": ("claude", "gemini", "ollama"), "gemini": ("gemini", "claude", "ollama")}.get(want, ("ollama",))
+        for p in order:
+            if p == "ollama" or (p == "claude" and self._claude_ready()) or (p == "gemini" and self._gemini_ready()):
+                return p
+        return "ollama"
+
+    def _brain(self, task: str, images: list | None = None, persona: bool = True) -> tuple[str, str]:
+        """Задать вопрос умному помощнику. → (ответ, route). Ошибки — BrainError."""
+        p = self.provider()
+        rude = self.cfg["claude_code"].get("attitude") == "rude"
+        prefix = (claude_code.PREFIX + (claude_code.RUDE if rude else "")) if persona else ""
+        if p == "claude":
+            prompt = task
+            if images:
+                rel = ", ".join(str(Path(i).relative_to(self._workdir())) if Path(i).is_relative_to(self._workdir())
+                                else str(i) for i in images)
+                prompt += f"\nСкриншоты лежат в текущей папке: {rel}. Открой их инструментом Read и посмотри внимательно."
+            try:
+                return self.claude(prompt, self.cfg["claude_code"]), "claude"
+            except claude_code.ClaudeError as e:
+                raise BrainError(str(e)) from e
+        if p == "gemini":
+            from .llm import gemini
+            ask = self.gemini or gemini.ask
+            try:
+                return ask(task, self.cfg["brain"].get("gemini") or {}, images=images, system=prefix), "gemini"
+            except gemini.GeminiError as e:
+                raise BrainError(str(e)) from e
+        # локально
+        if images:
+            vm = self.cfg.get("brain", {}).get("vision_model")
+            if not vm:
+                raise BrainError("смотреть на экран умеет Claude, Gemini или локальная модель со зрением — "
+                                 "выбери что-то из этого в «⚙ Мастер настройки»")
+            try:
+                return self.llm.ask_images(prefix + task, images, vm), "local"
+            except OllamaError as e:
+                raise BrainError(str(e)) from e
+        raise BrainError("local")       # без картинок — обычный локальный ответ (решает _ask_claude)
+
+    def _ask_claude(self, task: str, on_status, remembered: bool = False, label: str | None = None,
+                    images: list | None = None) -> Reply:
+        p = self.provider()
+        if p == "ollama" and not images:
+            # нет ни Claude, ни Gemini — отвечает локальная модель (попроще, но честно)
+            r = self._local(label or task, on_status, escalate=False, remembered=remembered)
+            if r.route == "local" and self.cfg.get("brain", {}).get("provider", "claude") != "ollama":
+                r.text += "\n\n(Отвечаю сама — Claude/Gemini не подключены, поэтому попроще.)"
+            return r
         on_status("CLAUDE")
         if not remembered:
             self._remember("user", label or task)
         try:
-            answer = self.claude(task, self.cfg["claude_code"])
-        except claude_code.ClaudeError as e:
+            answer, route = self._brain(task, images)
+        except BrainError as e:
             return Reply(str(e), route="error")
         self._remember("assistant", answer)
-        return Reply(answer, route="claude")
+        return Reply(answer, route=route)
 
     def _remember(self, role: str, content: str) -> None:
         self.history.append({"role": role, "content": content})

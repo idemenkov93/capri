@@ -14,6 +14,15 @@ ollama:
     # num_gpu: 99          # видеокарта: все слои модели на GPU (проверка: `ollama ps` → 100% GPU)
     # num_ctx: 4096        # длина памяти разговора; больше — больше видеопамяти
 
+# Кто решает сложные задачи и смотрит на экран (это выбирает мастер настройки; поменять — меню «🧠 Умный помощник»):
+#   claude — Claude Code по подписке Pro/Max;  gemini — ключ Google AI Studio (бесплатный или платный);
+#   ollama — только локально. Если выбранного нет (не установлен, нет ключа) — отвечает следующий по списку.
+brain:
+  provider: claude
+  gemini:
+    model: gemini-flash-lite-latest   # платно: gemini-pro-latest. Ключ хранится в Диспетчере учётных данных Windows
+  vision_model: ""                    # локальная модель со зрением, например qwen3-vl:4b (ollama pull qwen3-vl:4b)
+
 claude_code:
   enabled: true
   command: claude
