@@ -39,13 +39,18 @@ jobs:
           PYTHONIOENCODING: utf-8
           PYTHONUTF8: "1"
         run: |
-          python -m pytest -q -rfE -p no:cacheprovider *> pytest.txt
+          python -m pytest -v -rfE -p no:cacheprovider *> pytest.txt
           $code = $LASTEXITCODE
           Get-Content pytest.txt
           # итог и упавшие тесты — аннотациями (их видно на странице запуска без входа в GitHub)
           Select-String -Path pytest.txt -Pattern '^(FAILED|ERROR) ' | Select-Object -First 9 | ForEach-Object { "::warning title=Windows test::$($_.Line)" }
           $tail = (Get-Content pytest.txt -Tail 3) -join ' | '
           "::notice title=pytest exit $code::$tail"
+          # падение процесса (access violation и т.п.): где именно — строки из tests/ и capri/ в трассировке
+          $crash = Select-String -Path pytest.txt -Pattern 'Fatal Python error|Windows fatal exception|\\(tests|capri)\\[^"]+", line' | Select-Object -First 12
+          $last = Select-String -Path pytest.txt -Pattern '^tests[/\\]' | Select-Object -Last 1
+          if ($last) { "::notice title=last test::$($last.Line)" }
+          if ($crash) { "::warning title=pytest crash::$((($crash | ForEach-Object { $_.Line.Trim() }) -join ' | '))" }
           exit $code
 
       - name: Build Capri.exe
