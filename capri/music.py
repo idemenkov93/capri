@@ -68,7 +68,7 @@ class MusicWatcher(QThread):
 
     def stop(self):
         self._stop = True
-        self.wait(2000)
+        self.wait(6000)          # опрос плеера может занять пару секунд — поток должен закончиться до удаления
 
     @staticmethod
     async def _now_playing():

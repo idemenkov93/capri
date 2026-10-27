@@ -3,6 +3,20 @@ import time
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+KEEP = []   # Qt-объекты Капри живут до конца тестов: сборка мусора посреди работы фоновых потоков роняла Windows
+
+
+def quiet_app(monkeypatch):
+    """CapriApp без фоновых потоков, которые на Windows трогают настоящую систему (COM, PowerShell, микрофон)."""
+    import capri.app as appmod
+    from capri.applist import AppIndex
+    monkeypatch.setattr(appmod.CapriApp, "_init_voice", lambda self: None)
+    monkeypatch.setattr(appmod.CapriApp, "start_dancing", lambda self: None)
+    monkeypatch.setattr(AppIndex, "refresh", lambda self: len(self.apps))
+    app = appmod.CapriApp()
+    KEEP.append(app)
+    return app
+
 
 def test_avatar_draws_less_when_idle_in_eco():
     from PySide6.QtWidgets import QApplication
@@ -25,9 +39,7 @@ def test_app_enters_and_leaves_eco(monkeypatch, tmp_path):
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])
     import capri.app as appmod
-    monkeypatch.setattr(appmod.CapriApp, "_init_voice", lambda self: None)
-    app = appmod.CapriApp()
-    app.music and app.music.stop()
+    app = quiet_app(monkeypatch)
     app.warmup.wait(10_000)          # первый прогрев (Ollama тут нет — завершится быстро)
     unloaded = []
     app.agent.llm.unload = lambda: unloaded.append(True)
@@ -57,9 +69,7 @@ def test_app_runs_and_quits(monkeypatch):
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])
-    import capri.app as appmod
-    monkeypatch.setattr(appmod.CapriApp, "_init_voice", lambda self: None)
-    app = appmod.CapriApp()
+    app = quiet_app(monkeypatch)
     app.warmup.wait(10_000)
     QTimer.singleShot(300, app.qt.quit)
     assert app.run() == 0
