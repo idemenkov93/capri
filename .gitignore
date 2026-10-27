@@ -9,3 +9,4 @@ assets/custom/*
 data/
 workspace/
 _to_delete/
+.pytest-files/
