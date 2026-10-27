@@ -33,9 +33,16 @@ jobs:
 
       - name: Tests
         continue-on-error: true
+        shell: pwsh
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q
+        run: |
+          python -m pytest -q -rf -p no:cacheprovider 2>&1 | Tee-Object -FilePath pytest.txt
+          $code = $LASTEXITCODE
+          # упавшие тесты — аннотациями, их видно на странице запуска без входа
+          Select-String -Path pytest.txt -Pattern '^(FAILED|ERROR) ' | Select-Object -First 10 | ForEach-Object { "::warning title=Windows test::$($_.Line)" }
+          Select-String -Path pytest.txt -Pattern ' in [0-9.]+s' | Select-Object -Last 1 | ForEach-Object { "::notice title=pytest::$($_.Line)" }
+          exit $code
 
       - name: Build Capri.exe
         run: |
@@ -47,6 +54,7 @@ jobs:
         run: |
           $p = Start-Process -FilePath dist\Capri\Capri.exe -ArgumentList "--check=$PWD\dist\check.txt" -Wait -PassThru
           Get-Content dist\check.txt
+          Select-String -Path dist\check.txt -Pattern '^(FAIL|WARN)' | Select-Object -First 10 | ForEach-Object { "::warning title=bundle::$($_.Line)" }
           if ($p.ExitCode -ne 0) { Write-Error "bundle check failed"; exit 1 }
 
       - name: Build installer
@@ -57,7 +65,7 @@ jobs:
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
           & $iscc /Q "/DAppVersion=$v" packaging\capri.iss
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          Get-ChildItem dist\CapriSetup-*.exe | ForEach-Object { "{0}  {1:N0} MB" -f $_.Name, ($_.Length / 1MB) }
+          Get-ChildItem dist\CapriSetup-*.exe | ForEach-Object { "::notice title=installer::{0}  {1:N0} MB" -f $_.Name, ($_.Length / 1MB) }
 
       - uses: actions/upload-artifact@v4
         with:
