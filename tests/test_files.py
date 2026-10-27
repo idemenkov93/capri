@@ -7,7 +7,15 @@ from capri import files
 
 @pytest.fixture
 def home(tmp_path, monkeypatch):
-    """Подменяем «известные папки» на временные, чтобы тесты ничего не трогали."""
+    """Подменяем «известные папки» на временные, чтобы тесты ничего не трогали.
+    На Windows временная папка pytest лежит в AppData, а туда Капри специально не лезет — берём папку рядом с тестами."""
+    if "appdata" in str(tmp_path).lower():
+        import shutil
+        import uuid
+        tmp_path = Path(__file__).resolve().parent.parent / ".pytest-files" / uuid.uuid4().hex[:8]
+        tmp_path.mkdir(parents=True)
+        import atexit
+        atexit.register(shutil.rmtree, tmp_path, True)
     places = {k: tmp_path / k for k in ("desktop", "documents", "downloads", "pictures", "music", "videos", "project")}
     for p in places.values():
         p.mkdir()
@@ -40,7 +48,7 @@ def test_delete_goes_to_trash_with_confirmation(home):
     assert "не нашла" in files.match("удали папку нет-такой на рабочем столе")
 
 
-def test_never_outside_safe_places(home, tmp_path):
+def test_never_outside_safe_places(home):
     assert files.check_safe(Path("C:/Windows/System32")) is not None
     assert files.check_safe(home["desktop"], deleting=True) is not None    # саму папку «Рабочий стол» — нельзя
     assert files.check_safe(home["desktop"] / "x") is None

@@ -464,8 +464,8 @@ class Agent:
         if p == "claude":
             prompt = task
             if images:
-                rel = ", ".join(str(Path(i).relative_to(self._workdir())) if Path(i).is_relative_to(self._workdir())
-                                else str(i) for i in images)
+                rel = ", ".join(Path(i).relative_to(self._workdir()).as_posix() if Path(i).is_relative_to(self._workdir())
+                                else Path(i).as_posix() for i in images)
                 prompt += f"\nСкриншоты лежат в текущей папке: {rel}. Открой их инструментом Read и посмотри внимательно."
             try:
                 return self.claude(prompt, self.cfg["claude_code"]), "claude"
