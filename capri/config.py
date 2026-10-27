@@ -80,13 +80,36 @@ def _merge(base: dict, override: dict) -> dict:
     return out
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+FROZEN = bool(getattr(__import__("sys"), "frozen", False))   # запущено из Capri.exe (PyInstaller)
+
+
+def _roots() -> tuple[Path, Path]:
+    """(PROJECT_ROOT, RESOURCE_ROOT).
+
+    Из исходников (git clone + run_capri.bat) — обе папки = папка проекта, как раньше.
+    Из Capri.exe: настройки, data, workspace, свои анимации — в %LOCALAPPDATA%\\Capri (туда можно писать
+    без прав администратора и обновление программы их не трогает), а встроенные файлы — рядом с exe."""
+    import sys
+    if FROZEN:
+        res = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+        home = Path(os.environ.get("CAPRI_HOME") or Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Capri")
+        return home, res
+    here = Path(__file__).resolve().parent.parent
+    return Path(os.environ["CAPRI_HOME"]) if os.environ.get("CAPRI_HOME") else here, here
+
+
+PROJECT_ROOT, RESOURCE_ROOT = _roots()
 
 
 def expand(path: str) -> Path:
     """~ и %VAR% раскрываются; относительные пути считаются от папки проекта."""
     p = Path(os.path.expandvars(os.path.expanduser(path)))
     return p if p.is_absolute() else PROJECT_ROOT / p
+
+
+def resource(path: str) -> Path:
+    """Встроенный файл программы (config.example.yaml, assets/…)."""
+    return RESOURCE_ROOT / path
 
 
 def load_config(path: str | Path | None = None) -> dict:

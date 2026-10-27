@@ -9,3 +9,8 @@ assets/custom/*
 data/
 workspace/
 _to_delete/
+# сборка Capri.exe
+build/
+dist/
+skins/
+cuda/

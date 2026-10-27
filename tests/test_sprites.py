@@ -7,7 +7,8 @@ def test_classify():
     assert classify("Talking") == "talk"
     assert classify("output") is None          # «tp» внутри слова не считается
     assert classify("capri_idle_03") == "idle"
-    assert classify("random_dance") is None
+    assert classify("random_dance") == "dance"      # свои танцы играют, когда Капри танцует под музыку
+    assert classify("random_pose") is None
 
 
 def test_frame_folder_is_one_animation(tmp_path):

@@ -272,7 +272,13 @@ class Avatar(QWidget):
         self.mode, self.vy, self.perch_hwnd = "fall", 0.0, None
 
     # отрисовка -----------------------------------------------------------------
+    def own_dance(self) -> bool:
+        """Есть свои анимации танца (dance1.gif…) — играем их, а не раскачиваем обычную позу."""
+        return bool(self.dance) and bool(self.sprites) and "dance" in self.sprites.kinds()
+
     def sprite_kind(self) -> str:
+        if self.own_dance() and self.mode != "teleport":
+            return "dance"
         if self.walk_to is not None:
             return "walk"
         if self.mode == "teleport":
@@ -356,6 +362,8 @@ class Avatar(QWidget):
     def set_dance(self, level: float) -> None:
         # плавно: не дёргаться от каждой тихой ноты
         target = level if level > 0.04 else 0.0
+        if target and not self.dance and self.sprites:
+            self.sprites.shuffle("dance")      # новая песня — другой танец (если их несколько)
         self.dance = self.dance * 0.7 + target * 0.3 if target else (self.dance * 0.85 if self.dance > 0.02 else 0.0)
         if self.dance:
             self.walk_to = None
@@ -366,6 +374,8 @@ class Avatar(QWidget):
             self._dance_t = math.floor(self._dance_t / math.pi) * math.pi + math.pi / 2
             if random.random() < 0.15:
                 self.sprites.shuffle("idle")   # иногда меняет позу на ударе
+            if random.random() < 0.04:
+                self.sprites.shuffle("dance")
 
     def _paint_dance(self, p: QPainter, img: QPixmap, x: float, y: float, w: int, h: int, color: QColor):
         """Танец под музыку: подпрыгивает в такт, качается, чуть сжимается на «ударах», под ногами — неоновый пол."""
@@ -374,6 +384,8 @@ class Avatar(QWidget):
         bounce = beat * 14 * lvl
         sway = math.sin(t / 2) * 9 * lvl              # градусы
         sq = 1 + 0.07 * lvl * (beat - 0.5)
+        if self.own_dance():                          # своя анимация танца уже двигается — только лёгкий «пульс»
+            bounce, sway, sq = bounce * 0.25, 0.0, 1.0
         floor = QRadialGradient(QPointF(w / 2, h - 4), w * 0.45)
         floor.setColorAt(0, QColor(color.red(), color.green(), color.blue(), int(90 + 120 * beat * lvl)))
         floor.setColorAt(1, QColor(0, 0, 0, 0))

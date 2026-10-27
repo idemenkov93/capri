@@ -1,0 +1,74 @@
+# Сборка Capri.exe и установщика на Windows.
+# Запускается: пуш в ветку feature/installer (проверить сборку), тег v* (выпустить релиз) или вручную.
+# Публичная сборка — без картинок из assets/custom (их в репозитории нет); внешность — скинами.
+name: Build Windows
+
+on:
+  push:
+    branches: [feature/installer]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-voice.txt -r requirements-system.txt -r requirements-google.txt
+          pip install "pyinstaller>=6.10" pytest
+
+      - name: Tests
+        continue-on-error: true
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+
+      - name: Build Capri.exe
+        run: |
+          python packaging/make_icon.py
+          pyinstaller --noconfirm --clean --log-level WARN packaging/capri.spec --distpath dist --workpath build
+
+      - name: Check the bundle (every module imports, wizard opens)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\Capri\Capri.exe -ArgumentList "--check=$PWD\dist\check.txt" -Wait -PassThru
+          Get-Content dist\check.txt
+          if ($p.ExitCode -ne 0) { Write-Error "bundle check failed"; exit 1 }
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $v = python -c "import capri;print(capri.__version__)"
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc /Q "/DAppVersion=$v" packaging\capri.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-ChildItem dist\CapriSetup-*.exe | ForEach-Object { "{0}  {1:N0} MB" -f $_.Name, ($_.Length / 1MB) }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CapriSetup
+          path: |
+            dist/CapriSetup-*.exe
+            dist/check.txt
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/CapriSetup-*.exe
+          generate_release_notes: true

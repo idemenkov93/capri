@@ -79,13 +79,15 @@ def _cuda_dlls() -> None:
     import os
     import sys
     from pathlib import Path
-    for base in map(Path, sys.path):
-        for sub in ("cublas", "cudnn", "cuda_nvrtc"):
-            d = base / "nvidia" / sub / "bin"
-            if d.is_dir():
-                os.environ["PATH"] = str(d) + os.pathsep + os.environ.get("PATH", "")
-                if hasattr(os, "add_dll_directory"):
-                    os.add_dll_directory(str(d))
+
+    from ..config import PROJECT_ROOT
+    dirs = [base / "nvidia" / sub / "bin" for base in map(Path, sys.path) for sub in ("cublas", "cudnn", "cuda_nvrtc")]
+    dirs.append(PROJECT_ROOT / "cuda")          # Capri.exe: мастер настройки кладёт DLL сюда
+    for d in dirs:
+        if d.is_dir():
+            os.environ["PATH"] = str(d) + os.pathsep + os.environ.get("PATH", "")
+            if hasattr(os, "add_dll_directory"):
+                os.add_dll_directory(str(d))
 
 
 def gpu_available() -> bool:

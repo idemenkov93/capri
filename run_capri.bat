@@ -41,5 +41,5 @@ if not exist data\models\vosk-model-small-ru-0.22\am (
     if not exist data\models mkdir data\models
     powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri 'https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip' -OutFile 'data\models\vosk-ru.zip'; Expand-Archive -Force 'data\models\vosk-ru.zip' 'data\models'; Remove-Item 'data\models\vosk-ru.zip'"
 )
-if not exist config.yaml copy config.example.yaml config.yaml >nul
+rem config.yaml is created by the setup wizard on first start (hardware check + model choice)
 start "" .venv\Scripts\pythonw -m capri

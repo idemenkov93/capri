@@ -8,6 +8,10 @@
 
 ![hud](docs/hud.png)
 
+**Установка одним файлом:** скачай `CapriSetup.exe` из [Releases](https://github.com/idemenkov93/capri/releases) — мастер
+сам определит железо, предложит модель (быстрая / средняя / умная) и всё поставит. Подробно: [docs/INSTALL.md](docs/INSTALL.md).
+Из исходников, как раньше: `git clone` + `run_capri.bat`.
+
 ## Как это работает
 
 ```
