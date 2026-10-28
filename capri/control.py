@@ -404,6 +404,9 @@ NIGHT_TOGGLE = re.compile(r"ночн\w* свет|night ?light|nachtmodus|nachtli
 def night_light(on: bool = True, timeout: float = 8.0) -> bool:
     """Стандартный «Ночной свет» Windows: программам его включать не дают, поэтому открываем его страницу
     в «Параметрах» и нажимаем кнопку «Включить сейчас» (или переключатель) так же, как нажал бы ты."""
+    from . import nightlight
+    if nightlight.set_on(on):                         # быстрый путь: сразу в настройку Windows, без окна
+        return True
     import uiautomation as auto
     os.startfile("ms-settings:nightlight")          # noqa: S606
     with auto.UIAutomationInitializerInThread():
