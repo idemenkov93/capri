@@ -401,3 +401,52 @@ def test_stats_phrase_is_not_too_greedy():
     from capri.agent import RE_GAME_STATS
     assert RE_GAME_STATS.search("покажи мою статистику") and RE_GAME_STATS.search("статистика матча")
     assert not RE_GAME_STATS.search("покажи статистику процессора")
+
+
+def test_stuck_player_does_not_hang_capri(monkeypatch):
+    from capri import system
+
+    async def never():
+        await __import__("asyncio").sleep(30)
+    with pytest.raises(system.MediaTimeout):
+        system.run_async(never, 0.3)
+
+    async def fine():
+        return {"ok": 1}
+    assert system.run_async(fine, 2) == {"ok": 1}
+
+
+def test_new_request_replaces_a_stuck_one(monkeypatch):
+    qt()
+    import capri.app as appmod
+    from capri.agent import Reply
+    from capri.applist import AppIndex as AI
+    monkeypatch.setattr(appmod.CapriApp, "_init_voice", lambda self: None)
+    monkeypatch.setattr(appmod.CapriApp, "start_dancing", lambda self: None)
+    monkeypatch.setattr(AI, "refresh", lambda self: 0)
+    app = appmod.CapriApp()
+    KEEP.append(app)
+    app.warmup.wait(10_000)
+    app.game._poll_timer.stop()
+    import threading
+    release = threading.Event()
+    replies = []
+    monkeypatch.setattr(app, "on_reply", replies.append)
+
+    def handle(text, **k):
+        if text == "следующий трек":
+            release.wait(10)                # «плеер не отвечает»
+        return Reply(f"ок: {text}", route="rules")
+    monkeypatch.setattr(app.agent, "handle", handle)
+    app.on_message("следующий трек")
+    stuck = app.worker
+    stuck.started_at -= 60                   # висит уже минуту
+    app.on_message("громкость 80")
+    assert app.worker is not stuck and stuck.abandoned
+    app.worker.wait(5000)
+    from PySide6.QtWidgets import QApplication
+    QApplication.processEvents()
+    release.set()
+    stuck.wait(5000)
+    QApplication.processEvents()
+    assert [r.text for r in replies] == ["ок: громкость 80"]      # ответ брошенного запроса не показываем
