@@ -132,7 +132,7 @@ def match(text: str, data: dict | None = None) -> tuple[str, bool] | None:
         for ph in sc.get("off_phrases") or []:
             if raw == ph.lower() or raw.endswith(" " + ph.lower()):
                 return name, False
-        if re.match(r"^(?:выключи|отключи|останови|stop|disable)\s+", raw):
+        if re.match(r"^(?:выключи|выключить|выключай|отключи|отключить|останови|stop|disable)\s+", raw):
             if any(raw.endswith(ph.lower()) for ph in sc.get("phrases") or [name]):
                 return name, False
             continue

@@ -28,6 +28,9 @@ class Worker(QThread):
         super().__init__()
         self.agent, self.text = agent, text
         self.stop_requested = False
+        self.abandoned = False        # завис и брошен — его ответ уже никому не нужен
+        self.started_at = time.monotonic()
+        self.phase = ""               # THINKING / CLAUDE — думает модель (это может быть долго и нормально)
 
     def run(self):
         try:
@@ -589,18 +592,32 @@ class CapriApp:
         from .log import log
         self.wake_up()
         if self.worker and self.worker.isRunning():
-            # раньше новый запрос молча терялся; теперь — ставим в очередь (последний побеждает)
-            log.info("занята, откладываю: «%s»", text)
-            self._queued = text
-            self.stop_current()
-            return
+            limit = self.STUCK_AFTER_BRAIN if self.worker.phase in ("THINKING", "CLAUDE") else self.STUCK_AFTER
+            if time.monotonic() - self.worker.started_at > limit:
+                # старый запрос висит (плеер или программа не отвечает) — бросаем его и выполняем новый
+                log.warning("запрос «%s» висит %.0f с — бросаю его", self.worker.text, time.monotonic() - self.worker.started_at)
+                self.worker.abandoned = True
+                self.worker.stop_requested = True
+                self._stale_workers = [w for w in getattr(self, "_stale_workers", []) if w.isRunning()] + [self.worker]
+                self.worker = None
+            else:
+                # раньше новый запрос молча терялся; теперь — ставим в очередь (последний побеждает)
+                log.info("занята, откладываю: «%s»", text)
+                self._queued = text
+                self.stop_current()
+                return
         log.info("запрос: «%s»", text)
         self.chat.set_busy(True)
         self.worker = Worker(self.agent, text)
         self.worker.status.connect(self.on_status)
         self.worker.token.connect(self.chat.stream)
-        self.worker.done.connect(self.on_reply)
+        w = self.worker
+        w.status.connect(lambda st, w=w: setattr(w, "phase", st))
+        w.done.connect(lambda reply, w=w: None if w.abandoned else self.on_reply(reply))
         self.worker.start()
+
+    STUCK_AFTER = 12          # секунд: быстрые команды (музыка, громкость, окна) дольше не идут — значит, зависла
+    STUCK_AFTER_BRAIN = 150   # модель или Claude думают — ждём дольше
 
     def stop_current(self):
         if self.worker and self.worker.isRunning():
