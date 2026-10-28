@@ -122,6 +122,8 @@ class CapriApp:
         self.models_unloaded = False
         self._eco_timer = QTimer(interval=15_000, timeout=self._eco_check)
         self._eco_timer.start()
+        if self.prefs.get("break_every"):
+            self.set_break_reminder(int(self.prefs.get("break_every")))   # режим работы пережил перезапуск
         # запоминаем последнее «чужое» окно: «напечатай…», «нажми кнопку…» из чата Капри идут туда, а не в чат
         from . import control
         self._fg_timer = QTimer(interval=1000, timeout=control.remember_foreground)
@@ -320,6 +322,19 @@ class CapriApp:
             am.addAction(act)
         am.addSeparator()
         am.addAction(self._check(am, t("slang", L), self.prefs.get("slang", True), self.toggle_slang))
+        scm = menu.addMenu(t("scenarios", L))
+        try:
+            from . import scenarios
+            for name, sc in scenarios.load().items():
+                if isinstance(sc, dict):
+                    phrase = (sc.get("phrases") or [name])[0]
+                    scm.addAction(phrase[:1].upper() + phrase[1:], lambda p=phrase: self.on_message(p))
+        except Exception:  # noqa: BLE001
+            pass
+        scm.addSeparator()
+        scm.addAction(t("scenarios_edit", L), self.edit_scenarios)
+        if self.prefs.get("break_every"):
+            scm.addAction(t("breaks_off", L), lambda: self.set_break_reminder(0))
         menu.addAction(self._check(menu, t("wander", L), self.avatar.wander, self.toggle_wander))
         dm = menu.addMenu(t("dance", L))
         dm.addAction(self._check(dm, t("dance_on", L), self.prefs.get("dance", True), self.toggle_dance))
@@ -642,6 +657,9 @@ class CapriApp:
         if act.kind == "quiet":
             self.be_quiet()
             return
+        if act.kind == "break_reminder":
+            self.set_break_reminder(int(act.params.get("minutes") or 0))
+            return
         if act.kind in ("connect_mail", "connect_calendar", "connect_simple"):
             self.connect_google(act.kind)
             return
@@ -667,12 +685,59 @@ class CapriApp:
         except Exception as e:
             self.chat.add_system(f"Не получилось: {e}")
 
-    def timer_fired(self, label: str):
+    def edit_scenarios(self):
+        from . import actions as AA
+        from . import scenarios
+        scenarios.load()                     # создаст файл с примерами, если его ещё нет
+        AA.execute(AA.Action("open_file", "Сценарии", {"path": str(scenarios.path())}), self.cfg)
+
+    # напоминание об отдыхе -------------------------------------------------------
+    BREAK_IDLE = 10 * 60          # не трогал мышь и клавиатуру 10 минут — значит, отдыхал: отсчёт заново
+
+    def set_break_reminder(self, minutes: int):
+        """Каждые minutes минут работы за компьютером — «дельтуй, разомнись». 0 — выключить."""
+        import time as _t
+        self.prefs.set("break_every", minutes)
+        self._work_since = _t.monotonic()
+        if minutes and not getattr(self, "_break_timer", None):
+            self._break_timer = QTimer(interval=60_000, timeout=self._break_check)
+        if minutes:
+            self._break_timer.start()
+        elif getattr(self, "_break_timer", None):
+            self._break_timer.stop()
+
+    def _break_check(self):
+        import time as _t
+
+        from . import control
+        every = int(self.prefs.get("break_every") or 0)
+        if not every:
+            return
+        now = _t.monotonic()
+        if control.idle_seconds() >= self.BREAK_IDLE:
+            self._work_since = now                  # отошёл от компьютера — это и есть перерыв
+            return
+        if now - self._work_since >= every * 60:
+            self._work_since = now
+            import random
+            h = every / 60
+            dur = f"{h:g} ч" if every >= 60 else f"{every} мин"
+            text = random.choice((
+                f"Чумба, ты в деле уже {dur}. Дельтуй минут на десять: вода, окно, спина.",
+                f"{dur} без перерыва — даже хрому нужен отдых. Встань, разомнись.",
+                f"Перерыв! {dur} за экраном. Пять минут без монитора — глаза спасибо скажут.",
+            ) if self.prefs.get("slang", True) else (
+                f"Ты за компьютером уже {dur}. Сделай перерыв минут на десять.",
+                f"{dur} без перерыва — встань, разомнись, попей воды.",
+            ))
+            self.timer_fired(text, prefix="")
+
+    def timer_fired(self, label: str, prefix: str = "⏰ Эй! "):
         self.set_status("TALKING")
-        self.tray.showMessage("Capri", f"⏰ {label}")
-        self.chat.add_capri(f"⏰ Эй! {label}", "rules")
+        self.tray.showMessage("Capri", label)
+        self.chat.add_capri(f"{prefix}{label}", "rules")
         if self.voice and self.cfg["voice"]["speak"]:
-            self.voice.speak(f"Эй! {label}")
+            self.voice.speak(f"{prefix.replace('⏰ ', '')}{label}")
         QTimer.singleShot(5000, lambda: self.state == "TALKING" and self.set_status("ONLINE"))
 
     def run(self) -> int:

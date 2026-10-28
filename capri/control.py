@@ -236,8 +236,8 @@ APP_EXE = {
     "опера": "opera.exe", "opera": "opera.exe", "яндекс": "browser.exe", "телеграм": "telegram.exe", "telegram": "telegram.exe",
     "дискорд": "discord.exe", "discord": "discord.exe", "спотифай": "spotify.exe", "spotify": "spotify.exe",
     "проводник": "explorer.exe", "explorer": "explorer.exe", "блокнот": "notepad.exe", "notepad": "notepad.exe",
-    "ворд": "winword.exe", "word": "winword.exe", "эксель": "excel.exe", "excel": "excel.exe", "стим": "steam.exe",
-    "steam": "steam.exe", "вс код": "code.exe", "вскод": "code.exe", "vs code": "code.exe", "код": "code.exe",
+    "ворд": "winword.exe", "word": "winword.exe", "эксель": "excel.exe", "excel": "excel.exe", "стим": ("steam.exe", "steamwebhelper.exe"),
+    "steam": ("steam.exe", "steamwebhelper.exe"), "вс код": "code.exe", "вскод": "code.exe", "vs code": "code.exe", "код": "code.exe",
     "терминал": "windowsterminal.exe", "павершел": "powershell.exe", "powershell": "powershell.exe",
     "ютуб мюзик": "chrome.exe", "youtube music": "chrome.exe", "обс": "obs64.exe", "obs": "obs64.exe",
 }
@@ -273,16 +273,16 @@ def monitor_of(h: int, mons: list) -> int:
     return 0
 
 
-def find_app_window(name: str | None) -> int:
+def find_app_window(name: str | None, strict: bool = False) -> int:
     """Главное окно программы по названию («хром», «телеграм»); None — текущее окно."""
     if not name:
         return target_window()
     key = re.sub(r"^(?:окно|программу|приложение|window)\s+", "", name.lower().strip())
     exe = APP_EXE.get(key) or (key if key.endswith(".exe") else None)
-    if not exe and key not in ("браузер", "browser"):
+    if not exe and key not in ("браузер", "browser") and " " not in key:
         # «хрома», «телеграмм», «проводника» — по началу слова
         exe = next((v for k, v in APP_EXE.items() if v and len(k) >= 4 and len(key) >= 3 and (key.startswith(k[:-1]) or k.startswith(key))), None)
-    want = (exe,) if exe else BROWSERS if key in ("браузер", "browser") else ()
+    want = (exe if isinstance(exe, tuple) else (exe,)) if exe else BROWSERS if key in ("браузер", "browser") else ()
     found: list[int] = []
     PROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
@@ -300,8 +300,109 @@ def find_app_window(name: str | None) -> int:
 
     user32.EnumWindows(PROC(cb), 0)          # окна идут сверху вниз — первое и есть последнее активное
     if key in ("ютуб мюзик", "youtube music"):
-        found = [h for h in found if "youtube music" in window_title(h).lower()] or found
+        music = [h for h in found if "youtube music" in window_title(h).lower()]
+        found = music if (music or strict) else found
     return found[0] if found else 0
+
+
+def wait_window(name: str, timeout: float = 20.0, ignore: set | None = None) -> int:
+    """Дождаться окна программы после запуска (Steam и Discord открываются по 5–15 секунд)."""
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < timeout:
+        h = find_app_window(name, strict=True)
+        if h and (not ignore or h not in ignore):
+            return h
+        time.sleep(0.5)
+    return find_app_window(name, strict=True)
+
+
+def _frame_margins(h: int) -> tuple[int, int, int, int]:
+    """Невидимые рамки окна Windows 10/11 (тени по 7 px): без поправки половинки экрана получаются с щелями."""
+    r, f = wintypes.RECT(), wintypes.RECT()
+    user32.GetWindowRect(h, ctypes.byref(r))
+    if ctypes.windll.dwmapi.DwmGetWindowAttribute(h, 9, ctypes.byref(f), ctypes.sizeof(f)) != 0:
+        return 0, 0, 0, 0
+    return f.left - r.left, f.top - r.top, r.right - f.right, r.bottom - f.bottom
+
+
+def place_window(h: int, screen: int = 1, place: str = "max") -> str:
+    """Поставить окно на экран screen (1 — основной, 2 — второй…): max | left | right | top | bottom | center."""
+    mons = monitors()
+    l, t, r, b, _ = mons[min(max(screen, 1), len(mons)) - 1]
+    if user32.IsIconic(h) or user32.IsZoomed(h):
+        user32.ShowWindow(h, 9)                  # SW_RESTORE
+        time.sleep(0.15)
+    w, hh = r - l, b - t
+    box = {"left": (l, t, w // 2, hh), "right": (l + w // 2, t, w - w // 2, hh), "top": (l, t, w, hh // 2),
+           "bottom": (l, t + hh // 2, w, hh - hh // 2), "center": (l + w // 6, t + hh // 8, w * 2 // 3, hh * 3 // 4)}.get(place)
+    if box is None:                                # max: сначала на нужный экран, потом развернуть
+        user32.SetWindowPos(h, 0, l + 40, t + 40, w * 2 // 3, hh * 2 // 3, 0x0004 | 0x0040)
+        user32.ShowWindow(h, 3)
+    else:
+        ml, mt, mr, mb = _frame_margins(h)
+        x, y, cw, ch = box
+        user32.SetWindowPos(h, 0, x - ml, y - mt, cw + ml + mr, ch + mt + mb, 0x0004 | 0x0040)
+    return window_title(h)
+
+
+def idle_seconds() -> float:
+    """Сколько секунд к компьютеру не прикасались (мышь/клавиатура)."""
+    if not IS_WIN:
+        return 0.0
+
+    class LASTINPUTINFO(ctypes.Structure):
+        _fields_ = [("cbSize", wintypes.UINT), ("dwTime", wintypes.DWORD)]
+    li = LASTINPUTINFO(cbSize=ctypes.sizeof(LASTINPUTINFO))
+    if not user32.GetLastInputInfo(ctypes.byref(li)):
+        return 0.0
+    return max(0, (ctypes.windll.kernel32.GetTickCount() - li.dwTime) & 0xFFFFFFFF) / 1000.0
+
+
+NIGHT_ON = re.compile(r"включить сейчас|turn on now|jetzt einschalten|jetzt aktivieren", re.I)
+NIGHT_OFF = re.compile(r"выключить сейчас|turn off now|jetzt ausschalten|jetzt deaktivieren", re.I)
+NIGHT_TOGGLE = re.compile(r"ночн\w* свет|night ?light|nachtmodus|nachtlicht", re.I)
+
+
+def night_light(on: bool = True, timeout: float = 8.0) -> bool:
+    """Стандартный «Ночной свет» Windows: программам его включать не дают, поэтому открываем его страницу
+    в «Параметрах» и нажимаем кнопку «Включить сейчас» (или переключатель) так же, как нажал бы ты."""
+    import uiautomation as auto
+    os.startfile("ms-settings:nightlight")          # noqa: S606
+    with auto.UIAutomationInitializerInThread():
+        t0 = time.monotonic()
+        win = 0
+        while time.monotonic() - t0 < timeout and not win:
+            time.sleep(0.5)
+            win = find_app_window("systemsettings.exe", strict=True)
+        if not win:
+            return False
+        time.sleep(1.0)                               # страница дорисовывается
+        root = auto.ControlFromHandle(win)
+        want = NIGHT_ON if on else NIGHT_OFF
+        done = False
+        for ctrl, _d in auto.WalkControl(root, includeTop=False, maxDepth=30):
+            try:
+                name = ctrl.Name or ""
+                kind = ctrl.ControlTypeName
+            except Exception:  # noqa: BLE001
+                continue
+            if kind == "ButtonControl" and want.search(name):
+                click_element(ctrl)
+                done = True
+                break
+            if kind in ("ButtonControl", "CheckBoxControl") and NIGHT_TOGGLE.search(name):
+                try:
+                    tp = ctrl.GetTogglePattern()
+                    if tp and bool(tp.ToggleState) != on:
+                        tp.Toggle()
+                    done = True
+                    break
+                except Exception:  # noqa: BLE001
+                    continue
+        if done:
+            time.sleep(0.5)
+            user32.PostMessageW(win, 0x0010, 0, 0)   # закрыть «Параметры»
+        return done
 
 
 def move_to_monitor(name: str | None, where: str) -> dict:

@@ -61,7 +61,7 @@ PHRASES = {
     "удаленный рабочий стол": "remote desktop connection", "удалённый рабочий стол": "remote desktop connection",
     "очистка диска": "disk clean up", "локальная политика безопасности": "local security policy",
     "ножницы": "snipping tool", "гит баш": "git bash", "человек паук": "spider man", "балдурс гейт": "baldur s gate",
-    "вс код": "visual studio code", "вскод": "visual studio code", "вижуал студио код": "visual studio code",
+    "вс код": "visual studio code", "vs code": "visual studio code", "vscode": "visual studio code", "вскоде": "visual studio code", "вскод": "visual studio code", "вижуал студио код": "visual studio code",
            "диспетчер задач": "task manager", "эпик геймс": "epic games", "баттл нет": "battle.net"}
 
 
