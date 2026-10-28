@@ -14,6 +14,11 @@ from .llm.ollama_client import OllamaClient, OllamaError
 from .persona import system_prompt
 
 HISTORY_LIMIT = 20
+RE_WANTS_CODE = re.compile(r"скрипт|код\b|кода\b|программ|батник|\.bat\b|функци|script|code", re.I)
+RE_CODE_BLOCK = re.compile(r"```([\w+-]*)[ \t]*\n(.*?)```", re.S)
+CODE_EXT = {"powershell": ".ps1", "ps1": ".ps1", "pwsh": ".ps1", "ps": ".ps1", "python": ".py", "py": ".py",
+            "bash": ".sh", "sh": ".sh", "shell": ".sh", "bat": ".bat", "batch": ".bat", "cmd": ".bat",
+            "sql": ".sql", "yaml": ".yaml", "yml": ".yaml", "json": ".json", "javascript": ".js", "js": ".js"}
 
 
 @dataclass
@@ -25,7 +30,16 @@ class Reply:
 
 # --- быстрые правила: отрабатывают мгновенно, без ИИ -------------------------
 # Русский / Deutsch / English. Всё, что не подошло, уходит модели — она понимает любой язык.
-RE_OPEN = re.compile(r"^(?:открой|запусти|включи|öffne|starte|open|launch|start|play)\s+(.+?)[.!]?$", re.I)
+RE_OPEN = re.compile(r"^(?:(?:от)?крой(?:те)?|откройка|открою|запусти(?:те)?|включи(?:те)?|öffne|starte|open|launch|start|play)\s+(.+?)[.!]?$", re.I)
+# «таймер», «поставь таймер» без времени — спросить, на сколько (а не придумывать 25 минут)
+# «что ты умеешь», «напиши список своих команд»
+RE_HELP = re.compile(r"что ты (?:умеешь|можешь)|какие (?:у тебя )?(?:есть )?команды|(?:список|перечень|все)\s+(?:\w+\s+){0,2}команд|"
+                     r"(?:твоих|своих|твои|свои)\s+команд|what can you do|your commands|was kannst du", re.I)
+# «найди ближайший ресторан», «где рядом аптека»
+RE_NEARBY = re.compile(r"^(?:найди|покажи|подскажи|где)\s+.*\b(?:ближайш\w*|рядом|поблизости|недалеко|возле меня|около меня)\b.*$", re.I)
+RE_TIMER_BARE = re.compile(r"^(?:поставь\s+|заведи\s+|включи\s+|сделай\s+)?(?:таймер|будильник|напоминалк\w*|timer)[.!?]?$", re.I)
+# слова о времени: без них «напомни мне команду…» — это вопрос, а не таймер
+RE_TIME_WORDS = re.compile(r"\d|минут|секунд|час|таймер|будильник|через|завтра|утром|вечером|timer|minute|hour|second", re.I)
 RE_SEARCH = re.compile(
     r"^(?:загугли|погугли|найди в (?:интернете|гугле|сети)|google|googel|suche nach|search for)\s+(.+)$", re.I
 )
@@ -43,6 +57,8 @@ RE_YOUTUBE = re.compile(
 RE_WAKE_PREFIX = re.compile(r"^\s*(?:(?:привет|эй|окей|ок|хей|hey|hi|hallo|okay)\s*,?\s*)?(?:капри|кэпри|capri|kapri)\b[\s,!.:-]*", re.I)
 # сложное — сразу Claude: код, разбор ошибок, планы, подробные объяснения
 RE_COMPLEX = re.compile(
+    r"\b(напиши|написать|сделай|составь|сгенерируй|создай)\b.{0,40}?(\w*скрипт\w*|\w*script\w*|код\w*|программ\w*|игр[уыа]\w*|"
+    r"бот\w*|сайт\w*|функци\w*|на (python|питоне|пайтоне|powershell|павершеле|bash|sql|js|javascript|c#|java))\b|"
     r"\b(напиши|написать|сделай|составь|сгенерируй)\s+(мне\s+)?(скрипт|код|программ\w*|функци\w*|регулярк\w*|запрос|план|резюме|письмо|"
     r"bewerbung\w*|anschreiben)|\b(объясни|расскажи)\s+(подробно|детально|по шагам)|\bразбер\w*|\bсравни\b|"
     r"\bпочему\s+(не\s+работает|ошибк\w*|падает|не\s+запускается)|\bкак\s+(настроить|исправить|починить|автоматизировать)|"
@@ -298,6 +314,8 @@ class Agent:
             return self._open_nth(m.group("n") or m.group("n2"))
         # системные команды (музыка, громкость, клавиши, проверка ПК…) — выполняем прямо здесь, в рабочем потоке
         if cmd := C.match(text):
+            if cmd.op == "quiet":
+                return Reply("Молчу.", [A.Action("quiet", "Замолчать", needs_confirm=False)], "rules")
             result = self.system.run(cmd)
             if cmd.op == "click_name" and str(result.get("error", "")).startswith("не нашла"):
                 return Reply(cmd.text, route="vision")       # кнопки нет в дереве окна — посмотрим глазами (Claude)
@@ -312,9 +330,18 @@ class Agent:
             return Reply(C.reply(cmd, C.lang_of(text), result), route="error" if result.get("error") else "rules")
         if (g := self._google(text)) is not None:
             return g
+        if RE_HELP.search(text):
+            return self._help(desktop=bool(re.search(r"рабоч\w* стол", text, re.I)))
+        if m := RE_NEARBY.search(text):
+            q = m.group(0).strip(" .?!")
+            q = re.sub(r"^(?:найди|покажи|подскажи|где)\s+(?:мне\s+)?", "", q, flags=re.I)
+            url = "https://www.google.com/maps/search/" + __import__("urllib.parse").parse.quote(q)
+            return Reply(f"Открываю карту: «{q}».", [A.Action("open_url", f"Карта: {q}", {"url": url}, needs_confirm=False)], "rules")
         if m := RE_SEARCH.match(text):
             q = m.group(1).strip()
             return Reply(f"Ищу «{q}».", [A.make_web_search(q, self.cfg["search_url"])], "rules")
+        if RE_TIMER_BARE.match(text.strip()):
+            return Reply("На сколько? Скажи, например: «таймер на 10 минут».", route="rules")
         if m := RE_TIMER.search(text):
             minutes = float(m.group(1).replace(",", ".")) * UNIT_TO_MIN[m.group(2).lower()]
             if act := A.make_timer(minutes, (m.group(3) or "").strip()):
@@ -335,6 +362,8 @@ class Agent:
             return Reply(f"Ищу на YouTube «{q}».", [A.make_youtube_search(q)], "rules")
         if m := RE_OPEN.match(bare):
             target = re.sub(r"^(?:в|на|in|auf)\s+", "", m.group(1).strip())
+            # Whisper: «YouTube-музык», «ютуб мерзик», «YouTube мьезик» → YouTube Music
+            target = re.sub(r"(?:ютуб|youtube|ютьюб)[\s-]*(?:m\w*sic|м\w{0,3}з\w*к\w*)", "youtube music", target, flags=re.I)
             # «открой в YouTube Music понравившуюся музыку» / «…, понравившаяся музыка» — сначала то, что внутри
             if "," in target and (inner := A.make_open_site(target.split(",", 1)[1], self.cfg.get("sites"))):
                 return Reply(f"{inner.description}.", [inner], "rules")
@@ -383,11 +412,20 @@ class Agent:
                     args = {}
             if name == "ask_claude":
                 return self._ask_claude(args.get("task") or text, on_status, remembered=True)
+            if not self._tool_makes_sense(name, args, text):
+                continue                       # модель «додумала» действие, о котором не просили
             act = self._tool_to_action(name, args)
             if act:
                 acts.append(act)
             else:
                 notes.append(f"(не могу: {name} {args})")
+        if not acts and not (msg.get("content") or "").strip() and msg.get("tool_calls"):
+            # все действия отброшены, а текста нет — просим ответить словами, без инструментов
+            try:
+                msg = self.llm.chat(messages, tools=None, on_token=on_token, should_stop=should_stop)
+            except OllamaError as e:
+                self.history.pop()
+                return Reply(str(e), route="error")
 
         # модели иногда пишут вызов инструмента текстом: «(вызывает инструмент open_app с параметром …)» — убираем
         content = re.sub(r"\((?:вызывает|вызываю|calls?|calling)[^)]*\)\s*", "", (msg.get("content") or "")).strip()
@@ -397,6 +435,19 @@ class Agent:
             content += "\n" + "\n".join(notes)
         self._remember("assistant", content)
         return Reply(content, acts, "local")
+
+    @staticmethod
+    def _tool_makes_sense(name: str, args: dict, text: str) -> bool:
+        """Отсекаем выдумки маленькой модели: таймер без слов о времени, Spotify, когда о нём не говорили."""
+        if name == "set_timer":
+            return bool(RE_TIME_WORDS.search(text))
+        if name in ("open_app", "open_url"):
+            what = str(args.get("name") or args.get("url") or "").lower()
+            if "spotify" in what and not re.search(r"спотиф|spotify", text, re.I):
+                return False
+        if name == "web_search" and re.search(r"почт|мейл|e-?mail|письм", text, re.I):
+            return False                       # «что у меня по почте» — не повод гуглить
+        return True
 
     def _tool_to_action(self, name: str, args: dict) -> A.Action | None:
         try:
@@ -433,7 +484,46 @@ class Agent:
         except claude_code.ClaudeError as e:
             return Reply(str(e), route="error")
         self._remember("assistant", answer)
+        if RE_WANTS_CODE.search(label or task):
+            if saved := self._save_code(answer):
+                return saved
         return Reply(answer, route="claude")
+
+    def _help(self, desktop: bool = False) -> Reply:
+        """Список команд — в файл и в Блокнот (голосом такое не прочитаешь)."""
+        from . import files
+        from .help import COMMANDS
+        path = files.known_folder("desktop" if desktop else "documents") / "Capri — команды.txt"
+        try:
+            path.write_text(COMMANDS, encoding="utf-8-sig")
+        except OSError as e:
+            return Reply(f"Не смогла записать список: {e}", route="error")
+        act = A.Action("open_file", "Открыть список команд", {"path": str(path)}, needs_confirm=False)
+        return Reply("Умею много: музыка, окна, мониторы, мышь и клавиатура, файлы, Google, погода, экран, скрипты. "
+                     f"Полный список открыла в Блокноте — он лежит {'на рабочем столе' if desktop else 'в «Документах»'}.", [act], "rules")
+
+    def _save_code(self, answer: str) -> Reply | None:
+        """«Напиши скрипт…» — код из ответа кладём в файл и открываем в Блокноте; озвучивается только пояснение."""
+        import datetime as dt
+
+        from . import files
+        blocks = RE_CODE_BLOCK.findall(answer)
+        if not blocks:
+            return None
+        lang, code = max(blocks, key=lambda b: len(b[1]))
+        ext = CODE_EXT.get(lang.lower().strip(), ".ps1" if re.search(r"\b(Get-|Set-|\$env:|Write-Host)", code) else ".txt")
+        folder = files.known_folder("documents") / "Capri скрипты"
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / f"скрипт-{dt.datetime.now():%Y%m%d-%H%M%S}{ext}"
+            path.write_text(code.strip() + "\n", encoding="utf-8-sig" if ext in (".ps1", ".bat", ".cmd") else "utf-8")
+        except OSError:
+            return None
+        text = RE_CODE_BLOCK.sub("", answer).strip()
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        note = f"Сохранила в «Документы\\Capri скрипты\\{path.name}» и открыла в Блокноте."
+        act = A.Action("open_file", f"Открыть {path.name}", {"path": str(path)}, needs_confirm=False)
+        return Reply(f"{text}\n\n{note}" if text else note, [act], "claude")
 
     def _remember(self, role: str, content: str) -> None:
         self.history.append({"role": role, "content": content})

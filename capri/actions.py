@@ -141,6 +141,13 @@ def execute(action: Action, config: dict) -> str:
     if action.kind == "gcal_add":
         from .google_api import Google
         return Google(expand("data")).add_event(action.params["event"])
+    if action.kind == "open_file":
+        import subprocess
+        import sys
+        path = action.params["path"]
+        if sys.platform == "win32":
+            subprocess.Popen(["notepad.exe", path])   # Блокнот, а не запуск: .ps1/.py по двойному клику могут выполниться
+        return f"Открыла {path}"
     if action.kind == "start_app":
         from .applist import launch
         launch(action.params["id"])
