@@ -72,6 +72,21 @@ RE_NTH = re.compile(r"^(?:открой|включи|запусти|кликни|
                     r"(?:\s+(?:в|на)\s+\S+)?$|^(?:open|play)\s+the\s+(?P<n2>\S+)\s+(?:link|video|result)$", re.I)
 RE_VIDEO_WORDS = re.compile(r"\b(выпуск\w*|сери[яюи]|сезон\w*|видео|ролик\w*|клип\w*|трейлер\w*|обзор\w*|подкаст\w*|стрим\w*)\b|#\d+", re.I)
 RE_DOMAIN = re.compile(r"^[\w-]+(\.[\w-]+)+(/\S*)?$")
+# «включи первый трек», «воспроизведи 3 песню», «трек номер 2», просто «трек» (Whisper съел начало) — в YouTube Music
+RE_PLAY_NTH = re.compile(r"^(?:(?:включи|воспроизведи|запусти|поставь|играй|play)\s+)?(?:(?P<n>\S+)\s+(?:трек\w*|песн\w*|композици\w*)|"
+                         r"(?:трек\w*|песн\w*|композици\w*)(?:\s+(?:номер\s+|№\s*)?(?P<n2>\S+))?)$", re.I)
+# «воспроизведи Риплей Микс», «поставь плейлист For coding» — открыть на странице и сразу включить
+RE_PLAY_NAMED = re.compile(r"^(?:(?:воспроизведи|воспроизвести|play)\s+(?:плейлист\s+|микс\s+|альбом\s+)?|"
+                           r"(?:поставь|запусти|включи)\s+(?:плейлист|микс|альбом)\s+)(?P<name>.+)$", re.I)
+RE_GENERIC_PLAY = re.compile(r"(?:мою\s+|мои\s+|какую-?нибудь\s+|немного\s+|любую\s+)?(?:музык\w*|песн\w*|трек\w*|плейлист\w*|"
+                             r"(?:youtube|ютуб\w*)(?:[\s-]*(?:music|мюзик|мьюзик|музык\w*))?|play|плей|music|видео)", re.I)
+# игры
+RE_GAME_STATS = re.compile(r"\bкак я (?:сыграл\w*|играю|отыграл\w*|играл)\b|\b(?:моя|мою) (?:игров\w* )?статистик\w*|"
+                           r"\bстатистик\w* (?:матча|игры|катки|за матч|в кс|в cs)|\bкакой у меня (?:кд|к ?д|счёт|счет)\b|\bhow did i play\b", re.I)
+RE_GAME_COACH = re.compile(r"\b(?:разбери|оцени|проанализируй|проанализировать|разобрать)\s+(?:мою\s+|мой\s+|эту\s+|этот\s+)?"
+                           r"(?:игру|катку|матч|каточку)|\bчто мне (?:улучшить|подтянуть|исправить) в (?:игре|кс|cs|катке)", re.I)
+RE_GPU_TEMP = re.compile(r"температур\w* (?:видеокарт\w*|видюх\w*|gpu)|(?:видеокарт\w*|видюх\w*) (?:греется|горячая|сколько градусов)|"
+                         r"как там видеокарт\w*|сколько градусов (?:на|у) (?:видеокарт\w*|видюх\w*)", re.I)
 # питание: перезагрузить / выключить / усыпить — только по-настоящему и только после «Да»
 _PC = r"(?:мой\s+|этот\s+)?(?:компьютер\w*|комп|пк|систем[уа]|windows|винд[уа])"
 RE_POWER = (
@@ -265,7 +280,48 @@ class Agent:
             return Reply(f"Не вышло: {e}", route="error")
         return Reply(f"Открываю: «{name[:80]}».", route="rules")
 
-    def _open_on_screen(self, target: str) -> Reply | None:
+    def _ytm_play(self, text: str) -> Reply | None:
+        """YouTube Music: «включи первый трек», «воспроизведи Риплей Микс». None — не про это или YouTube Music не открыт."""
+        from . import control
+        bare = text.strip(" .!?")
+        m_nth = RE_PLAY_NTH.match(bare)
+        m_named = RE_PLAY_NAMED.match(bare)
+        if m_nth and re.match(r"(?:следующ|предыдущ|прошл|этот|эту|это|любой|любую|какой|какую|мой|мою)", m_nth.group("n") or "", re.I):
+            m_nth = None
+        if not m_nth and not (m_named and not RE_GENERIC_PLAY.fullmatch(m_named.group("name").strip())):
+            return None
+        try:
+            h = control.ytm_window()
+        except Exception:  # noqa: BLE001
+            h = 0
+        if not h:
+            return None
+        try:
+            import uiautomation as auto
+            with auto.UIAutomationInitializerInThread():
+                control.focus(h)
+                if m_nth:
+                    word = m_nth.group("n") or m_nth.group("n2") or "1"
+                    n = control.ordinal(word)
+                    if not n:
+                        return None
+                    tracks = control.ytm_tracks(h) or (time.sleep(0.6) or control.ytm_tracks(h))
+                    if not tracks:
+                        return Reply("Не вижу треков в YouTube Music — открой плейлист и повтори.", route="error")
+                    if n > len(tracks):
+                        return Reply(f"Тут только {len(tracks)} треков.", route="error")
+                    name, ctrl = tracks[n - 1] if n > 0 else tracks[-1]
+                    control.click_element(ctrl)
+                    return Reply(f"Включаю «{name[:80]}».", route="rules")
+                target = m_named.group("name").strip()
+                r = self._open_on_screen(target, autoplay=True)
+                return r if r is not None and r.route != "error" and "Ищу на YouTube" not in r.text else None
+        except ImportError:
+            return None
+        except Exception as e:  # noqa: BLE001
+            return Reply(f"Не вышло: {e}", route="error")
+
+    def _open_on_screen(self, target: str, autoplay: bool = False) -> Reply | None:
         """«Открой подземелье чикен карри 54 выпуск»: ищем такую ссылку на открытой странице и кликаем;
         не нашли, но это похоже на видео — ищем на YouTube. None — пусть решает модель."""
         from . import control
@@ -283,6 +339,12 @@ class Agent:
                                              key=lambda x: x[0], default=(0.0, "", None))
                     if ctrl is not None and score >= 0.8:
                         control.click_element(ctrl)
+                        if autoplay and "youtube music" in title.lower():
+                            # плейлист или микс в YouTube Music: страница открылась — жмём ▶ в шапке
+                            for _ in range(6):
+                                time.sleep(0.8)
+                                if control.ytm_play_page(control.ytm_window() or 0):
+                                    return Reply(f"Включаю «{found[:80]}».", route="rules")
                         return Reply(f"Открываю: «{found[:80]}».", route="rules")
             except Exception:  # noqa: BLE001
                 pass
@@ -348,6 +410,8 @@ class Agent:
         sc_data = scenarios.load()
         if hit := scenarios.match(text, sc_data):
             return self._scenario(hit[0], hit[1], sc_data)
+        if (r := self._ytm_play(text)) is not None:
+            return r
         if RE_BREAKS.search(text):
             m = re.search(r"(\d+(?:[.,]\d+)?)\s*(час|ч\b|минут|мин)", text, re.I)
             off = re.search(r"не напомина|хватит напомин|выключи напомин|отключи напомин|убери напомин", text, re.I)
@@ -411,7 +475,8 @@ class Agent:
                 return Reply(f"{inner.description}.", [inner], "rules")
             if act := self.open_action(target):
                 return Reply(f"{act.description}.", [act], "rules")
-            if (r := self._open_on_screen(target)) is not None:
+            autoplay = bool(re.match(r"(?:включи|запусти|play|start)\b", bare, re.I))   # «открой» — только открыть
+            if (r := self._open_on_screen(target, autoplay=autoplay)) is not None:
                 return r
         return None  # не узнали команду — пусть думает модель
 

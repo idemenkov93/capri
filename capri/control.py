@@ -663,6 +663,50 @@ def ytm_window() -> int:
     return h if h and "youtube music" in window_title(h).lower() else 0
 
 
+def ytm_play_page(h: int) -> str | None:
+    """На открытой странице плейлиста/микса YouTube Music нажать большую кнопку ▶ в шапке."""
+    try:
+        btn = find_exact(h, ("Воспроизвести", "Воспроизвести все", "Play", "Play all", "Wiedergabe", "Alle abspielen"))
+    except Exception:  # noqa: BLE001
+        btn = None
+    if btn is None:
+        return None
+    click_element(btn)
+    return btn.Name or "▶"
+
+
+def ytm_tracks(h: int, limit: int = 8000, timeout: float = 6.0) -> list:
+    """Треки на странице плейлиста YouTube Music сверху вниз: [(название, ссылка)].
+    Берём ссылки справа от боковой панели; под названием трека — ссылка на артиста (на ~27 px ниже), её пропускаем."""
+    import uiautomation as auto
+    root = auto.ControlFromHandle(h)
+    win = wintypes.RECT()
+    user32.GetWindowRect(h, ctypes.byref(win))
+    left_edge = win.left + (win.right - win.left) * 0.35
+    found, t0, n = [], time.monotonic(), 0
+    for ctrl, _d in auto.WalkControl(root, includeTop=False, maxDepth=45):
+        n += 1
+        if n > limit or time.monotonic() - t0 > timeout:
+            break
+        try:
+            if ctrl.ControlTypeName != "HyperlinkControl" or ctrl.IsOffscreen:
+                continue
+            name = (ctrl.Name or "").strip()
+            r = ctrl.BoundingRectangle
+        except Exception:  # noqa: BLE001
+            continue
+        if name and r.left >= left_edge and r.top > win.top + 100 and r.width() > 20:
+            found.append((r.top, r.left, name, ctrl))
+    found.sort(key=lambda x: (x[0], x[1]))
+    out, last_top = [], -10_000
+    for top, _l, name, ctrl in found:
+        if top - last_top < 45:          # та же строка или подпись под названием
+            continue
+        out.append((name, ctrl))
+        last_top = top
+    return out
+
+
 def ytm_hotkey(action: str) -> bool:
     """Горячая клавиша прямо в окне YouTube Music. На время нажатия — английская раскладка:
     с русской браузер видит «Т» вместо N, и YouTube Music клавишу не узнаёт."""

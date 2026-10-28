@@ -204,3 +204,28 @@ def test_exact_search_never_breaks_the_old_one(monkeypatch):
     monkeypatch.setitem(sys.modules, "uiautomation", fake)
     monkeypatch.setitem(sys.modules, "uiautomation.uiautomation", types.ModuleType("uiautomation.uiautomation"))
     assert control.find_exact(1, ["Next"]) is None
+
+
+@pytest.mark.parametrize("text,kind,value", [
+    ("включи первый трек", "nth", "первый"), ("воспроизведи 1 трек", "nth", "1"), ("трек.", "nth", None),
+    ("трек номер 3", "nth", "3"), ("воспроизведи Риплей Микс", "named", "Риплей Микс"),
+    ("поставь плейлист For coding", "named", "For coding"), ("воспроизведи понравившаяся музыка", "named", "понравившаяся музыка"),
+    ("воспроизведи музыку", None, None), ("поставь таймер на 10 минут", None, None), ("следующий трек", None, None),
+])
+def test_youtube_music_play_phrases(text, kind, value):
+    from capri.agent import RE_GENERIC_PLAY, RE_PLAY_NAMED, RE_PLAY_NTH
+    bare = text.strip(" .!?")
+    nth, named = RE_PLAY_NTH.match(bare), RE_PLAY_NAMED.match(bare)
+    if nth and (nth.group("n") or "").startswith(("следующ", "предыдущ")):
+        nth = None
+    if named and RE_GENERIC_PLAY.fullmatch(named.group("name").strip()):
+        named = None
+    got = ("nth", nth.group("n") or nth.group("n2")) if nth else ("named", named.group("name")) if named else (None, None)
+    assert got == (kind, value)
+
+
+def test_play_phrases_without_youtube_music_stay_as_before(monkeypatch):
+    from capri import control
+    monkeypatch.setattr(control, "ytm_window", lambda: 0)
+    assert agent().handle("воспроизведи 1 трек").route == "rules"
+    assert C.match("включи музыку").op == "play"
