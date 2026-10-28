@@ -159,6 +159,15 @@ class VoiceController(QObject):
             return
         self.toggle_record(auto=True)
 
+    def cancel_record(self) -> None:
+        """Ложное «Капри» — тихо перестать слушать, ничего не распознавая."""
+        if not self.recording:
+            return
+        self.recording = False
+        self._auto_timer.stop()
+        self.recorder.stop()
+        self.state.emit("IDLE")
+
     def _check_auto_stop(self):
         if self.recording and self.recorder.should_stop:
             self.toggle_record()

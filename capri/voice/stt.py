@@ -10,13 +10,13 @@ class Recorder:
     """Запись с микрофона: start() … stop() → numpy float32, 16 кГц, моно.
 
     auto=True — для «Привет, Капри»: should_stop становится True, когда ты договорил
-    (пауза ~1.2 с после речи), если долго молчишь или говоришь дольше 12 секунд.
+    (пауза ~1.2 с после речи), если долго молчишь или говоришь дольше 10 секунд.
     """
 
     SPEECH_LEVEL = 0.12     # громкость (0..1), выше которой считаем, что это речь
     SILENCE_AFTER = 0.9     # секунд тишины после речи — значит, договорил
     NO_SPEECH = 6.0         # если за столько секунд не начал говорить — отбой
-    MAX_LEN = 12.0
+    MAX_LEN = 10.0
 
     def __init__(self, device=None):
         import sounddevice as sd  # импорт здесь, чтобы Капри работала и без голосового модуля
@@ -156,6 +156,19 @@ class Transcriber:
         # основной язык получает фору: короткие фразы whisper иногда путает (русское «как дела» → немецкий)
         allowed = [(lang, p * (2.0 if lang == self.preferred else 1.0)) for lang, p in probs if lang in self.languages]
         return max(allowed, key=lambda x: x[1])[0] if allowed else None
+
+    def heard_name(self, audio: np.ndarray) -> tuple[bool, str]:
+        """Было ли в этих 3 секундах звука «Капри»? Вторая проверка после vosk: он иногда «слышит» имя в чужой речи
+        (учитель на уроке, видео, немецкий). Whisper точнее, на видеокарте это ~0.2 с."""
+        import re
+        if audio.size < SAMPLE_RATE * 0.3:
+            return True, ""
+        model = self._load()
+        segments, _ = model.transcribe(audio, language="ru", beam_size=1, vad_filter=False,
+                                       condition_on_previous_text=False, without_timestamps=True)
+        text = " ".join(s.text.strip() for s in segments).strip()
+        rx = re.compile(r"\b(?:к[аоэея]пп?р[иыеэяо]\w*|капл[иея]|к[аоэ]бри|capri\w*|kapri\w*|cap ri|kepri|caprі)\b", re.I)
+        return bool(rx.search(text)), text
 
     def transcribe(self, audio: np.ndarray) -> tuple[str, str]:
         """Вернуть (текст, язык)."""
