@@ -730,6 +730,66 @@ def ytm_tracks(h: int, limit: int = 8000, timeout: float = 6.0) -> list:
     return out
 
 
+def ytm_search(h: int, query: str, wait: float = 3.0) -> list:
+    """Поиск в самом YouTube Music: поле «Поиск» → текст → Enter. → результаты сверху вниз [(название, ссылка)]."""
+    focus(h)
+    box = None
+    try:
+        box = find_exact(h, ("Поиск", "Search", "Suchen"))
+    except Exception:  # noqa: BLE001
+        box = None
+    if box is not None:
+        click_element(box)
+    else:
+        # горячая клавиша «/» (с английской раскладкой — с русской это «.»)
+        _with_en_layout(h, lambda: (user32.keybd_event(0xBF, 0, 0, 0), user32.keybd_event(0xBF, 0, KEYEVENTF_KEYUP, 0)))
+    time.sleep(0.3)
+    _hotkey(0x11, 0x41)                                # Ctrl+A — стереть прошлый запрос
+    type_text(query + "\n")
+    time.sleep(wait)
+    found = ytm_tracks(h)
+    if not found:
+        time.sleep(1.5)
+        found = ytm_tracks(h)
+    return found
+
+
+def in_content_area(h: int, ctrl) -> bool:
+    """Элемент в правой, «рабочей» части окна YouTube Music (не в боковом меню и не в шапке плейлиста)."""
+    try:
+        win = wintypes.RECT()
+        user32.GetWindowRect(h, ctypes.byref(win))
+        return ctrl.BoundingRectangle.left >= win.left + (win.right - win.left) * 0.35
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def ytm_click(h: int, name: str) -> bool:
+    """Нажать на странице YouTube Music ссылку с таким названием (трек из результатов или плейлиста)."""
+    focus(h)
+    for title, ctrl in ytm_tracks(h):
+        if title == name or name_score(name, title) >= 0.9:
+            click_element(ctrl)
+            return True
+    return False
+
+
+def _with_en_layout(h: int, press) -> None:
+    user32.GetKeyboardLayout.restype = ctypes.c_void_p
+    user32.LoadKeyboardLayoutW.restype = ctypes.c_void_p
+    tid = user32.GetWindowThreadProcessId(h, None)
+    before = user32.GetKeyboardLayout(tid) or 0
+    en = user32.LoadKeyboardLayoutW("00000409", 1) or 0
+    switched = bool(en) and (before & 0xFFFF) != 0x0409
+    if switched:
+        user32.PostMessageW(h, 0x0050, 0, ctypes.c_void_p(en))
+        time.sleep(0.15)
+    press()
+    if switched:
+        time.sleep(0.1)
+        user32.PostMessageW(h, 0x0050, 0, ctypes.c_void_p(before))
+
+
 def ytm_hotkey(action: str) -> bool:
     """Горячая клавиша прямо в окне YouTube Music. На время нажатия — английская раскладка:
     с русской браузер видит «Т» вместо N, и YouTube Music клавишу не узнаёт."""

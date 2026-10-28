@@ -265,6 +265,18 @@ class CapriApp:
                 self._wake_confirmed()
         self.voice._run(lambda: stt.heard_name(audio), done, failed)
 
+    def _listen_for_answer(self):
+        if not getattr(self, "_listen_after_speech", False):
+            return
+        self._listen_after_speech = False
+        if not self.voice or self.voice.recording or (self.worker and self.worker.isRunning()):
+            return
+        from .log import log
+        log.info("слушаю ответ на свой вопрос")
+        self._follow_up = True
+        self.voice.chime()
+        self.voice.listen_once()
+
     def _wake_confirmed(self):
         self._wake_ok = True
         self.wake_up()
@@ -571,6 +583,8 @@ class CapriApp:
         log.debug("голос: %s", state)
         if self.wake:
             self.wake.paused = state != "IDLE"   # пока сама слушает или говорит — фразу не ищем
+        if state == "IDLE" and getattr(self, "_listen_after_speech", False):
+            QTimer.singleShot(250, self._listen_for_answer)      # договорила вопрос — слушаем ответ
         if state == "LISTENING" and not getattr(self, "_wake_pending", False):
             self._wake_ok = True                 # слушаю по кнопке 🎤 / горячей клавише — проверять нечего
         if self.prefs.get("duck_music", True) and self.voice:
@@ -592,6 +606,10 @@ class CapriApp:
     def on_transcribed(self, text: str, lang: str):
         if getattr(self, "_wake_ok", True) is False:
             return                               # ложное «Капри» — не отвечаем
+        follow_up, self._follow_up = getattr(self, "_follow_up", False), False
+        if not text and follow_up:
+            self.agent.pending = None            # на свой вопрос ответа не дождалась — молча забываем
+            return
         if not text:
             self.chat.add_system("Ничего не расслышала. Попробуй ещё раз.")
             return
@@ -677,9 +695,14 @@ class CapriApp:
             self.run_action(act)
         self.chat.set_busy(False)
         v = self.cfg["voice"]
+        # спросила («На сколько?», «Включить?») — после своей фразы сама слушает ответ, без «Капри»
+        self._listen_after_speech = bool(reply.ask and self.voice and self.last_input_was_voice
+                                         and self.prefs.get("follow_up", True))
         if self.voice and v["speak"] and (self.last_input_was_voice or self.prefs.get("speak_typed", True)):
             self.voice.speak(reply.text)
         self.last_input_was_voice = False
+        if self._listen_after_speech and not (self.voice and self.voice._speaking):
+            QTimer.singleShot(300, self._listen_for_answer)      # озвучка выключена — слушаем сразу
         if getattr(self, "_queued", None):
             text, self._queued = self._queued, None
             QTimer.singleShot(0, lambda: self.on_message(text))

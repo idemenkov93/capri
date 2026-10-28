@@ -26,6 +26,7 @@ class Reply:
     text: str
     actions: list[A.Action] = field(default_factory=list)
     route: str = "local"   # rules | local | claude | error
+    ask: bool = False      # Капри задала вопрос — после ответа слушать без «Капри»
 
 
 # --- быстрые правила: отрабатывают мгновенно, без ИИ -------------------------
@@ -72,6 +73,10 @@ RE_NTH = re.compile(r"^(?:открой|включи|запусти|кликни|
                     r"(?:\s+(?:в|на)\s+\S+)?$|^(?:open|play)\s+the\s+(?P<n2>\S+)\s+(?:link|video|result)$", re.I)
 RE_VIDEO_WORDS = re.compile(r"\b(выпуск\w*|сери[яюи]|сезон\w*|видео|ролик\w*|клип\w*|трейлер\w*|обзор\w*|подкаст\w*|стрим\w*)\b|#\d+", re.I)
 RE_DOMAIN = re.compile(r"^[\w-]+(\.[\w-]+)+(/\S*)?$")
+# ответы на её вопросы
+RE_YES = re.compile(r"^(?:да|ага|угу|давай|конечно|ок|окей|ok|okay|включай|включи|ставь|поставь|го|yes|yeah|yep|ja|klar)\b", re.I)
+RE_NO = re.compile(r"^(?:нет|неа|не надо|не нужно|не включай|не ставь|отмена|отмени|забей|no|nope|nein)\b", re.I)
+PENDING_TTL = 90          # секунд: столько ждём ответ на свой вопрос
 # «открой YouTube Music на главном экране», «запусти дискорд на втором мониторе» — открыть и сразу поставить
 RE_OPEN_ON_SCREEN = re.compile(r"^(?:открой|откройте|запусти|включи)\s+(?P<app>.+?)\s+на\s+(?:(?P<one>главн\w*|основн\w*|перв\w*|1)|"
                                r"(?P<two>втор\w*|вспомогательн\w*|дополнительн\w*|друг\w*|2))\s+(?:экран\w*|монитор\w*|дисплe?\w*)$", re.I)
@@ -138,12 +143,17 @@ class Agent:
         self.llm = llm or OllamaClient(o["url"], o["model"], o["timeout"], o.get("think"), o.get("options"))
         self.claude = claude
         self.history: list[dict] = []
+        self.pending: dict | None = None   # Капри спросила и ждёт ответ: {"kind": "timer" | "confirm", "at": …}
 
     # публичный вход -------------------------------------------------------
     def handle(self, text: str, on_status: Callable[[str], None] = lambda s: None,
                on_token: Callable[[str, str], None] | None = None,
                should_stop: Callable[[], bool] | None = None) -> Reply:
         text = RE_WAKE_PREFIX.sub("", text.strip()).strip()
+        pending, self.pending = self.pending, None
+        if pending and text and time.monotonic() - pending["at"] < PENDING_TTL:
+            if (ans := self._answer(pending, text)) is not None:
+                return ans
         if not text:
             import random
             slang = self.cfg.get("persona", {}).get("slang", True)
@@ -283,6 +293,29 @@ class Agent:
             return Reply(f"Не вышло: {e}", route="error")
         return Reply(f"Открываю: «{name[:80]}».", route="rules")
 
+    def ask(self, kind: str, **data) -> None:
+        """Запомнить, что Капри спросила, — следующая фраза будет ответом."""
+        self.pending = {"kind": kind, "at": time.monotonic(), **data}
+
+    def _answer(self, p: dict, text: str) -> Reply | None:
+        """Ответ на её вопрос. None — это не ответ, а новая команда."""
+        t = text.lower().strip(" .!?,")
+        if RE_NO.match(t):
+            return Reply(p.get("no", "Окей, не надо."), route="rules")
+        if p["kind"] == "timer":
+            if not re.search(r"сек|мин|час|[:.]\d|second|minute|hour|stund|полчас|полминут", t) and len(C.numbers(t)) == 1:
+                secs = C.numbers(t)[0] * 60             # «десять», «на пять» — значит, минут
+            else:
+                secs = C.parse_seconds(re.sub(r"полчаса", "30 минут", t))
+            if secs:
+                act = A.make_timer(secs / 60, p.get("label", ""))
+                if act:
+                    return Reply(f"Окей, {act.description.lower()}.", [act], "rules")
+            return None
+        if p["kind"] == "confirm" and RE_YES.match(t):
+            return p["do"]()
+        return None
+
     def _ytm_play(self, text: str) -> Reply | None:
         """YouTube Music: «включи первый трек», «воспроизведи Риплей Микс». None — не про это или YouTube Music не открыт."""
         from . import control
@@ -318,11 +351,29 @@ class Agent:
                     return Reply(f"Включаю «{name[:80]}».", route="rules")
                 target = m_named.group("name").strip()
                 r = self._open_on_screen(target, autoplay=True)
-                return r if r is not None and r.route != "error" and "Ищу на YouTube" not in r.text else None
+                return r if r is not None and "Ищу на YouTube" not in r.text else None
         except ImportError:
             return None
         except Exception as e:  # noqa: BLE001
             return Reply(f"Не вышло: {e}", route="error")
+
+    def _ytm_search_ask(self, target: str) -> Reply:
+        """На экране такого нет — ищем в YouTube Music и спрашиваем, то ли это."""
+        from . import control
+        h = control.ytm_window()
+        results = control.ytm_search(h, target) if h else []
+        if not results:
+            return Reply(f"В YouTube Music не нашла «{target}».", route="error")
+        name = results[0][0]
+
+        def play():
+            import uiautomation as auto
+            with auto.UIAutomationInitializerInThread():
+                ok = control.ytm_click(control.ytm_window(), name)
+            return Reply(f"Включаю «{name[:80]}»." if ok else f"Не смогла нажать «{name[:80]}» — нажми сам.",
+                         route="rules" if ok else "error")
+        self.ask("confirm", do=play, no="Окей, не включаю.")
+        return Reply(f"Нашла «{name[:80]}». Включить?", route="rules", ask=True)
 
     def _open_on_screen(self, target: str, autoplay: bool = False) -> Reply | None:
         """«Открой подземелье чикен карри 54 выпуск»: ищем такую ссылку на открытой странице и кликаем;
@@ -340,15 +391,22 @@ class Agent:
                     links = control.page_links(min_len=4) or (time.sleep(0.6) or control.page_links(min_len=4))
                     score, found, ctrl = max(((control.name_score(target, nm), nm, c) for nm, c in links),
                                              key=lambda x: x[0], default=(0.0, "", None))
+                    ytm = "youtube music" in title.lower()
                     if ctrl is not None and score >= 0.8:
+                        # трек — в списке справа (клик его и включает); плейлисты — слева, в меню
+                        is_track = ytm and control.in_content_area(control.ytm_window(), ctrl)
                         control.click_element(ctrl)
-                        if autoplay and "youtube music" in title.lower():
+                        if ytm and is_track:
+                            return Reply(f"Включаю «{found[:80]}».", route="rules")   # клик по треку его и включает
+                        if autoplay and ytm:
                             # плейлист или микс в YouTube Music: страница открылась — жмём ▶ в шапке
                             for _ in range(6):
                                 time.sleep(0.8)
                                 if control.ytm_play_page(control.ytm_window() or 0):
                                     return Reply(f"Включаю «{found[:80]}».", route="rules")
                         return Reply(f"Открываю: «{found[:80]}».", route="rules")
+                    if autoplay and ytm:
+                        return self._ytm_search_ask(target)
             except Exception:  # noqa: BLE001
                 pass
         if RE_VIDEO_WORDS.search(target) or "youtube" in title.lower():
@@ -461,7 +519,8 @@ class Agent:
             q = m.group(1).strip()
             return Reply(f"Ищу «{q}».", [A.make_web_search(q, self.cfg["search_url"])], "rules")
         if RE_TIMER_BARE.match(text.strip()):
-            return Reply("На сколько? Скажи, например: «таймер на 10 минут».", route="rules")
+            self.ask("timer")
+            return Reply("На сколько?", route="rules", ask=True)
         if m := RE_TIMER.search(text):
             minutes = float(m.group(1).replace(",", ".")) * UNIT_TO_MIN[m.group(2).lower()]
             if act := A.make_timer(minutes, (m.group(3) or "").strip()):
@@ -582,7 +641,9 @@ class Agent:
         if notes:
             content += "\n" + "\n".join(notes)
         self._remember("assistant", content)
-        return Reply(content, acts, "local")
+        # спросила что-то в ответ — послушаем, что ты скажешь (история разговора у модели есть)
+        last = re.split(r"(?<=[.!?…])\s+", content.strip())[-1] if content.strip() else ""
+        return Reply(content, acts, "local", ask=not acts and len(content) < 400 and last.endswith("?"))
 
     @staticmethod
     def _tool_makes_sense(name: str, args: dict, text: str) -> bool:
