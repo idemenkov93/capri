@@ -284,7 +284,13 @@ class SystemControl:
             log.debug("плеер: сеанс %s", s.source_app_user_model_id if s else None)
             if (not s or self._kind_of(s.source_app_user_model_id) == "browser") and self._music_tab(target):
                 from . import control
-                if control.press_player_button(action):
+                try:
+                    if control.press_player_button(action):
+                        return {}
+                except Exception as e:  # noqa: BLE001 — кнопку не нашли — пробуем горячую клавишу YouTube Music
+                    log.warning("плеер: кнопка в окне: %s", e)
+                if control.ytm_hotkey(action):
+                    log.info("плеер: горячая клавиша YouTube Music для «%s»", action)
                     return {}
             if not s:
                 return {"nothing": True, "target": target}

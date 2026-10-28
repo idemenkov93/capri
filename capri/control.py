@@ -636,8 +636,12 @@ YTM_KEYS = {"next": (0x10, 0x4E), "previous": (0x10, 0x50), "play": (0x20,), "pa
 def find_exact(hwnd: int, names) -> object | None:
     """Кнопка с точно таким названием — поиском внутри UI Automation (быстро даже на огромной странице)."""
     import uiautomation as auto
-    root = auto.ControlFromHandle(hwnd)
-    uia = auto._AutomationClient.instance().IUIAutomation
+    try:
+        from uiautomation import uiautomation as core     # _AutomationClient не экспортируется наружу
+        uia = core._AutomationClient.instance().IUIAutomation
+        root = auto.ControlFromHandle(hwnd)
+    except Exception:  # noqa: BLE001 — другая версия пакета: обойдёмся обычным поиском
+        return None
     for name in names:
         try:
             cond = uia.CreatePropertyCondition(30005, name)          # UIA_NamePropertyId
@@ -702,7 +706,11 @@ def press_player_button(action: str, title_has: str = "youtube music") -> str | 
             if not h or title_has not in window_title(h).lower():
                 return None
         focus(h)
-        if (exact := find_exact(h, PLAYER_EXACT.get(action, ()))) is not None:
+        try:
+            exact = find_exact(h, PLAYER_EXACT.get(action, ()))
+        except Exception:  # noqa: BLE001
+            exact = None
+        if exact is not None:
             click_element(exact)
             return exact.Name or action
         best, best_s, best_name = None, 0.0, ""
