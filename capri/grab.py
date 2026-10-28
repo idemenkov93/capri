@@ -47,7 +47,7 @@ def dxgi_grab(device: str, region: tuple[int, int, int, int] | None = None, time
     try:
         import dxcam
         from PIL import Image
-        f = dxcam.DXFactory()                          # одиночка: тот же список адаптеров и мониторов
+        f = getattr(dxcam, "__factory", None) or dxcam.DXFactory()   # фабрика одна на процесс: мониторы и адаптеры
         for d, outs in enumerate(f.outputs):
             for o, out in enumerate(outs):
                 if str(out.devicename).lower() != str(device).lower():
