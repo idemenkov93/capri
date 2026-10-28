@@ -181,3 +181,13 @@ def test_more_log_phrases():
     cmd = C.match("проверь пока что почту")
     assert cmd is None or cmd.op != "pc_check"
     assert C.match("включи второй экран").text == "extend"
+
+
+@pytest.mark.parametrize("text,mode,confirm", [
+    ("Перезагрузи компьютер.", "restart", True), ("перезагрузи мой комп", "restart", True),
+    ("выключи компьютер", "shutdown", True), ("спящий режим", "sleep", True), ("отмени перезагрузку", "abort", False),
+])
+def test_power_is_real_and_asks_first(text, mode, confirm):
+    r = agent(LLM({"content": "я перезагружаю"})).handle(text)
+    assert r.actions[0].kind == "power" and r.actions[0].params["mode"] == mode and r.actions[0].needs_confirm is confirm
+    assert C.match("выключи звук").op == "mute"           # «выключи …» без компьютера — как раньше

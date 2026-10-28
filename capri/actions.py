@@ -141,6 +141,18 @@ def execute(action: Action, config: dict) -> str:
     if action.kind == "gcal_add":
         from .google_api import Google
         return Google(expand("data")).add_event(action.params["event"])
+    if action.kind == "power":
+        import subprocess
+        import sys
+        mode = action.params["mode"]
+        if sys.platform != "win32":
+            return "Это только для Windows."
+        cmd = {"restart": ["shutdown", "/r", "/t", "10"], "shutdown": ["shutdown", "/s", "/t", "10"],
+               "abort": ["shutdown", "/a"],
+               "sleep": ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"]}[mode]
+        subprocess.Popen(cmd, creationflags=0x08000000)
+        return {"restart": "Перезагрузка через 10 с.", "shutdown": "Выключение через 10 с.", "abort": "Отменила.",
+                "sleep": "Сон."}[mode]
     if action.kind == "open_file":
         import subprocess
         import sys

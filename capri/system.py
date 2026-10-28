@@ -304,15 +304,21 @@ class SystemControl:
             log.warning("плеер не ответил на «%s» (команда ушла: %s)", action, sent["v"])
             if sent["v"]:
                 return {}                                    # трек уже переключился — просто не узнали название
-            # медиа-служба Windows не отвечает — жмём настоящую кнопку в окне YouTube Music
+            # медиа-служба Windows не отвечает — жмём настоящую кнопку в окне YouTube Music, потом его горячую клавишу
             if target in (None, "music") and action in ("play", "pause", "next", "previous"):
+                from . import control
                 try:
-                    from . import control
                     if name := control.press_player_button(action):
                         log.info("плеер: нажала кнопку «%s» в окне", name)
                         return {}
-                except Exception:  # noqa: BLE001
-                    log.exception("плеер: кнопка в окне")
+                except Exception as e:  # noqa: BLE001 — страница меняется на ходу, UI Automation иногда сбоит
+                    log.warning("плеер: кнопка в окне не нашлась: %s", e)
+                try:
+                    if control.ytm_hotkey(action):
+                        log.info("плеер: горячая клавиша YouTube Music для «%s»", action)
+                        return {}
+                except Exception as e:  # noqa: BLE001
+                    log.warning("плеер: горячая клавиша: %s", e)
             if action in ("next", "previous"):
                 self.press([(VK_MEDIA[action], True)])     # клавиша «следующий трек» понимается почти всеми плеерами
                 return {}
