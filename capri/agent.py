@@ -77,6 +77,9 @@ RE_DOMAIN = re.compile(r"^[\w-]+(\.[\w-]+)+(/\S*)?$")
 RE_YES = re.compile(r"^(?:да|ага|угу|давай|конечно|ок|окей|ok|okay|включай|включи|ставь|поставь|го|yes|yeah|yep|ja|klar)\b", re.I)
 RE_NO = re.compile(r"^(?:нет|неа|не надо|не нужно|не включай|не ставь|отмена|отмени|забей|no|nope|nein)\b", re.I)
 PENDING_TTL = 90          # секунд: столько ждём ответ на свой вопрос
+# куда искать, если сказал прямо: «… в ютуб мюзик» — YouTube Music, «… на ютубе» — обычный YouTube
+RE_IN_YTM = re.compile(r"\s+(?:в|на|из)\s+(?:ютуб\w*|youtube|ютьюб\w*)[\s-]*(?:music|мюзик\w*|мьюзик\w*|музык\w*)$", re.I)
+RE_IN_YT = re.compile(r"\s+(?:в|на)\s+(?:ютуб\w*|youtube|ютьюб\w*)$|^(?:\S+\s+)?(?:на|в)\s+(?:ютуб\w*|youtube)\s", re.I)
 # «открой YouTube Music на главном экране», «запусти дискорд на втором мониторе» — открыть и сразу поставить
 RE_OPEN_ON_SCREEN = re.compile(r"^(?:открой|откройте|запусти|включи)\s+(?P<app>.+?)\s+на\s+(?:(?P<one>главн\w*|основн\w*|перв\w*|1)|"
                                r"(?P<two>втор\w*|вспомогательн\w*|дополнительн\w*|друг\w*|2))\s+(?:экран\w*|монитор\w*|дисплe?\w*)$", re.I)
@@ -342,8 +345,14 @@ class Agent:
         """YouTube Music: «включи первый трек», «воспроизведи Риплей Микс». None — не про это или YouTube Music не открыт."""
         from . import control
         bare = text.strip(" .!?")
+        if RE_IN_YT.search(bare) and not RE_IN_YTM.search(bare):
+            return None                               # «включи … на ютубе» — это обычный YouTube
+        said_ytm = bool(RE_IN_YTM.search(bare))
+        bare = RE_IN_YTM.sub("", bare)
         m_nth = RE_PLAY_NTH.match(bare)
         m_named = RE_PLAY_NAMED.match(bare)
+        if said_ytm and not m_named:                  # «включи / найди Лампочки в ютуб мюзик»
+            m_named = re.match(r"^(?:включи|поставь|запусти|найди|поищи)\s+(?P<name>.+)$", bare, re.I)
         if m_nth and re.match(r"(?:следующ|предыдущ|прошл|этот|эту|это|любой|любую|какой|какую|мой|мою)", m_nth.group("n") or "", re.I):
             m_nth = None
         if not m_nth and not (m_named and not RE_GENERIC_PLAY.fullmatch(m_named.group("name").strip())):
@@ -354,6 +363,14 @@ class Agent:
             h = 0
         if not h:
             return None
+        if not said_ytm:
+            # YouTube Music открыт, но ты сейчас в другом окне (например, YouTube в браузере) — не перехватываем
+            try:
+                fg_title, _exe = control.context_window()
+            except Exception:  # noqa: BLE001
+                fg_title = ""
+            if "youtube music" not in fg_title.lower():
+                return None
         try:
             import uiautomation as auto
             with auto.UIAutomationInitializerInThread():
@@ -372,7 +389,7 @@ class Agent:
                     control.click_element(ctrl)
                     return Reply(f"Включаю «{name[:80]}».", route="rules")
                 target = m_named.group("name").strip()
-                r = self._open_on_screen(target, autoplay=True)
+                r = self._open_on_screen(target, autoplay=True, ytm_hwnd=h)
                 return r if r is not None and "Ищу на YouTube" not in r.text else None
         except ImportError:
             return None
@@ -397,7 +414,7 @@ class Agent:
         self.ask("confirm", do=play, no="Окей, не включаю.")
         return Reply(f"Нашла «{name[:80]}». Включить?", route="rules", ask=True)
 
-    def _open_on_screen(self, target: str, autoplay: bool = False) -> Reply | None:
+    def _open_on_screen(self, target: str, autoplay: bool = False, ytm_hwnd: int = 0) -> Reply | None:
         """«Открой подземелье чикен карри 54 выпуск»: ищем такую ссылку на открытой странице и кликаем;
         не нашли, но это похоже на видео — ищем на YouTube. None — пусть решает модель."""
         from . import control
@@ -405,12 +422,15 @@ class Agent:
             title, exe = control.context_window()
         except Exception:  # noqa: BLE001
             title, exe = "", ""
+        if ytm_hwnd:                                  # точно про YouTube Music — смотрим его окно, где бы оно ни было
+            title, exe = "YouTube Music", "chrome.exe"
         in_browser = exe in control.BROWSERS
         if in_browser:
             try:
                 import uiautomation as auto
                 with auto.UIAutomationInitializerInThread():
-                    links = control.page_links(min_len=4) or (time.sleep(0.6) or control.page_links(min_len=4))
+                    kw = {"hwnd": ytm_hwnd} if ytm_hwnd else {}
+                    links = control.page_links(min_len=4, **kw) or (time.sleep(0.6) or control.page_links(min_len=4, **kw))
                     score, found, ctrl = max(((control.name_score(target, nm), nm, c) for nm, c in links),
                                              key=lambda x: x[0], default=(0.0, "", None))
                     ytm = "youtube music" in title.lower()
