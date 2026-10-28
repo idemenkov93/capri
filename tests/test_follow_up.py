@@ -119,6 +119,8 @@ def _fake_uia(monkeypatch):
     m = types.ModuleType("uiautomation")
     m.UIAutomationInitializerInThread = contextlib.nullcontext
     monkeypatch.setitem(sys.modules, "uiautomation", m)
+    from capri import control
+    monkeypatch.setattr(control, "ytm_sidebar", lambda h: [])
 
 
 def test_track_not_on_screen_is_searched_and_asked(monkeypatch):
@@ -189,3 +191,23 @@ def test_third_track_and_press_track_by_name(monkeypatch):
     monkeypatch.setattr(control, "context_window", lambda: ("YouTube Music", "chrome.exe"))
     r = agent().handle("Нажми, до утра мы гуляем. Кабак.")
     assert r.text == "Включаю «До утра мы гуляем (кабак)»." and clicked[-1] == "До утра мы гуляем (кабак)"
+
+
+def test_open_playlist_from_the_menu(monkeypatch):
+    from capri import control
+    _fake_uia(monkeypatch)
+    clicked = []
+    menu = [("Понравившаяся музыка", "m0"), ("Other", "m1"), ("On repeat", "m2"), ("Classic", "m3"), ("Мои записи Shazam", "m4")]
+    monkeypatch.setattr(control, "ytm_window", lambda: 42)
+    monkeypatch.setattr(control, "focus", lambda h: h)
+    monkeypatch.setattr(control, "context_window", lambda: ("YouTube Music", "chrome.exe"))
+    monkeypatch.setattr(control, "ytm_sidebar", lambda h: menu)
+    monkeypatch.setattr(control, "page_links", lambda **k: [])
+    monkeypatch.setattr(control, "click_element", clicked.append)
+    for text, want in (("Открой плейлист on repeat", "m2"), ("Открой он репит", "m2"), ("Открой плейлист классик", "m3"),
+                       ("Открой мои записи с шазам", "m4"), ("Открой плейлист on repeat на YouTube Music", "m2")):
+        r = agent().handle(text)
+        assert r.text.startswith("Открываю") and clicked[-1] == want, (text, r.text)
+    monkeypatch.setattr(control, "ytm_play_page", lambda h: "▶")
+    r = agent().handle("Включи плейлист Classic")
+    assert r.text == "Включаю «Classic»." and clicked[-1] == "m3"

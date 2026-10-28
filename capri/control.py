@@ -830,6 +830,55 @@ def _with_en_layout(h: int, press) -> None:
         user32.PostMessageW(h, 0x0050, 0, ctypes.c_void_p(before))
 
 
+_CYR = dict(zip("абвгдеёжзийклмнопрстуфхцчшщъыьэюя",
+                ["a", "b", "v", "g", "d", "e", "e", "zh", "z", "i", "i", "k", "l", "m", "n", "o", "p", "r", "s", "t", "u",
+                 "f", "h", "ts", "ch", "sh", "sch", "", "i", "", "e", "yu", "ya"]))
+
+
+def phonetic(s: str) -> str:
+    """«он репит» ≈ «On repeat», «классик» ≈ «Classic», «битс» ≈ «Beatz»: латиница по звучанию, без двойных букв."""
+    t = "".join(_CYR.get(ch, ch) for ch in s.lower())
+    for a, b in (("ph", "f"), ("ck", "k"), ("ch", "ch"), ("qu", "kv"), ("x", "ks"), ("c", "k"), ("q", "k"), ("w", "v"),
+                 ("ee", "i"), ("ea", "i"), ("ie", "i"), ("y", "i"), ("oo", "u"), ("ou", "u"), ("z", "s"), ("th", "t"),
+                 ("&", " and "), ("ei", "i"), ("ai", "ei")):
+        t = t.replace(a, b)
+    t = re.sub(r"[^a-z0-9 ]", " ", t)
+    t = re.sub(r"(.)\1+", r"\1", t)
+    return " ".join(t.split())
+
+
+def title_score(want: str, name: str) -> float:
+    """Похоже ли сказанное на название — и по буквам, и по звучанию (Whisper пишет английские названия по-русски)."""
+    return max(name_score(want, name), name_score(phonetic(want), phonetic(name)))
+
+
+def ytm_sidebar(h: int, limit: int = 4000, timeout: float = 4.0) -> list:
+    """Плейлисты в левом меню YouTube Music: [(название, элемент)] сверху вниз."""
+    import uiautomation as auto
+    root = auto.ControlFromHandle(h)
+    win = wintypes.RECT()
+    user32.GetWindowRect(h, ctypes.byref(win))
+    right_edge = win.left + min(360, (win.right - win.left) * 0.3)
+    out, seen, t0, n = [], set(), time.monotonic(), 0
+    for ctrl, _d in auto.WalkControl(root, includeTop=False, maxDepth=45):
+        n += 1
+        if n > limit or time.monotonic() - t0 > timeout:
+            break
+        try:
+            if ctrl.ControlTypeName not in CLICKABLE or ctrl.IsOffscreen:
+                continue
+            name = (ctrl.Name or "").strip()
+            r = ctrl.BoundingRectangle
+        except Exception:  # noqa: BLE001
+            continue
+        if not name or name in seen or r.left > right_edge or r.top < win.top + 80 or r.width() < 20:
+            continue
+        seen.add(name)
+        out.append((r.top, name, ctrl))
+    out.sort(key=lambda x: x[0])
+    return [(name, ctrl) for _t, name, ctrl in out]
+
+
 def ytm_hotkey(action: str) -> bool:
     """Горячая клавиша прямо в окне YouTube Music. На время нажатия — английская раскладка:
     с русской браузер видит «Т» вместо N, и YouTube Music клавишу не узнаёт."""

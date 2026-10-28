@@ -258,6 +258,12 @@ def _media(t: str) -> Command | None:
                     r"воспроизведени\w* музык\w*|музыку|"
                     r"resume|play|play (some )?music|unpause|continue playing|weiter( abspielen)?|fortsetzen|musik (an|abspielen)", t):
         return Command("play")
+    # «вперёд на два трека», «пропусти три песни», «назад на два трека»
+    if m := re.fullmatch(r"(?:(вперед|дальше|пропусти|переключи|назад|верни)\s+)(?:на\s+)?(\S+)\s+(?:трек\w*|песн\w*|композици\w*)(?:\s+(вперед|назад))?", t):
+        n = (numbers(m.group(2)) or [0])[0] or {"один": 1, "одну": 1, "пару": 2}.get(m.group(2), 0)
+        if 1 <= n <= 10:
+            back = m.group(1) in ("назад", "верни") or m.group(3) == "назад"
+            return Command("previous" if back else "next", repeat=n)
     if re.fullmatch(r"следующ\w* (трек|песн\w*|видео|композици\w*)|пропусти( трек| песню)?|переключи (трек|песню)|"
                     r"next( track| song| video)?|skip( (this|the) (song|track))?|nächst\w* (titel|lied|song)", t):
         return Command("next")

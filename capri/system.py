@@ -384,10 +384,20 @@ class SystemControl:
         return self._media("play", cmd.text)
 
     def _next(self, cmd):
-        return self._media("next", cmd.text)
+        r = {}
+        for i in range(max(1, cmd.repeat or 1)):      # «вперёд на два трека»
+            if i:
+                time.sleep(0.6)
+            r = self._media("next", cmd.text)
+        return r
 
     def _previous(self, cmd):
-        return self._media("previous", cmd.text)
+        r = {}
+        for i in range(max(1, cmd.repeat or 1)):
+            if i:
+                time.sleep(0.6)
+            r = self._media("previous", cmd.text)
+        return r
 
     def _now_playing(self, cmd):
         async def go():

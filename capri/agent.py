@@ -327,6 +327,11 @@ class Agent:
             return None                               # «включи … на ютубе» — это обычный YouTube
         said_ytm = bool(RE_IN_YTM.search(bare))
         bare = RE_IN_YTM.sub("", bare)
+        # «открой плейлист On repeat» — открыть (без ▶); слово «плейлист» говорит, что это YouTube Music
+        m_openpl = re.match(r"^(?:открой|откройте|покажи|перейди\s+в)\s+(?:плейлист\w*|микс|альбом)\s+(?P<name>.+)$", bare, re.I) \
+            or (said_ytm and re.match(r"^(?:открой|откройте|покажи)\s+(?P<name>.+)$", bare, re.I))
+        if m_openpl:
+            return self._ytm_open(m_openpl.group("name").strip(" .,"), play=False)
         m_nth = RE_PLAY_NTH.match(bare)
         m_named = RE_PLAY_NAMED.match(bare)
         if said_ytm and not m_named:                  # «включи / найди Лампочки в ютуб мюзик»
@@ -385,6 +390,34 @@ class Agent:
         except Exception as e:  # noqa: BLE001
             return Reply(f"Не вышло: {e}", route="error")
 
+    def _ytm_open(self, name: str, play: bool) -> Reply | None:
+        """Плейлист из левого меню YouTube Music (или ссылка на странице). Не нашли — поиск в YouTube Music с вопросом."""
+        from . import control
+        h = control.ytm_window()
+        if not h:
+            return None
+        name = re.sub(r"^(?:плейлист\w*|микс|альбом)\s+", "", name, flags=re.I).strip()
+        try:
+            import uiautomation as auto
+            with auto.UIAutomationInitializerInThread():
+                control.focus(h)
+                cands = control.ytm_sidebar(h) + control.page_links(hwnd=h, min_len=3)
+                score, found, ctrl = max(((control.title_score(name, nm), nm, c) for nm, c in cands),
+                                         key=lambda x: x[0], default=(0.0, "", None))
+                if ctrl is not None and score >= 0.8:
+                    control.click_element(ctrl)
+                    if play:
+                        for _ in range(6):
+                            time.sleep(0.8)
+                            if control.ytm_play_page(h):
+                                return Reply(f"Включаю «{found[:80]}».", route="rules")
+                    return Reply(f"Открываю «{found[:80]}».", route="rules")
+                return self._ytm_search_ask(name)
+        except ImportError:
+            return None
+        except Exception as e:  # noqa: BLE001
+            return Reply(f"Не вышло: {e}", route="error")
+
     def _ytm_search_ask(self, target: str) -> Reply:
         """На экране такого нет — ищем в YouTube Music и спрашиваем, то ли это."""
         from . import control
@@ -437,9 +470,11 @@ class Agent:
                                     return Reply(f"Включаю «{found[:80]}».", route="rules")
                         return Reply(f"Открываю: «{found[:80]}».", route="rules")
                     if autoplay and ytm:
-                        return self._ytm_search_ask(target)
+                        return self._ytm_open(target, play=True)    # левое меню, потом поиск YouTube Music
             except Exception:  # noqa: BLE001
                 pass
+        if in_browser and "youtube music" in title.lower() and not ytm_hwnd:
+            return self._ytm_open(target, play=autoplay)       # в YouTube Music — его меню и его поиск, не YouTube
         if RE_VIDEO_WORDS.search(target) or "youtube" in title.lower():
             return Reply(f"Ищу на YouTube «{target}».", [A.make_youtube_search(target)], "rules")
         return None
