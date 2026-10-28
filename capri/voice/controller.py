@@ -134,6 +134,7 @@ class VoiceController(QObject):
         if self.speaker:
             self.speaker.stop()
 
+    SPEAK_SLACK = 30.0      # секунд сверх ~0.12 с на символ: синтез + проигрывание
     chime_volume = 0.7   # 0…1 — громкость «дзынь» после «Капри»
 
     def chime(self) -> None:
@@ -263,11 +264,26 @@ class VoiceController(QObject):
             return
         self._speaking += 1
         self.state.emit("SPEAKING")
+        once = {"done": False}
 
         def finished():
+            if once["done"]:
+                return
+            once["done"] = True
             self._speaking = max(0, self._speaking - 1)
             if not self._speaking and not self.recording:
                 self.state.emit("IDLE")
+
+        def watchdog():
+            # озвучка застряла (сеть, звуковое устройство) — не держим Капри в SPEAKING навсегда
+            if not once["done"]:
+                from ..log import log
+                log.warning("tts: фраза не закончилась за %.0f с — снимаю «говорю»", limit)
+                if self.speaker:
+                    self.speaker.stop()
+                finished()
+        limit = self.SPEAK_SLACK + len(clean) * 0.12
+        QTimer.singleShot(int(limit * 1000), watchdog)
 
         def say():
             from ..log import log

@@ -229,3 +229,79 @@ def test_play_phrases_without_youtube_music_stay_as_before(monkeypatch):
     monkeypatch.setattr(control, "ytm_window", lambda: 0)
     assert agent().handle("воспроизведи 1 трек").route == "rules"
     assert C.match("включи музыку").op == "play"
+
+
+def test_open_on_a_screen(monkeypatch):
+    from capri import scenarios
+    seen = []
+    monkeypatch.setattr(scenarios.Runner, "run", lambda self, steps: seen.append(steps) or (["YouTube Music"], [], None, ""))
+    a = agent()
+    monkeypatch.setattr(a, "open_action", lambda t: object())
+    r = a.handle("Открой YouTube Music на главном экране.")
+    assert r.route == "rules" and seen[0] == [{"open": "YouTube Music", "screen": 1, "place": "max"}]
+    a.handle("запусти дискорд на втором мониторе")
+    assert seen[1][0]["screen"] == 2 and seen[1][0]["open"] == "дискорд"
+    assert C.match("перенеси хром на второй экран").op == "move_monitor"      # «перенеси» — как раньше
+
+
+def test_stuck_speech_is_released(monkeypatch):
+    """Озвучка зависла (сеть, звуковая карта) — через время Капри снова IDLE и слышит «Капри»."""
+    import os
+    import threading
+    import time
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from capri.voice.controller import VoiceController
+    vc = VoiceController.__new__(VoiceController)
+    from PySide6.QtCore import QObject
+    QObject.__init__(vc)
+    hang = threading.Event()
+
+    class Stuck:
+        def say(self, text, lang):
+            hang.wait(5)
+
+        def stop(self):
+            pass
+    vc.cfg, vc.speaker, vc.recording, vc._speaking, vc.last_lang, vc._jobs = {}, Stuck(), False, 0, "ru", []
+    vc.SPEAK_SLACK = 0.3
+    states = []
+    vc.state.connect(states.append)
+    vc.speak("Эй! Время вышло!")
+    end = time.time() + 3
+    while "IDLE" not in states and time.time() < end:
+        QApplication.processEvents()
+        time.sleep(0.02)
+    hang.set()
+    assert states[0] == "SPEAKING" and "IDLE" in states and vc._speaking == 0
+    KEEP_VC.append(vc)
+
+
+KEEP_VC = []
+
+
+def test_playback_returns_even_if_the_device_hangs():
+    from capri.voice import tts
+    import numpy as np
+
+    class Stream:
+        def __init__(self, **k):
+            pass
+
+        def start(self):
+            pass            # устройство «залипло»: callback не зовётся никогда
+
+        def abort(self):
+            pass
+
+        def close(self):
+            pass
+
+    class SD:
+        OutputStream = Stream
+        CallbackStop = Exception
+    import time
+    t0 = time.monotonic()
+    tts.play_blocking(SD, np.zeros(1600, np.int16), 16000, lambda: False, slack=0.3)
+    assert time.monotonic() - t0 < 2

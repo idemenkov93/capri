@@ -72,6 +72,9 @@ RE_NTH = re.compile(r"^(?:открой|включи|запусти|кликни|
                     r"(?:\s+(?:в|на)\s+\S+)?$|^(?:open|play)\s+the\s+(?P<n2>\S+)\s+(?:link|video|result)$", re.I)
 RE_VIDEO_WORDS = re.compile(r"\b(выпуск\w*|сери[яюи]|сезон\w*|видео|ролик\w*|клип\w*|трейлер\w*|обзор\w*|подкаст\w*|стрим\w*)\b|#\d+", re.I)
 RE_DOMAIN = re.compile(r"^[\w-]+(\.[\w-]+)+(/\S*)?$")
+# «открой YouTube Music на главном экране», «запусти дискорд на втором мониторе» — открыть и сразу поставить
+RE_OPEN_ON_SCREEN = re.compile(r"^(?:открой|откройте|запусти|включи)\s+(?P<app>.+?)\s+на\s+(?:(?P<one>главн\w*|основн\w*|перв\w*|1)|"
+                               r"(?P<two>втор\w*|вспомогательн\w*|дополнительн\w*|друг\w*|2))\s+(?:экран\w*|монитор\w*|дисплe?\w*)$", re.I)
 # «включи первый трек», «воспроизведи 3 песню», «трек номер 2», просто «трек» (Whisper съел начало) — в YouTube Music
 RE_PLAY_NTH = re.compile(r"^(?:(?:включи|воспроизведи|запусти|поставь|играй|play)\s+)?(?:(?P<n>\S+)\s+(?:трек\w*|песн\w*|композици\w*)|"
                          r"(?:трек\w*|песн\w*|композици\w*)(?:\s+(?:номер\s+|№\s*)?(?P<n2>\S+))?)$", re.I)
@@ -466,6 +469,17 @@ class Agent:
         sc_data = scenarios.load()
         if hit := scenarios.match(text, sc_data):
             return self._scenario(hit[0], hit[1], sc_data)
+        if m := RE_OPEN_ON_SCREEN.match(text.strip(" .!?")):
+            app, screen_no = m.group("app").strip(), 1 if m.group("one") else 2
+            if self.open_action(app) is not None:
+                from . import scenarios
+                runner = scenarios.Runner(self.open_action, self.system, lambda act: A.execute(act, self.cfg))
+                done, failed, *_ = runner.run([{"open": app, "screen": screen_no, "place": "max"}])
+                if failed:
+                    return Reply(f"Не вышло: {failed[0]}.", route="error")
+                note = (" (" + "; ".join(runner.notes) + ")") if runner.notes else ""
+                return Reply(f"Открыла {done[0] if done else app} на {'основном' if screen_no == 1 else 'втором'} экране{note}.",
+                             route="rules")
         if (r := self._ytm_play(text)) is not None:
             return r
         if RE_BREAKS.search(text):
