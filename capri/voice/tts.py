@@ -59,18 +59,51 @@ def decode_mp3(data: bytes) -> tuple[np.ndarray, int]:
     return (np.concatenate(frames) if frames else np.zeros(0, np.int16)), rate
 
 
-def play_blocking(sd, audio, sr: int, should_stop) -> None:
-    """Проиграть звук своим потоком вывода, кусками по 0.1 с, проверяя «стоп» между кусками.
-    Не трогает глобальный sd.play/sd.wait — раньше они иногда «зависали», и Капри навсегда оставалась в SPEAKING."""
+def play_blocking(sd, audio, sr: int, should_stop, slack: float = 4.0) -> None:
+    """Проиграть звук своим потоком вывода и вернуться не позже, чем через «длина звука + slack» секунд.
+
+    Звук подаёт сама звуковая карта (callback), а мы только ждём с таймаутом. Раньше мы писали в поток
+    кусками (write) — если звуковое устройство «залипало», write не возвращался никогда, и Капри навсегда
+    оставалась в SPEAKING: не слышала «Капри» и «думала» до перезапуска."""
+    import threading
+    import time
+
     import numpy as np
     audio = np.ascontiguousarray(audio.reshape(-1, 1))
-    step = max(1, sr // 10)
-    with sd.OutputStream(samplerate=sr, channels=1, dtype=audio.dtype.name) as out:
-        for i in range(0, len(audio), step):
-            if should_stop():
-                out.abort()
-                return
-            out.write(audio[i:i + step])
+    pos = [0]
+    done = threading.Event()
+
+    def feed(outdata, frames, _t, _status):
+        if should_stop():
+            outdata[:] = 0
+            raise sd.CallbackStop
+        chunk = audio[pos[0]:pos[0] + frames]
+        outdata[:len(chunk)] = chunk
+        pos[0] += len(chunk)
+        if len(chunk) < frames:
+            outdata[len(chunk):] = 0
+            raise sd.CallbackStop
+
+    stream = sd.OutputStream(samplerate=sr, channels=1, dtype=audio.dtype.name, callback=feed,
+                             finished_callback=done.set)
+    stream.start()
+    limit = time.monotonic() + len(audio) / sr + slack
+    try:
+        while not done.wait(0.1):
+            if should_stop() or time.monotonic() > limit:
+                if time.monotonic() > limit:
+                    from ..log import log
+                    log.warning("tts: звук не доиграл вовремя — обрываю (звуковое устройство не отвечает?)")
+                break
+    finally:
+        try:
+            stream.abort()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            stream.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def split_sentences(text: str, min_len: int = 40) -> list[str]:
@@ -116,10 +149,11 @@ class EdgeSpeaker:
         voice = self.voices.get(lang) or self.voices.get("en")
         parts = split_sentences(text)
         self._stopped = False
-        with ThreadPoolExecutor(max_workers=1) as ex:
+        ex = ThreadPoolExecutor(max_workers=1)
+        try:
             nxt = ex.submit(self._synth, parts[0], voice)
             for i in range(len(parts)):
-                audio, sr = nxt.result()
+                audio, sr = nxt.result(timeout=25)     # сеть подвисла — не ждём вечно, FallbackSpeaker возьмёт Piper
                 if i + 1 < len(parts):
                     nxt = ex.submit(self._synth, parts[i + 1], voice)
                 if self._stopped:
@@ -127,6 +161,8 @@ class EdgeSpeaker:
                 play_blocking(self._sd, audio, sr, lambda: self._stopped)
                 if self._stopped:
                     break
+        finally:
+            ex.shutdown(wait=False, cancel_futures=True)
 
     def stop(self) -> None:
         self._stopped = True
