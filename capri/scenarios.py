@@ -239,13 +239,31 @@ class Runner:
             raise RuntimeError(f"{name} не открылся за 25 секунд")
         control.place_window(h, screen, place)
         if not before:
-            # Discord и Steam сначала показывают маленькое окно загрузки, потом открывают главное — ставим и его
-            time.sleep(3.0)
-            h2 = control.find_app_window(name, strict=True)
-            if h2 and h2 != h:
-                control.place_window(h2, screen, place)
-                h = h2
+            # Discord и Steam сначала показывают маленькое окно загрузки, потом открывают главное,
+            # а Discord, догрузившись, ещё и сам разворачивается во весь экран — следим ~10 секунд и ставим заново
+            # (в фоне — сценарий не ждёт эти секунды)
+            if self.watch_async:
+                import threading
+                threading.Thread(target=self._watch, args=(name, h, screen, place), daemon=True).start()
+            else:
+                h = self._watch(name, h, screen, place)
         return control.window_title(h) or name
+
+    watch_async = True
+
+    @staticmethod
+    def _watch(name: str, h: int, screen: int, place: str, rounds: int = 6) -> int:
+        from . import control
+        for _ in range(rounds):
+            time.sleep(2.0)
+            try:
+                h2 = control.find_app_window(name, strict=True) or h
+                if h2 != h or not control.placed_ok(h2, screen, place):
+                    control.place_window(h2, screen, place)
+                    h = h2
+            except Exception:  # noqa: BLE001 — окно закрыли
+                break
+        return h
 
     def _browser(self, urls: list[str], screen, place: str) -> None:
         exe = browser_exe()

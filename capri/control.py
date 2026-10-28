@@ -383,6 +383,26 @@ def place_window(h: int, screen: int = 1, place: str = "max") -> str:
     return window_title(h)
 
 
+def placed_ok(h: int, screen: int = 1, place: str = "max", tol: int = 24) -> bool:
+    """Окно стоит там, куда мы его ставили? (Discord после загрузки сам разворачивается во весь экран.)"""
+    mons = monitors()
+    l, t, r, b, _ = mons[min(max(screen, 1), len(mons)) - 1]
+    if place == "max":
+        return bool(user32.IsZoomed(h))
+    if user32.IsZoomed(h) or user32.IsIconic(h):
+        return False
+    w, hh = r - l, b - t
+    want = {"left": (l, t, w // 2, hh), "right": (l + w // 2, t, w - w // 2, hh), "top": (l, t, w, hh // 2),
+            "bottom": (l, t + hh // 2, w, hh - hh // 2), "center": (l + w // 6, t + hh // 8, w * 2 // 3, hh * 3 // 4)}.get(place)
+    if want is None:
+        return True
+    rect = wintypes.RECT()
+    if ctypes.windll.dwmapi.DwmGetWindowAttribute(h, 9, ctypes.byref(rect), ctypes.sizeof(rect)) != 0:
+        user32.GetWindowRect(h, ctypes.byref(rect))
+    x, y, cw, ch = want
+    return abs(rect.left - x) <= tol and abs(rect.top - y) <= tol and abs(rect.right - (x + cw)) <= tol
+
+
 def idle_seconds() -> float:
     """Сколько секунд к компьютеру не прикасались (мышь/клавиатура)."""
     if not IS_WIN:

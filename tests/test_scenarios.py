@@ -12,6 +12,11 @@ from capri.applist import AppIndex
 from capri.config import DEFAULTS
 
 
+@pytest.fixture(autouse=True)
+def _no_background_watch(monkeypatch):
+    monkeypatch.setattr(scenarios.Runner, "watch_async", False)   # в тестах — без фоновых потоков
+
+
 @pytest.mark.parametrize("text,hit", [
     ("Капри, игровой режим", ("игровой", True)), ("включи игровой режим", ("игровой", True)),
     ("запусти режим работы", ("работа", True)), ("рабочий режим.", ("работа", True)),
@@ -52,6 +57,7 @@ def test_runner_does_steps_in_order_and_survives_errors(monkeypatch):
         return windows[n]
     monkeypatch.setattr(control, "wait_window", wait)
     monkeypatch.setattr(control, "place_window", lambda h, screen, place: placed.append((h, screen, place)) or "окно")
+    monkeypatch.setattr(control, "placed_ok", lambda h, screen, place: True)
     monkeypatch.setattr(control, "window_title", lambda h: f"win{h}")
     monkeypatch.setattr(control, "night_light", lambda on: True)
     monkeypatch.setattr(scenarios.time, "sleep", lambda s: None)
@@ -144,6 +150,7 @@ def _fake_screens(monkeypatch, active, connected):
     for name in ("find_app_window", "wait_window"):
         monkeypatch.setattr(control, name, lambda n, *a, **k: 7)
     monkeypatch.setattr(control, "place_window", lambda h, screen, place: "окно")
+    monkeypatch.setattr(control, "placed_ok", lambda h, screen, place: True)
     monkeypatch.setattr(control, "window_title", lambda h: "окно")
     return switched
 
@@ -198,3 +205,28 @@ def test_old_example_file_is_upgraded(tmp_path, monkeypatch):
 def test_display_phrases(text, mode):
     c = C.match(text)
     assert (c.op, c.text) == ("display", mode)
+
+
+def test_window_that_maximizes_itself_is_put_back(monkeypatch):
+    """Discord: поставили слева — догрузился и развернулся во весь экран. Капри ставит его обратно."""
+    from capri import control
+    placed, state = [], {"ok": False, "checks": 0}
+    monkeypatch.setattr(control, "find_app_window", lambda n, strict=False: 0 if not placed else 5)
+    monkeypatch.setattr(control, "wait_window", lambda n, timeout=20, ignore=None: 5)
+    monkeypatch.setattr(control, "window_title", lambda h: "Друзья - Discord")
+    monkeypatch.setattr(scenarios.time, "sleep", lambda s: None)
+
+    def place(h, screen, where):
+        placed.append((h, screen, where))
+        state["ok"] = len(placed) >= 2            # первую расстановку Discord «сломал»
+
+    def ok(h, screen, where):
+        state["checks"] += 1
+        return state["ok"]
+    monkeypatch.setattr(control, "place_window", place)
+    monkeypatch.setattr(control, "placed_ok", ok)
+    monkeypatch.setattr(control, "monitors", lambda: [(0, 0, 1920, 1080, True), (1920, 0, 3840, 1080, False)])
+    r = scenarios.Runner(lambda n: "D", Sys(), lambda a: None)
+    r.watch_async = False
+    done, failed, *_ = r.run([{"open": "discord", "screen": 2, "place": "left"}])
+    assert placed == [(5, 2, "left"), (5, 2, "left")] and not failed and state["checks"] == 6
