@@ -150,3 +150,25 @@ def test_track_on_screen_is_clicked(monkeypatch):
     monkeypatch.setattr(control, "click_element", clicked.append)
     r = agent().handle("включи Лампочки")
     assert r.text == "Включаю «Лампочки»." and clicked == ["c-lamp"]
+
+
+def test_youtube_and_youtube_music_do_not_mix(monkeypatch):
+    from capri import control
+    _fake_uia(monkeypatch)
+    searched = []
+    monkeypatch.setattr(control, "ytm_window", lambda: 42)
+    monkeypatch.setattr(control, "focus", lambda h: h)
+    monkeypatch.setattr(control, "page_links", lambda **k: [])
+    monkeypatch.setattr(control, "ytm_search", lambda h, q: searched.append(q) or [("High Forever", "c1")])
+    # сейчас перед тобой YouTube в браузере — YouTube Music не трогаем, ищем на YouTube
+    monkeypatch.setattr(control, "context_window", lambda: ("Котики - YouTube - Google Chrome", "chrome.exe"))
+    r = agent().handle("воспроизведи High Forever")
+    assert not searched and "YouTube Music" not in r.text
+    r = agent().handle("включи High Forever на ютубе")
+    assert not searched and r.text.startswith("Ищу на YouTube")
+    # сказал прямо «в ютуб мюзик» — ищем там, даже если окно не перед глазами
+    r = agent().handle("воспроизведи High Forever в ютуб мюзик")
+    assert searched == ["High Forever"] and r.ask
+
+    r = agent().handle("Включи Лампочки в ютуб мюзик")
+    assert searched[-1] == "Лампочки" and r.text.startswith("Нашла")
