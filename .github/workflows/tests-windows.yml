@@ -1,0 +1,53 @@
+# Тесты на настоящей Windows для ветки игрового помощника (без сборки exe).
+name: Tests (Windows)
+
+on:
+  push:
+    branches: [feature/gaming]
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-voice.txt -r requirements-system.txt -r requirements-google.txt -r requirements-game.txt pytest
+      - name: Tests
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: |
+          python -m pytest -v -rfE -p no:cacheprovider *> pytest.txt
+          $code = $LASTEXITCODE
+          Get-Content pytest.txt
+          Select-String -Path pytest.txt -Pattern '^(FAILED|ERROR) ' | Select-Object -First 9 | ForEach-Object { "::warning title=Windows test::$($_.Line)" }
+          $tail = (Get-Content pytest.txt -Tail 3) -join ' | '
+          "::notice title=pytest exit $code::$tail"
+          $crash = Select-String -Path pytest.txt -Pattern 'Windows fatal exception|Current thread|Thread 0x|\\(tests|capri|PySide6)\\[^"]+", line' | Select-Object -First 14
+          $last = Select-String -Path pytest.txt -Pattern '^tests[/\\]' | Select-Object -Last 1
+          if ($last) { "::notice title=last test::$($last.Line)" }
+          if ($crash) { "::warning title=pytest crash::$((($crash | ForEach-Object { $_.Line.Trim() }) -join ' | '))" }
+          exit $code
+      - name: Game assistant smoke check (real Windows APIs)
+        shell: pwsh
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          python -c "from capri import game, gpu, grab; print('foreground:', game.foreground()); print('gpu:', gpu.read()); print('dxgi:', grab.dxgi_available()); img = grab.grab_all(); print('screen:', img.size)" *> smoke.txt
+          $code = $LASTEXITCODE
+          Get-Content smoke.txt
+          "::notice title=smoke::$((Get-Content smoke.txt) -join ' | ')"
+          exit $code
