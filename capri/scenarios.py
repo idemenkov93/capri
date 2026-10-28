@@ -12,6 +12,7 @@
     - nightlight: on       # стандартный «Ночной свет» Windows: on | off
     - break_reminder: 180  # напоминать отдохнуть каждые N минут (0 — выключить)
     - say: "текст"         # что сказать, когда всё готово
+    - display: external    # как Win+P: extend | internal | external | clone
 """
 from __future__ import annotations
 
@@ -31,6 +32,8 @@ DEFAULT_TEXT = """# Сценарии Капри: скажи «Капри, игр
 #   open: программа или сайт    screen: 1 (основной) / 2 (второй)    place: max | left | right | top | bottom | center
 #   browser: [ссылка1, ссылка2]  — одно окно браузера, вкладки по порядку
 #   volume: 20 · brightness: 40 · nightlight: on/off · break_reminder: 180 (минут, 0 — выключить) · say: "текст"
+#   display: extend (оба экрана) | internal (только основной) | external (только второй) | clone — как Win+P
+# Если в сценарии есть screen: 2, а второй экран выключен через Win+P, — Капри сама включит оба экрана.
 
 игровой:
   phrases: [игровой режим, режим игры, гейминг, поиграем, game mode]
@@ -50,13 +53,15 @@ DEFAULT_TEXT = """# Сценарии Капри: скажи «Капри, игр
   phrases: [ночной режим, режим ночи, вечерний режим, night mode]
   off_phrases: [выключи ночной режим, дневной режим, отключи ночной режим]
   steps:
+    - display: external      # основной экран гаснет, остаётся только второй
     - nightlight: on
     - volume: 20
     - browser: [https://www.youtube.com, https://www.netflix.com]
-    - say: "Ночной режим. Экран тёплый, звук 20, ютуб и нетфликс открыты. Не засиживайся."
+    - say: "Ночной режим. Основной экран погасила, второй тёплый, звук 20, ютуб и нетфликс открыты. Не засиживайся."
   off_steps:
+    - display: extend
     - nightlight: off
-    - say: "Ночной свет выключила."
+    - say: "Ночной режим выключила: оба экрана снова работают."
 
 работа:
   phrases: [режим работы, рабочий режим, работаем, за работу, work mode]
@@ -76,6 +81,8 @@ DEFAULT_TEXT = """# Сценарии Капри: скажи «Капри, игр
 """
 
 DEFAULT = yaml.safe_load(DEFAULT_TEXT)
+# файл с примерами из прошлой версии (без шагов display) — если его не меняли, обновляем сами
+OLD_DEFAULTS = {"7f67238c0e41d7f4"}
 
 
 def path() -> Path:
@@ -85,6 +92,12 @@ def path() -> Path:
 
 def load() -> dict:
     p = path()
+    try:
+        import hashlib
+        if p.exists() and hashlib.sha256(p.read_text(encoding="utf-8").encode()).hexdigest()[:16] in OLD_DEFAULTS:
+            p.write_text(DEFAULT_TEXT, encoding="utf-8")
+    except OSError:
+        pass
     if not p.exists():
         try:
             p.parent.mkdir(parents=True, exist_ok=True)
@@ -149,10 +162,25 @@ class Runner:
 
     def __init__(self, resolve, system, execute):
         self.resolve, self.system, self.execute = resolve, system, execute
+        self.notes: list[str] = []            # что Капри поменяла сама (включила второй экран и т.п.)
 
     def run(self, steps: list) -> tuple[list[str], list[str], int | None, str]:
         """→ (что сделано, что не вышло, напоминание в минутах или None, что сказать)."""
         done, failed, reminder, say = [], [], None, ""
+        notes = []
+        from . import control
+        wants_two = any(isinstance(st, dict) and int(st.get("screen") or 1) >= 2 for st in steps or [])
+        switches = any(isinstance(st, dict) and "display" in st for st in steps or [])
+        if wants_two and not switches:
+            try:
+                if len(control.monitors()) < 2:
+                    if control.connected_displays() >= 2:
+                        control.switch_display("extend")      # второй экран выключен через Win+P — включаем
+                        notes.append("включила второй экран")
+                    else:
+                        notes.append("второго экрана нет — разложила всё на одном")
+            except Exception:  # noqa: BLE001
+                pass
         for step in steps or []:
             if not isinstance(step, dict):
                 continue
@@ -164,6 +192,16 @@ class Runner:
                     urls = step["browser"] if isinstance(step["browser"], list) else [step["browser"]]
                     self._browser([str(u) for u in urls], step.get("screen"), str(step.get("place", "max")))
                     done.append("вкладки: " + ", ".join(re.sub(r"^https?://(www\.)?", "", u).split("/")[0] for u in urls))
+                elif "display" in step:
+                    mode = str(step["display"]).lower()
+                    if mode not in ("extend", "internal", "external", "clone"):
+                        raise RuntimeError(f"не знаю режим экрана «{mode}»")
+                    if mode in ("external", "extend") and control.connected_displays() < 2 and len(control.monitors()) < 2:
+                        failed.append("второй экран не подключён — оставила как есть")
+                    else:
+                        control.switch_display(mode)
+                        done.append({"extend": "оба экрана", "internal": "только основной экран",
+                                     "external": "только второй экран", "clone": "экраны дублируются"}[mode])
                 elif "volume" in step:
                     from .commands import Command
                     self.system.run(Command("volume_set", float(step["volume"])))
@@ -185,6 +223,7 @@ class Runner:
                     say = str(step["say"])
             except Exception as e:  # noqa: BLE001 — один шаг не ломает весь сценарий
                 failed.append(f"{next(iter(step))}: {e}")
+        self.notes = notes
         return done, failed, reminder, say
 
     def _open(self, name: str, screen: int, place: str) -> str:
