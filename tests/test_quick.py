@@ -57,3 +57,18 @@ def test_more_phrases_from_the_sweep():
     assert C.match("открой настройки").op == "settings" and C.match("включи блютуз").text == "bluetooth"
     assert C.match("выключи монитор").op == "monitor_off" and C.match("выключи второй экран").op == "display"
     assert C.match("закрой хром").op == "window" and C.reply(C.match("покажи телеграм"), "ru", {}).startswith("Показала")
+
+
+def test_youtube_suffix():
+    import copy
+    from pathlib import Path
+    from capri.agent import Agent
+    from capri.applist import AppIndex
+    from capri.config import DEFAULTS
+
+    class S:
+        def run(self, c):
+            return {}
+    a = Agent(copy.deepcopy(DEFAULTS), llm=object(), claude=lambda t, c: "", system=S(), apps=AppIndex(Path("/x")))
+    r = a.handle("включи котиков на ютубе")
+    assert r.text == "Ищу на YouTube «котиков»." and r.actions[0].kind == "web_search"

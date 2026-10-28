@@ -56,7 +56,8 @@ RE_NOTE = re.compile(r"^(?:запиши|заметка|запомни|notiz|merk
 RE_CLAUDE = re.compile(r"^(?:/claude|клод|claude)[,:]?\s+(.+)$", re.I | re.S)
 RE_YOUTUBE = re.compile(
     r"^(?:найди|поищи|включи|поставь|открой|запусти)\s+(?:на|в)\s+(?:ютубе|ютьюбе|youtube)\s+(.+)$|"
-    r"^(?:ютуб|youtube)\s+(.+)$|^(?:search|play)\s+(.+?)\s+on youtube$|^(?:such\w*|spiel\w*)\s+(.+?)\s+auf youtube$", re.I)
+    r"^(?:ютуб|youtube)\s+(.+)$|^(?:search|play)\s+(.+?)\s+on youtube$|"
+    r"^(?:найди|поищи|включи|поставь|открой|запусти)\s+(.+?)\s+(?:на|в)\s+(?:ютубе|ютьюбе|youtube)$|^(?:such\w*|spiel\w*)\s+(.+?)\s+auf youtube$", re.I)
 # «Привет, Капри, открой ютуб.» → «открой ютуб» (голос приносит имя и точки)
 RE_WAKE_PREFIX = re.compile(r"^\s*(?:(?:привет|эй|окей|ок|хей|hey|hi|hallo|okay)\s*,?\s*)?(?:капри|кэпри|capri|kapri)\b[\s,!.:-]*", re.I)
 # сложное — сразу Claude: код, разбор ошибок, планы, подробные объяснения
