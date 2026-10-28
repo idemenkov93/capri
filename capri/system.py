@@ -24,6 +24,32 @@ TICKS = 10_000_000  # время в Windows — в тиках по 100 нс
 VK_MEDIA = {"toggle": 0xB3, "next": 0xB0, "previous": 0xB1}
 
 
+class MediaTimeout(RuntimeError):
+    pass
+
+
+def run_async(make_coro, timeout: float = 8.0):
+    """Выполнить корутину плеера в отдельном потоке и не ждать дольше timeout.
+    Плеер Windows (особенно YouTube Music как приложение Chrome) иногда так и не отвечает на «следующий трек» —
+    раньше Капри из-за этого «думала» бесконечно и больше ничего не слушала."""
+    import threading
+    box: dict = {}
+
+    def work():
+        try:
+            box["ok"] = asyncio.run(make_coro())
+        except BaseException as e:  # noqa: BLE001
+            box["err"] = e
+    t = threading.Thread(target=work, daemon=True, name="media")
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        raise MediaTimeout("плеер не ответил")
+    if "err" in box:
+        raise box["err"]
+    return box.get("ok")
+
+
 def run_ps(cmd: str, timeout: int = 60) -> str:
     full = ("[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
             "$ErrorActionPreference='SilentlyContinue'; " + cmd)
@@ -249,6 +275,8 @@ class SystemControl:
             self.press([(VK_MEDIA["toggle" if action in ("play", "pause") else action], True)])
             return {}
 
+        sent = {"v": False}
+
         async def go():
             s = await self._session(target, for_play=action == "play")
             if (not s or self._kind_of(s.source_app_user_model_id) == "browser") and self._music_tab(target):
@@ -262,11 +290,25 @@ class SystemControl:
             f = {"pause": s.try_pause_async, "play": s.try_play_async,
                  "next": s.try_skip_next_async, "previous": s.try_skip_previous_async}[action]
             await f()
+            sent["v"] = True
             if action in ("next", "previous"):
                 await asyncio.sleep(0.8)  # плееру нужно время, чтобы сменить трек
                 return {"track": await self._describe(s)}
             return {}
-        return asyncio.run(go())
+        try:
+            return run_async(go)
+        except MediaTimeout:
+            from .log import log
+            log.warning("плеер не ответил на «%s» (команда ушла: %s)", action, sent["v"])
+            if sent["v"]:
+                return {}                                    # трек уже переключился — просто не узнали название
+            if action in ("next", "previous"):
+                self.press([(VK_MEDIA[action], True)])     # клавиша «следующий трек» понимается почти всеми плеерами
+                return {}
+            if action in ("play", "pause"):
+                self.press([(VK_MEDIA["toggle"], True)])
+                return {}
+            return {"error": "плеер не ответил"}
 
     @staticmethod
     def _music_tab(target: str | None) -> bool:
@@ -299,7 +341,10 @@ class SystemControl:
         async def go():
             s = await self._session(cmd.text)
             return {"track": await self._describe(s)} if s else {}
-        return asyncio.run(go())
+        try:
+            return run_async(go, 6.0)
+        except MediaTimeout:
+            return {"error": "плеер не ответил"}
 
     def _seek(self, absolute: float | None, delta: float | None) -> dict:
         async def go():
@@ -316,7 +361,10 @@ class SystemControl:
             target = max(0.0, min(target, end - 1) if end > 0 else target)
             ok = await s.try_change_playback_position_async(int(target * TICKS))
             return {} if ok else {"unsupported": True}
-        return asyncio.run(go())
+        try:
+            return run_async(go, 6.0)
+        except MediaTimeout:
+            return {"error": "плеер не ответил"}
 
     def _seek_to(self, cmd):
         return self._seek(cmd.value or 0, None)

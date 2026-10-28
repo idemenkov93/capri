@@ -27,7 +27,8 @@ from capri.google_api import RE_MAIL
     ("YouTube на весь экран.", "fullscreen", None), ("YouTube во весь экран.", "fullscreen", None),
     ("ночной свет", "nightlight", None), ("выключи ночной свет", "nightlight", None),
     ("оставь только второй экран", "display", "external"), ("Да, убери первый экран.", "display", "external"),
-    ("верни оба экрана", "display", "extend"),
+    ("верни оба экрана", "display", "extend"), ("Оставь второй экран.", "display", "external"),
+    ("Проверим мой компьютер.", "pc_check", None), ("Проверите пока.", "pc_check", None), ("Проверь пока.", "pc_check", None),
 ])
 def test_misheard_and_loose_phrases(text, op, target):
     cmd = C.match(text)
@@ -172,3 +173,11 @@ def test_night_city_slang_toggle(monkeypatch, tmp_path):
     assert "чумба" in seen["p"]
     claude_code.ask("x", {"workdir": str(tmp_path), "slang": False})
     assert "чумба" not in seen["p"]
+
+
+def test_more_log_phrases():
+    from capri import scenarios
+    assert scenarios.match("Выключить ночной режим.", scenarios.DEFAULT) == ("ночной", False)
+    cmd = C.match("проверь пока что почту")
+    assert cmd is None or cmd.op != "pc_check"
+    assert C.match("включи второй экран").text == "extend"
