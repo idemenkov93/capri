@@ -277,8 +277,11 @@ class SystemControl:
 
         sent = {"v": False}
 
+        from .log import log
+
         async def go():
             s = await self._session(target, for_play=action == "play")
+            log.debug("плеер: сеанс %s", s.source_app_user_model_id if s else None)
             if (not s or self._kind_of(s.source_app_user_model_id) == "browser") and self._music_tab(target):
                 from . import control
                 if control.press_player_button(action):
@@ -296,12 +299,20 @@ class SystemControl:
                 return {"track": await self._describe(s)}
             return {}
         try:
-            return run_async(go)
+            return run_async(go, 5.0)
         except MediaTimeout:
-            from .log import log
             log.warning("плеер не ответил на «%s» (команда ушла: %s)", action, sent["v"])
             if sent["v"]:
                 return {}                                    # трек уже переключился — просто не узнали название
+            # медиа-служба Windows не отвечает — жмём настоящую кнопку в окне YouTube Music
+            if target in (None, "music") and action in ("play", "pause", "next", "previous"):
+                try:
+                    from . import control
+                    if name := control.press_player_button(action):
+                        log.info("плеер: нажала кнопку «%s» в окне", name)
+                        return {}
+                except Exception:  # noqa: BLE001
+                    log.exception("плеер: кнопка в окне")
             if action in ("next", "previous"):
                 self.press([(VK_MEDIA[action], True)])     # клавиша «следующий трек» понимается почти всеми плеерами
                 return {}
