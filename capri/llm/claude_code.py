@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -18,6 +19,11 @@ PREFIX = (
 
 RUDE = ("Сейчас Капри в грубом режиме (пользователь сам так попросил): отвечай резко, с сарказмом и ворчанием, "
         "можно «блин», «чёрт», без мата и без настоящих оскорблений, но задачу решай полностью и правильно. ")
+
+
+ANSWER_RULES = ("\n\nПравила ответа: не создавай и не меняй файлы, не запускай команды и не составляй план — сразу дай "
+                "готовый результат. Если нужен код — дай его целиком одним блоком ```язык```, перед ним 1–2 предложения, "
+                "что он делает и как запустить.")
 
 
 class ClaudeError(RuntimeError):
@@ -45,11 +51,15 @@ def ask(task: str, cfg: dict) -> str:
     workdir = expand(cfg.get("workdir", "~/capri-workspace"))
     workdir.mkdir(parents=True, exist_ok=True)
 
-    cmd = [
-        exe, "-p", PREFIX + (RUDE if cfg.get("attitude") == "rude" else "") + task,
-        "--output-format", "json",
-        "--permission-mode", cfg.get("permission_mode", "plan"),
-    ]
+    mode = cfg.get("permission_mode", "plan")
+    cmd = [exe, "-p", PREFIX + (RUDE if cfg.get("attitude") == "rude" else "") + task + ANSWER_RULES,
+           "--output-format", "json"]
+    if mode == "plan":
+        # «plan» заставлял Claude писать план вместо ответа («сейчас режим планирования, ничего не создал»).
+        # Теперь: обычный режим, но менять файлы и запускать команды запрещено — читать скриншоты можно.
+        cmd += ["--permission-mode", "default", "--disallowedTools=Bash,Edit,Write,MultiEdit,NotebookEdit"]
+    else:
+        cmd += ["--permission-mode", mode]
     try:
         proc = subprocess.run(
             cmd, cwd=workdir, capture_output=True, text=True, encoding="utf-8",
@@ -59,7 +69,17 @@ def ask(task: str, cfg: dict) -> str:
         raise ClaudeError("Claude думал слишком долго — увеличь timeout в config.yaml.") from e
 
     if proc.returncode != 0:
-        raise ClaudeError(f"Claude Code завершился с ошибкой: {(proc.stderr or proc.stdout)[:300]}")
+        detail = (proc.stderr or "").strip()
+        try:
+            d = json.loads(proc.stdout or "{}")
+            detail = detail or str(d.get("result") or d.get("subtype") or "")
+        except json.JSONDecodeError:
+            detail = detail or (proc.stdout or "").strip()
+        if re.search(r"log ?in|logged|auth|401|unauthori", detail, re.I):
+            raise ClaudeError("Claude Code не вошёл в аккаунт. Открой терминал, набери claude и войди — потом повтори.")
+        if re.search(r"rate|limit|usage|quota|overloaded|529", detail, re.I):
+            raise ClaudeError("Claude сейчас перегружен или лимит подписки на это время исчерпан — попробуй чуть позже.")
+        raise ClaudeError(f"Claude Code завершился с ошибкой: {detail[:300] or 'без пояснений (код ' + str(proc.returncode) + ')'}")
     try:
         data = json.loads(proc.stdout)
     except json.JSONDecodeError:

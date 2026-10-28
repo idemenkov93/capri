@@ -737,6 +737,9 @@ class CapriApp:
                 self.chat.add_capri("Почта подключена. Спроси: «есть новые письма?»", "rules")
 
     def run_action(self, act: A.Action):
+        if act.kind == "quiet":
+            self.be_quiet()
+            return
         if act.kind in ("connect_mail", "connect_calendar", "connect_simple"):
             self.connect_google(act.kind)
             return

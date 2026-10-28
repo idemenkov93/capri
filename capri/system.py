@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
+import os
 import re
 import subprocess
 import sys
@@ -110,7 +111,44 @@ class SystemControl:
 
     def _window(self, cmd: Command):
         from . import control
-        return {"title": control.window(cmd.text or "minimize")}
+        name = (cmd.keys or [None])[0]
+        return {"title": control.window(cmd.text or "minimize", name)}
+
+    def _fullscreen(self, cmd: Command):
+        """YouTube и плееры — клавиша F, остальное — F11 (браузер/проводник)."""
+        from . import control
+        h = control.target_window()
+        title = control.window_title(h).lower()
+        self.press(key_codes(["f"] if re.search(r"youtube|netflix|twitch|vlc|кинопоиск", title) else ["f11"]))
+        return {"title": title}
+
+    def _display(self, cmd: Command):
+        mode = {"external": "/external", "internal": "/internal", "extend": "/extend", "clone": "/clone"}[cmd.text or "extend"]
+        subprocess.Popen(["DisplaySwitch.exe", mode], creationflags=NO_WINDOW)
+        return {}
+
+    def _settings(self, cmd: Command):
+        os.startfile(f"ms-settings:{cmd.text}")  # noqa: S606 — ms-settings: открывает нужную страницу «Параметров»
+        return {}
+
+    def _type_in(self, cmd: Command):
+        """Напечатать в конкретной программе; не запущена — запустить и дождаться окна."""
+        from . import control
+        app = (cmd.keys or ["powershell"])[0]
+        h = control.find_app_window(app)
+        if not h:
+            subprocess.Popen({"notepad": ["notepad.exe"], "cmd": ["cmd.exe"]}.get(app, ["powershell.exe"]),
+                             creationflags=0x00000010)          # CREATE_NEW_CONSOLE — своё окно
+            for _ in range(30):
+                time.sleep(0.3)
+                if h := control.find_app_window(app):
+                    break
+        if not h:
+            return {"error": f"не дождалась окна {app}"}
+        control.focus(h)
+        time.sleep(0.4)
+        control.type_text(cmd.text or "")
+        return {"title": control.window_title(h)}
 
     def _move_monitor(self, cmd: Command):
         from . import control

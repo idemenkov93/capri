@@ -193,10 +193,25 @@ def click(button: str = "left", double: bool = False, at: tuple[int, int] | None
         time.sleep(0.06)
 
 
-def window(action: str) -> str:
-    """minimize | maximize | restore | close | left | right — с активным окном (не Капри)."""
-    h = target_window()
-    title = window_title(h)
+def window(action: str, name: str | None = None) -> str:
+    """minimize | maximize | restore | close | left | right — с активным окном (не Капри) или с окном программы name."""
+    if name:
+        h = find_app_window(name)
+        if not h:
+            raise RuntimeError(f"не нашла окно «{name}»")
+        title = window_title(h)
+        if action == "close" and process_name(h) in BROWSERS:
+            # во вкладке: «закрой YouTube» — закрыть вкладку, а не весь браузер со всеми вкладками
+            focus(h)
+            _hotkey(0x11, 0x57)                     # Ctrl+W
+            return title
+        if action in ("restore", "maximize"):
+            user32.ShowWindow(h, 9 if action == "restore" else 3)
+            focus(h)
+            return title
+    else:
+        h = target_window()
+        title = window_title(h)
     if action == "minimize":
         user32.ShowWindow(h, 6)
     elif action == "maximize":
@@ -328,6 +343,13 @@ def move_to_monitor(name: str | None, where: str) -> dict:
         user32.ShowWindow(h, 3)
     user32.SetForegroundWindow(h)
     return {"title": title, "monitor": dst + 1}
+
+
+def _hotkey(*vks: int) -> None:
+    for vk in vks:
+        user32.keybd_event(vk, 0, 0, 0)
+    for vk in reversed(vks):
+        user32.keybd_event(vk, 0, KEYEVENTF_KEYUP, 0)
 
 
 def mouse_center() -> None:
