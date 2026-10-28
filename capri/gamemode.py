@@ -111,6 +111,8 @@ class GameMode(QObject):
             a.stop_dancing()
             a.talking_media = False          # слежка за музыкой остановлена — «видео в колонках» больше не считаем
             a._apply_wake_mode()
+            if a.wake:
+                a.wake.strict = True             # Whisper выгружен — «Капри» засчитываем только при уверенном распознавании
             if a.voice:
                 a.voice.stt.unload()
                 from .config import expand
@@ -139,6 +141,7 @@ class GameMode(QObject):
         self.watcher.current = None
         if a.voice:
             a.voice.stt_override = None
+        a._apply_wake_mode()
         a.avatar._tick.start()
         if self._was.get("avatar", True):
             a.avatar.show()

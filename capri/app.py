@@ -238,7 +238,10 @@ class CapriApp:
         stt = self.voice.stt
         # вторая проверка: Whisper слушает 3 секунды до «Капри». Пишем звук сразу (чтобы не потерять начало команды),
         # а «дзынь» — когда Whisper подтвердил имя. Не подтвердил — молча перестаём слушать.
-        verify = (self.prefs.get("wake_verify", True) and audio is not None and not self.in_game
+        # в обычных играх Whisper в видеокарте остаётся — проверяем имя и там (друзья в Discord);
+        # в CS2 он выгружен — там строже слушает сам vosk
+        strict_game = self.in_game and self.game.strict
+        verify = (self.prefs.get("wake_verify", True) and audio is not None and not strict_game
                   and hasattr(stt, "heard_name"))
         self._wake_ok = None if verify else True
         self.voice.quiet()
@@ -654,6 +657,8 @@ class CapriApp:
         self.chat.input.setFocus()
 
     def on_message(self, text: str):
+        import re as _re
+
         from .log import log
         self.wake_up()
         if self.worker and self.worker.isRunning():
@@ -667,11 +672,11 @@ class CapriApp:
                 self.worker = None
             else:
                 # раньше новый запрос молча терялся; теперь — ставим в очередь (последний побеждает)
-                log.info("занята, откладываю: «%s»", text)
+                log.info("занята, откладываю: «%s»", _re.sub(r"AIza[\w-]{10,}", "AIza…", text))
                 self._queued = text
                 self.stop_current()
                 return
-        log.info("запрос: «%s»", text)
+        log.info("запрос: «%s»", _re.sub(r"AIza[\w-]{10,}", "AIza…(ключ скрыт)", text))
         self.chat.set_busy(True)
         self.worker = Worker(self.agent, text)
         self.worker.status.connect(self.on_status)

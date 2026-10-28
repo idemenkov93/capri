@@ -5,6 +5,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from ..config import expand
@@ -30,8 +31,17 @@ ANSWER_RULES = ("\n\nПравила ответа: не создавай и не 
                 "что он делает и как запустить.")
 
 
+RE_LIMIT = re.compile(r"rate.?limit|usage limit|limit reached|hit your limit|quota|overloaded|529|credit|out of (?:tokens|usage)", re.I)
+RE_LIMIT_ANSWER = re.compile(r"^(?:you'?ve hit your (?:usage )?limit|claude ai usage limit reached|usage limit reached|"
+                             r"credit balance is too low|5-hour limit reached)", re.I)
+
+
 class ClaudeError(RuntimeError):
     pass
+
+
+class ClaudeLimit(ClaudeError):
+    """Лимит подписки или перегрузка — можно ответить через Gemini."""
 
 
 def find_claude(command: str) -> str | None:
@@ -65,10 +75,17 @@ def ask(task: str, cfg: dict) -> str:
         cmd += ["--permission-mode", "default", "--disallowedTools=Bash,Edit,Write,MultiEdit,NotebookEdit"]
     else:
         cmd += ["--permission-mode", mode]
+    hidden = {}
+    if sys.platform == "win32":
+        # без окна консоли: раньше на время ответа выскакивал терминал Claude и забирал фокус у игры
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0                                # SW_HIDE
+        hidden = {"creationflags": 0x08000000, "startupinfo": si}   # CREATE_NO_WINDOW
     try:
         proc = subprocess.run(
             cmd, cwd=workdir, capture_output=True, text=True, encoding="utf-8",
-            timeout=cfg.get("timeout", 300),
+            timeout=cfg.get("timeout", 300), stdin=subprocess.DEVNULL, **hidden,
         )
     except subprocess.TimeoutExpired as e:
         raise ClaudeError("Claude думал слишком долго — увеличь timeout в config.yaml.") from e
@@ -82,13 +99,16 @@ def ask(task: str, cfg: dict) -> str:
             detail = detail or (proc.stdout or "").strip()
         if re.search(r"log ?in|logged|auth|401|unauthori", detail, re.I):
             raise ClaudeError("Claude Code не вошёл в аккаунт. Открой терминал, набери claude и войди — потом повтори.")
-        if re.search(r"rate|limit|usage|quota|overloaded|529", detail, re.I):
-            raise ClaudeError("Claude сейчас перегружен или лимит подписки на это время исчерпан — попробуй чуть позже.")
+        if RE_LIMIT.search(detail):
+            raise ClaudeLimit("Claude сейчас перегружен или лимит подписки на это время исчерпан — попробуй чуть позже.")
         raise ClaudeError(f"Claude Code завершился с ошибкой: {detail[:300] or 'без пояснений (код ' + str(proc.returncode) + ')'}")
     try:
         data = json.loads(proc.stdout)
     except json.JSONDecodeError:
         return proc.stdout.strip()
     if data.get("is_error"):
-        raise ClaudeError(str(data.get("result", "неизвестная ошибка")))
+        msg = str(data.get("result", "неизвестная ошибка"))
+        raise (ClaudeLimit if RE_LIMIT.search(msg) else ClaudeError)(msg)
+    if RE_LIMIT_ANSWER.search(str(data.get("result", ""))[:200]):
+        raise ClaudeLimit(str(data.get("result")))           # «You've hit your limit · resets 9pm» приходит как ответ
     return str(data.get("result", "")).strip()

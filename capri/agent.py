@@ -9,7 +9,7 @@ from typing import Callable
 
 from . import actions as A
 from . import commands as C
-from .llm import claude_code
+from .llm import claude_code, gemini
 from .llm.ollama_client import OllamaClient, OllamaError
 from .persona import system_prompt
 
@@ -74,6 +74,7 @@ RE_NTH = re.compile(r"^(?:открой|включи|запусти|кликни|
                     r"(?:\s+(?:в|на)\s+\S+)?$|^(?:open|play)\s+the\s+(?P<n2>\S+)\s+(?:link|video|result)$", re.I)
 RE_VIDEO_WORDS = re.compile(r"\b(выпуск\w*|сери[яюи]|сезон\w*|видео|ролик\w*|клип\w*|трейлер\w*|обзор\w*|подкаст\w*|стрим\w*)\b|#\d+", re.I)
 RE_DOMAIN = re.compile(r"^[\w-]+(\.[\w-]+)+(/\S*)?$")
+RE_GEMINI_KEY = re.compile(r"(?:(?:ключ|key)\s+(?:для\s+)?(?:gemini|гемини|джемини|джеминай)\s*[:=—-]?\s*)?(?P<key>AIza[\w-]{30,})", re.I)
 # ответы на её вопросы
 RE_YES = re.compile(r"^(?:да|ага|угу|давай|конечно|ок|окей|ok|okay|включай|включи|ставь|поставь|го|yes|yeah|yep|ja|klar)\b", re.I)
 RE_NO = re.compile(r"^(?:нет|неа|не надо|не нужно|не включай|не ставь|отмена|отмени|забей|no|nope|nein)\b", re.I)
@@ -137,7 +138,8 @@ def _human(minutes: int) -> str:
 
 class Agent:
     def __init__(self, config: dict, llm: OllamaClient | None = None,
-                 claude: Callable[[str, dict], str] = claude_code.ask, system=None, apps=None):
+                 claude: Callable[[str, dict], str] = claude_code.ask, system=None, apps=None,
+                 gemini_ask: Callable[..., str] | None = None):
         self.cfg = config
         if apps is None:
             from .applist import AppIndex
@@ -155,6 +157,8 @@ class Agent:
         o = config["ollama"]
         self.llm = llm or OllamaClient(o["url"], o["model"], o["timeout"], o.get("think"), o.get("options"))
         self.claude = claude
+        self.gemini_ask = gemini_ask or gemini.ask
+        self._claude_limited_until = 0.0     # лимит Claude кончился — до этого времени сразу идём в Gemini
         self.history: list[dict] = []
         self.game = None      # GameMode из app.py: идёт ли игра, строгий ли режим, данные CS2
         self.pending: dict | None = None   # Капри спросила и ждёт ответ: {"kind": "timer" | "confirm", "at": …}
@@ -195,12 +199,12 @@ class Agent:
             return self._ask_claude(text, on_status)
         if g:
             # локальная модель выгружена из видеокарты ради игры — спрашиваем Claude (он в облаке)
-            if self.cfg["claude_code"].get("enabled", True):
+            if self.cfg["claude_code"].get("enabled", True) or self.gemini_ready():
                 return self._ask_claude(f"{g.context()} Вопрос: «{text}». Ответь коротко, 1–3 предложения, для озвучки, без markdown.",
                                         on_status, label=text)
             if g.strict:
                 return Reply("Пока идёт игра, локальную модель не включаю — она займёт видеокарту. Спроси после матча "
-                             "или включи Claude в config.yaml.", route="rules")
+                             "или подключи Gemini: скажи «как подключить gemini».", route="rules")
         return self._local(text, on_status, on_token, should_stop)
 
     def _google(self, text: str) -> Reply | None:
@@ -547,7 +551,12 @@ class Agent:
             paths, title = screen.capture(workdir, in_game=True) if in_game else screen.capture(workdir)
         except Exception as e:  # noqa: BLE001
             return Reply(f"Не смогла сделать снимок экрана: {e}", route="error")
-        return self._ask_claude(screen.prompt(text, paths, title), on_status, label=text)
+        import os
+        abs_paths = [os.path.join(str(workdir), p) for p in paths]
+        where = f" Активное окно: «{title}»." if title else ""
+        g_task = (f"Пользователь спрашивает про то, что у него на экране (скриншоты приложены): «{text}».{where} "
+                  "Если там ошибка — что она значит и как исправить. Если игра — подскажи по ситуации. 2–5 предложений.")
+        return self._ask_claude(screen.prompt(text, paths, title), on_status, label=text, gemini_task=g_task, images=abs_paths)
 
     # быстрые правила --------------------------------------------------------
     def _games(self, text: str) -> Reply | None:
@@ -580,7 +589,34 @@ class Agent:
             return Reply(f"Видеокарта: {g['temp']}°{load}.{hot}", route="rules")
         return None
 
+    def _gemini_setup(self, text: str) -> Reply | None:
+        """«ключ gemini AIza…» — сохранить ключ; «как подключить gemini» — инструкция."""
+        if m := RE_GEMINI_KEY.search(text):
+            key = m.group("key")
+            try:
+                model = gemini.check_key(key, "free_smart")
+            except gemini.GeminiError as e:
+                return Reply(f"Ключ не сохранила: {e}", route="error")
+            except Exception as e:  # noqa: BLE001 — нет интернета и т.п.
+                return Reply(f"Не смогла проверить ключ: {str(e)[:120]}", route="error")
+            try:
+                gemini.set_key(key)
+            except Exception as e:  # noqa: BLE001
+                return Reply(f"Ключ рабочий, но сохранить не вышло: {e}", route="error")
+            self.cfg.setdefault("gemini", {})["model"] = model
+            return Reply(f"Gemini подключён ({model}). Теперь в играх и когда кончится лимит Claude отвечаю через него.",
+                         route="rules")
+        if re.search(r"(?:как|где)\s+(?:подключить|взять|получить|добавить)\s+(?:ключ\s+)?(?:gemini|гемини|джемини|джеминай)", text, re.I):
+            return Reply("Открой aistudio.google.com/apikey, войди в Google и нажми «Create API key» — это бесплатно. "
+                         "Скопируй ключ (начинается с AIza) и вставь его в чат Капри: «ключ gemini AIza…». "
+                         "Учти: бесплатные запросы Google может использовать для обучения — личное туда не отправляй.",
+                         [A.Action("open_url", "aistudio.google.com/apikey", {"url": gemini.KEY_PAGE}, needs_confirm=False)],
+                         "rules")
+        return None
+
     def _rules(self, text: str) -> Reply | None:
+        if (gs := self._gemini_setup(text)) is not None:
+            return gs
         if (gr := self._games(text)) is not None:
             return gr
         from . import quick
@@ -818,16 +854,66 @@ class Agent:
         return None
 
     # Claude ---------------------------------------------------------------------
-    def _ask_claude(self, task: str, on_status, remembered: bool = False, label: str | None = None) -> Reply:
-        if not self.cfg["claude_code"].get("enabled", True):
-            return Reply("Claude выключен в config.yaml.", route="error")
-        on_status("CLAUDE")
+    # Gemini ---------------------------------------------------------------------
+    def _gcfg(self) -> dict:
+        return self.cfg.get("gemini") or {}
+
+    def gemini_ready(self) -> bool:
+        g = self._gcfg()
+        return bool(g.get("enabled", True)) and bool(gemini.get_key(g) if self.gemini_ask is gemini.ask else True)
+
+    def _ask_gemini(self, task: str, images: list | None = None) -> str:
+        attitude = self.cfg.get("persona", {}).get("attitude", "sassy")
+        slang = self.cfg.get("persona", {}).get("slang", True)
+        system = (system_prompt(self.cfg["user_name"], attitude, slang) +
+                  "\nОтвечай по делу и коротко — ответ озвучивается. Без markdown, кроме кода: код — целиком одним блоком ```язык```.")
+        return self.gemini_ask(task, self._gcfg(), images=images, system=system)
+
+    # Claude ---------------------------------------------------------------------
+    def _ask_claude(self, task: str, on_status, remembered: bool = False, label: str | None = None,
+                    gemini_task: str | None = None, images: list | None = None) -> Reply:
+        """Умный помощник. Claude, а Gemini — в играх (быстро, без окон и процессов) и когда лимит Claude кончился."""
+        g = self._gcfg()
+        in_game = self.game is not None and self.game.active
+        claude_on = self.cfg["claude_code"].get("enabled", True)
+        limited = time.monotonic() < self._claude_limited_until
+        gem_ok = self.gemini_ready()
+        if not claude_on and not gem_ok:
+            return Reply("Claude выключен в config.yaml, а ключа Gemini нет.", route="error")
         if not remembered:
             self._remember("user", label or task)
-        try:
-            answer = self.claude(task, self.cfg["claude_code"])
-        except claude_code.ClaudeError as e:
-            return Reply(str(e), route="error")
+        note = ""
+        answer = None
+        if gem_ok and ((in_game and g.get("in_games", True)) or limited or not claude_on):
+            on_status("CLAUDE")
+            try:
+                answer = self._ask_gemini(gemini_task or task, images)
+            except gemini.GeminiError as e:
+                if not claude_on or limited:
+                    return Reply(str(e), route="error")
+        if answer is None:
+            on_status("CLAUDE")
+            try:
+                answer = self.claude(task, self.cfg["claude_code"])
+            except claude_code.ClaudeLimit as e:
+                self._claude_limited_until = time.monotonic() + 30 * 60
+                if not (gem_ok and g.get("when_claude_limit", True)):
+                    return Reply(str(e) + " (Добавь бесплатный ключ Gemini — скажи «как подключить gemini».)", route="error")
+                try:
+                    answer = self._ask_gemini(gemini_task or task, images)
+                    note = "Лимит Claude кончился — ответил Gemini. "
+                except gemini.GeminiError as ge:
+                    return Reply(f"{e} А Gemini: {ge}", route="error")
+            except claude_code.ClaudeError as e:
+                if gem_ok:
+                    try:
+                        answer = self._ask_gemini(gemini_task or task, images)
+                        note = "Claude не ответил — ответил Gemini. "
+                    except gemini.GeminiError:
+                        return Reply(str(e), route="error")
+                else:
+                    return Reply(str(e), route="error")
+        answer = note + answer
         self._remember("assistant", answer)
         if RE_WANTS_CODE.search(label or task):
             if saved := self._save_code(answer):
