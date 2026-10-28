@@ -672,11 +672,11 @@ class CapriApp:
                 self.worker = None
             else:
                 # раньше новый запрос молча терялся; теперь — ставим в очередь (последний побеждает)
-                log.info("занята, откладываю: «%s»", _re.sub(r"AIza[\w-]{10,}", "AIza…", text))
+                log.info("занята, откладываю: «%s»", _re.sub(r"AIza[\w-]{10,}|AQ\.[\w.-]{10,}", "(ключ скрыт)", text))
                 self._queued = text
                 self.stop_current()
                 return
-        log.info("запрос: «%s»", _re.sub(r"AIza[\w-]{10,}", "AIza…(ключ скрыт)", text))
+        log.info("запрос: «%s»", _re.sub(r"AIza[\w-]{10,}|AQ\.[\w.-]{10,}", "(ключ скрыт)", text))
         self.chat.set_busy(True)
         self.worker = Worker(self.agent, text)
         self.worker.status.connect(self.on_status)

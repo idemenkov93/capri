@@ -82,3 +82,12 @@ def test_chat_with_friends_in_game_is_ignored():
     assert not asked
     assert a.handle("что ты знаешь про эту игру?").text == "G"
     assert a.handle("громкость 30").route == "rules"             # команды — как обычно
+
+
+def test_new_aq_keys_are_accepted(monkeypatch):
+    saved = []
+    monkeypatch.setattr(gemini, "check_key", lambda key, tier: "gemini-flash-latest")
+    monkeypatch.setattr(gemini, "set_key", saved.append)
+    a = agent(lambda t, c: "", None)
+    r = a.handle("AQ.Ab8RN6IKTQEnnNn_XBx14MO9TEtT7L9UwYygotOXabcdEzA")
+    assert "Gemini подключён" in r.text and saved[0].startswith("AQ.Ab8RN6")
