@@ -655,6 +655,7 @@ class Agent:
             return Reply(f"{f.description}.", [f], "rules")
         if m := RE_YOUTUBE.match(bare):
             q = next(g for g in m.groups() if g).strip()
+            q = re.sub(r"^(?:видео|ролик|клип)\s+(?:про\s+)?", "", q, flags=re.I) or q
             return Reply(f"Ищу на YouTube «{q}».", [A.make_youtube_search(q)], "rules")
         if m := RE_OPEN.match(bare):
             target = re.sub(r"^(?:в|на|in|auf)\s+", "", m.group(1).strip())
