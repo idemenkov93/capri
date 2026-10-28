@@ -686,6 +686,46 @@ def ytm_window() -> int:
     return h if h and "youtube music" in window_title(h).lower() else 0
 
 
+BAR_NAMES = {"play": ("Воспроизвести", "Play", "Wiedergabe"), "pause": ("Пауза", "Приостановить", "Pause")}
+
+
+def ytm_bar_button(h: int, action: str) -> str:
+    """Кнопка ▶/⏸ в нижней панели плеера YouTube Music. Не переключатель: «играй» при уже играющей музыке ничего
+    не делает (раньше пробел ставил её на паузу). → "clicked" | "already" | "" (панель не нашли)."""
+    import uiautomation as auto
+    try:
+        from uiautomation import uiautomation as core
+        uia = core._AutomationClient.instance().IUIAutomation
+        root = auto.ControlFromHandle(h)
+    except Exception:  # noqa: BLE001
+        return ""
+    win = wintypes.RECT()
+    user32.GetWindowRect(h, ctypes.byref(win))
+    bar_top = win.bottom - 170
+
+    def in_bar(kind: str):
+        for name in BAR_NAMES[kind]:
+            try:
+                arr = root.Element.FindAll(4, uia.CreatePropertyCondition(30005, name))
+            except Exception:  # noqa: BLE001
+                continue
+            for i in range(arr.Length if arr else 0):
+                ctrl = auto.Control.CreateControlFromElement(arr.GetElement(i))
+                try:
+                    if ctrl is not None and ctrl.BoundingRectangle.top >= bar_top:
+                        return ctrl
+                except Exception:  # noqa: BLE001
+                    continue
+        return None
+    want, other = (action, "pause" if action == "play" else "play")
+    if (btn := in_bar(want)) is not None:
+        click_element(btn)
+        return "clicked"
+    if in_bar(other) is not None:
+        return "already"
+    return ""
+
+
 def ytm_play_page(h: int) -> str | None:
     """На открытой странице плейлиста/микса YouTube Music нажать большую кнопку ▶ в шапке."""
     try:

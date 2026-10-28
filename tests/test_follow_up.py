@@ -172,3 +172,20 @@ def test_youtube_and_youtube_music_do_not_mix(monkeypatch):
 
     r = agent().handle("Включи Лампочки в ютуб мюзик")
     assert searched[-1] == "Лампочки" and r.text.startswith("Нашла")
+
+
+def test_third_track_and_press_track_by_name(monkeypatch):
+    from capri import control
+    _fake_uia(monkeypatch)
+    clicked = []
+    tracks = [("High Forever", "c1"), ("До утра мы гуляем (кабак)", "c2"), ("流れ酔い唄", "c3")]
+    monkeypatch.setattr(control, "ytm_window", lambda: 42)
+    monkeypatch.setattr(control, "focus", lambda h: h)
+    monkeypatch.setattr(control, "context_window", lambda: ("Capri", "python.exe"))   # перед глазами не YouTube Music
+    monkeypatch.setattr(control, "ytm_tracks", lambda h: tracks)
+    monkeypatch.setattr(control, "click_element", clicked.append)
+    monkeypatch.setattr(control, "ytm_click", lambda h, name: clicked.append(name) or True)
+    assert agent().handle("Воспроизведи третий трек.").text == "Включаю «流れ酔い唄»." and clicked == ["c3"]
+    monkeypatch.setattr(control, "context_window", lambda: ("YouTube Music", "chrome.exe"))
+    r = agent().handle("Нажми, до утра мы гуляем. Кабак.")
+    assert r.text == "Включаю «До утра мы гуляем (кабак)»." and clicked[-1] == "До утра мы гуляем (кабак)"

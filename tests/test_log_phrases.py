@@ -305,3 +305,26 @@ def test_playback_returns_even_if_the_device_hangs():
     t0 = time.monotonic()
     tts.play_blocking(SD, np.zeros(1600, np.int16), 16000, lambda: False, slack=0.3)
     assert time.monotonic() - t0 < 2
+
+
+def test_misheard_louder():
+    for t in ("Сделай гробче.", "грамче", "сделай громче", "по громче"):
+        assert C.match(t).op == "volume_change" and C.match(t).value > 0, t
+    assert C.match("потише").value < 0
+
+
+def test_play_never_toggles_twice(monkeypatch):
+    """Служба Windows не ответила на «играй» — жмём ▶ в панели плеера, а не пробел (пробел ставил на паузу)."""
+    from capri import system
+    keys, bar = [], []
+    sc = system.SystemControl(Path("/tmp"))
+    monkeypatch.setattr(system, "run_async", lambda go, t=8.0: (_ for _ in ()).throw(system.MediaTimeout("x")))
+    monkeypatch.setattr(sc, "press", lambda codes, repeat=1: keys.append(codes))
+    monkeypatch.setattr(system.SystemControl, "_ytm_bar", staticmethod(lambda a: bar.append(a) or True))
+    import sys
+    import types
+    monkeypatch.setitem(sys.modules, "winrt", types.ModuleType("winrt"))
+    monkeypatch.setitem(sys.modules, "winrt.windows", types.ModuleType("winrt.windows"))
+    monkeypatch.setitem(sys.modules, "winrt.windows.media", types.ModuleType("winrt.windows.media"))
+    monkeypatch.setitem(sys.modules, "winrt.windows.media.control", types.ModuleType("winrt.windows.media.control"))
+    assert sc._media("play") == {} and bar == ["play"] and not keys
