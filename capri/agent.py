@@ -105,7 +105,11 @@ class Agent:
                should_stop: Callable[[], bool] | None = None) -> Reply:
         text = RE_WAKE_PREFIX.sub("", text.strip()).strip()
         if not text:
-            return Reply("Ну? Я слушаю.", route="rules")
+            import random
+            slang = self.cfg.get("persona", {}).get("slang", True)
+            lines = ("Ну? Я слушаю.", "На связи, чумба.", "Говори, чум.", "Слушаю. Что за гиг?", "Я тут. Выкладывай.") if slang \
+                else ("Ну? Я слушаю.", "Слушаю.", "Я тут. Говори.")
+            return Reply(random.choice(lines), route="rules")
         reply = self._rules(text)
         if reply and reply.route == "vision":
             return self._vision_click(reply.text, on_status)
@@ -393,7 +397,8 @@ class Agent:
         on_status("THINKING")
         self._remember("user", text)
         attitude = self.cfg.get("persona", {}).get("attitude", "sassy")
-        messages = [{"role": "system", "content": system_prompt(self.cfg["user_name"], attitude)}, *self.history]
+        slang = self.cfg.get("persona", {}).get("slang", True)
+        messages = [{"role": "system", "content": system_prompt(self.cfg["user_name"], attitude, slang)}, *self.history]
         try:
             msg = self.llm.chat(messages, on_token=on_token, should_stop=should_stop)
         except OllamaError as e:

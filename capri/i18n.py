@@ -27,6 +27,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "hide": {"ru": "🙈 Спрятать", "en": "🙈 Hide"},
     "show": {"ru": "👀 Показать", "en": "👀 Show"},
     "voice_lab": {"ru": "🎛 Голос Капри…", "en": "🎛 Capri's voice…"},
+    "slang": {"ru": "🗣 Сленг Найт-Сити (чумба, нова…)", "en": "🗣 Night City slang (choom, nova…)"},
     "attitude": {"ru": "😈 Характер", "en": "😈 Attitude"},
     "att_soft": {"ru": "Мягкая", "en": "Soft"},
     "att_sassy": {"ru": "Дерзкая", "en": "Sassy"},
