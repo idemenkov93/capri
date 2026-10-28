@@ -355,7 +355,11 @@ class Agent:
             m_named = re.match(r"^(?:включи|поставь|запусти|найди|поищи)\s+(?P<name>.+)$", bare, re.I)
         if m_nth and re.match(r"(?:следующ|предыдущ|прошл|этот|эту|это|любой|любую|какой|какую|мой|мою)", m_nth.group("n") or "", re.I):
             m_nth = None
-        if not m_nth and not (m_named and not RE_GENERIC_PLAY.fullmatch(m_named.group("name").strip())):
+        # «нажми, до утра мы гуляем» — трек с открытой страницы (только то, что видно, без поиска)
+        m_press = None if (m_nth or m_named) else re.match(r"^(?:нажми|кликни|ткни)\s*,?\s+(?:на\s+)?(?P<name>.{3,})$", bare, re.I)
+        if m_press and re.match(r"(?:кнопк|play|плей|плэй|паузу|пауза|энтер|enter|ctrl|контрол|esc)", m_press.group("name"), re.I):
+            m_press = None
+        if not m_nth and not m_press and not (m_named and not RE_GENERIC_PLAY.fullmatch(m_named.group("name").strip())):
             return None
         try:
             h = control.ytm_window()
@@ -363,8 +367,9 @@ class Agent:
             h = 0
         if not h:
             return None
-        if not said_ytm:
-            # YouTube Music открыт, но ты сейчас в другом окне (например, YouTube в браузере) — не перехватываем
+        if not said_ytm and not m_nth:
+            # YouTube Music открыт, но ты сейчас в другом окне (например, YouTube в браузере) — не перехватываем.
+            # «Третий трек» — только про YouTube Music (на YouTube говорят «третье видео»), его не проверяем
             try:
                 fg_title, _exe = control.context_window()
             except Exception:  # noqa: BLE001
@@ -388,6 +393,12 @@ class Agent:
                     name, ctrl = tracks[n - 1] if n > 0 else tracks[-1]
                     control.click_element(ctrl)
                     return Reply(f"Включаю «{name[:80]}».", route="rules")
+                if m_press:
+                    want = m_press.group("name").strip(" .,")
+                    best = max(((control.name_score(want, nm), nm) for nm, _c in control.ytm_tracks(h)), default=(0.0, ""))
+                    if best[0] >= 0.75 and control.ytm_click(h, best[1]):
+                        return Reply(f"Включаю «{best[1][:80]}».", route="rules")
+                    return None
                 target = m_named.group("name").strip()
                 r = self._open_on_screen(target, autoplay=True, ytm_hwnd=h)
                 return r if r is not None and "Ищу на YouTube" not in r.text else None

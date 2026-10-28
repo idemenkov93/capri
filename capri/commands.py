@@ -477,6 +477,9 @@ def match(text: str) -> Command | None:
                          r"(?:на\s+|to\s+|auf\s+)?(.+?)(?:\s*(?:процент\w*|%|percent|prozent))?", t):
         if (v := level(m.group(1))) is not None:
             return Command("volume_set", v)
+    # Whisper: «гробче», «грамче», «громчи», «по громче», «тышe» — то же самое
+    t = re.sub(r"^(сделай\s+)?(?:по\s?)?(?:гр[оа][мбп]ч[еи]|громчее)$", r"\1громче", t)
+    t = re.sub(r"^(сделай\s+)?(?:по\s?)?(?:т[иы]ше|тищe)$", r"\1тише", t)
     if m := re.fullmatch(r"(?:сделай\s+)?(громче|погромче|тише|потише)(?:\s+на\s+(.+?))?(?:\s*(?:процент\w*|%))?|"
                          r"(louder|quieter|turn it (up|down)|volume (up|down)|lauter|leiser)", t):
         down = bool(re.search(r"тише|quieter|down|leiser", t))

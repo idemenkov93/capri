@@ -25,7 +25,7 @@ VK_MEDIA = {"toggle": 0xB3, "next": 0xB0, "previous": 0xB1}
 
 
 class MediaTimeout(RuntimeError):
-    pass
+    thread = None
 
 
 def run_async(make_coro, timeout: float = 8.0):
@@ -44,7 +44,9 @@ def run_async(make_coro, timeout: float = 8.0):
     t.start()
     t.join(timeout)
     if t.is_alive():
-        raise MediaTimeout("плеер не ответил")
+        e = MediaTimeout("плеер не ответил")
+        e.thread = t
+        raise e
     if "err" in box:
         raise box["err"]
     return box.get("ok")
@@ -284,14 +286,18 @@ class SystemControl:
             log.debug("плеер: сеанс %s", s.source_app_user_model_id if s else None)
             if (not s or self._kind_of(s.source_app_user_model_id) == "browser") and self._music_tab(target):
                 from . import control
-                try:
-                    if control.press_player_button(action):
+                if action in ("play", "pause"):
+                    if self._ytm_bar(action):
                         return {}
-                except Exception as e:  # noqa: BLE001 — кнопку не нашли — пробуем горячую клавишу YouTube Music
-                    log.warning("плеер: кнопка в окне: %s", e)
-                if control.ytm_hotkey(action):
-                    log.info("плеер: горячая клавиша YouTube Music для «%s»", action)
-                    return {}
+                else:
+                    try:
+                        if control.press_player_button(action):
+                            return {}
+                    except Exception as e:  # noqa: BLE001 — кнопку не нашли — пробуем горячую клавишу YouTube Music
+                        log.warning("плеер: кнопка в окне: %s", e)
+                    if control.ytm_hotkey(action):
+                        log.info("плеер: горячая клавиша YouTube Music для «%s»", action)
+                        return {}
             if not s:
                 return {"nothing": True, "target": target}
             if action == "pause" and s.get_playback_info().playback_status != PLAYING:
@@ -306,12 +312,18 @@ class SystemControl:
             return {}
         try:
             return run_async(go, 5.0)
-        except MediaTimeout:
+        except MediaTimeout as e:
+            if e.thread is not None:
+                e.thread.join(1.5)                           # служба часто отвечает чуть позже — дадим ей шанс
             log.warning("плеер не ответил на «%s» (команда ушла: %s)", action, sent["v"])
             if sent["v"]:
                 return {}                                    # трек уже переключился — просто не узнали название
             # медиа-служба Windows не отвечает — жмём настоящую кнопку в окне YouTube Music, потом его горячую клавишу
-            if target in (None, "music") and action in ("play", "pause", "next", "previous"):
+            if target in (None, "music") and action in ("play", "pause"):
+                # ▶/⏸ — только кнопкой в панели плеера: она не переключатель, двойного нажатия не будет
+                self._ytm_bar(action)
+                return {}
+            if target in (None, "music") and action in ("next", "previous"):
                 from . import control
                 try:
                     if name := control.press_player_button(action):
@@ -332,6 +344,23 @@ class SystemControl:
                 self.press([(VK_MEDIA["toggle"], True)])
                 return {}
             return {"error": "плеер не ответил"}
+
+    @staticmethod
+    def _ytm_bar(action: str) -> bool:
+        from . import control
+        from .log import log
+        try:
+            import uiautomation as auto
+            with auto.UIAutomationInitializerInThread():
+                h = control.ytm_window()
+                if not h:
+                    return False
+                res = control.ytm_bar_button(h, action)
+        except Exception as e:  # noqa: BLE001
+            log.warning("плеер: панель YouTube Music: %s", e)
+            return False
+        log.info("плеер: панель YouTube Music, «%s» → %s", action, res or "не нашла")
+        return bool(res)
 
     @staticmethod
     def _music_tab(target: str | None) -> bool:
