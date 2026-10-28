@@ -155,3 +155,20 @@ def test_claude_is_not_in_plan_mode(monkeypatch, tmp_path):
     monkeypatch.setattr(claude_code.subprocess, "run", lambda cmd, **k: seen.update(cmd=cmd) or P())
     claude_code.ask("задача", {"permission_mode": "plan", "workdir": str(tmp_path)})
     assert "plan" not in seen["cmd"] and any(x.startswith("--disallowedTools=") for x in seen["cmd"])
+
+
+def test_night_city_slang_toggle(monkeypatch, tmp_path):
+    from capri.llm import claude_code
+    from capri.persona import system_prompt
+    assert "чумба" in system_prompt("Игорь", "sassy", True) and "Никаких «чумба»" in system_prompt("Игорь", "sassy", False)
+    seen = {}
+
+    class P:
+        returncode, stdout, stderr = 0, '{"result": "ok"}', ""
+
+    monkeypatch.setattr(claude_code, "find_claude", lambda c: "claude")
+    monkeypatch.setattr(claude_code.subprocess, "run", lambda cmd, **k: seen.update(p=cmd[2]) or P())
+    claude_code.ask("x", {"workdir": str(tmp_path), "slang": True})
+    assert "чумба" in seen["p"]
+    claude_code.ask("x", {"workdir": str(tmp_path), "slang": False})
+    assert "чумба" not in seen["p"]

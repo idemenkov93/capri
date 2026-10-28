@@ -326,6 +326,8 @@ class CapriApp:
             act.triggered.connect(lambda _=False, c=code: self.set_attitude(c))
             ag.addAction(act)
             am.addAction(act)
+        am.addSeparator()
+        am.addAction(self._check(am, t("slang", L), self.prefs.get("slang", True), self.toggle_slang))
         menu.addAction(self._check(menu, t("wander", L), self.avatar.wander, self.toggle_wander))
         dm = menu.addMenu(t("dance", L))
         dm.addAction(self._check(dm, t("dance_on", L), self.prefs.get("dance", True), self.toggle_dance))
@@ -450,6 +452,13 @@ class CapriApp:
     def _apply_attitude(self, code: str):
         self.cfg.setdefault("persona", {})["attitude"] = code
         self.cfg["claude_code"]["attitude"] = code
+        slang = bool(self.prefs.get("slang", True))
+        self.cfg["persona"]["slang"] = slang
+        self.cfg["claude_code"]["slang"] = slang
+
+    def toggle_slang(self):
+        self.prefs.set("slang", not self.prefs.get("slang", True))
+        self._apply_attitude(self.prefs.get("attitude", "sassy"))
 
     def set_attitude(self, code: str):
         self.prefs.set("attitude", code)
