@@ -406,8 +406,9 @@ def match(text: str) -> Command | None:
         if re.fullmatch(rx, t):
             return Command("display", text=mode)
     # --- настройки Windows: ночной свет и т.п. (переключатель сам не нажимаем — открываем нужную страницу)
-    for rx, page in ((r"(?:включи |выключи |открой )?ночн\w* (?:режим|свет)|ночник|night ?light", "nightlight"),
-                     (r"(?:открой )?(?:настройки )?(?:блютуз\w*|bluetooth)", "bluetooth"),
+    if re.fullmatch(r"(?:включи |выключи |отключи |открой )?(?:ночн\w* (?:режим|свет)|ночник|night ?light)", t):
+        return Command("nightlight", 0 if re.match(r"выключ|отключ", t) else 1)
+    for rx, page in (                     (r"(?:открой )?(?:настройки )?(?:блютуз\w*|bluetooth)", "bluetooth"),
                      (r"(?:открой )?(?:настройки )?(?:вай ?фай|wi-?fi|вайфай)", "network-wifi"),
                      (r"(?:открой )?настройки (?:звука|звук)", "sound"),
                      (r"(?:открой )?настройки (?:экрана|дисплея|монитора)", "display"),
@@ -541,6 +542,12 @@ def reply(cmd: Command, lang: str, result: dict) -> str:
                 "internal": L("Оставила только основной экран. Вернуть — «верни оба экрана».", "Main screen only.", "Nur Hauptbildschirm."),
                 "extend": L("Оба экрана снова работают.", "Both screens on.", "Beide Bildschirme an."),
                 "clone": L("Экраны показывают одно и то же.", "Screens duplicated.", "Bildschirme dupliziert.")}[cmd.text or "extend"]
+    if op == "nightlight":
+        if result.get("opened"):
+            return L("Windows не дал нажать сам — открыла «Ночной свет», щёлкни переключатель.", "Night light settings open — flip the switch.",
+                     "Nachtmodus geöffnet — bitte umschalten.")
+        return L("Ночной свет включён." if cmd.value else "Ночной свет выключен.", "Night light on." if cmd.value else "Night light off.",
+                 "Nachtmodus an." if cmd.value else "Nachtmodus aus.")
     if op == "settings":
         return {"nightlight": L("Открыла ночной свет — щёлкни переключатель «Включить сейчас».", "Night light settings open.",
                                 "Nachtmodus-Einstellungen geöffnet."),

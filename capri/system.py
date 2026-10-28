@@ -127,6 +127,15 @@ class SystemControl:
         subprocess.Popen(["DisplaySwitch.exe", mode], creationflags=NO_WINDOW)
         return {}
 
+    def _nightlight(self, cmd: Command):
+        from . import control
+        try:
+            if control.night_light(bool(cmd.value)):
+                return {}
+        except ImportError:
+            os.startfile("ms-settings:nightlight")  # noqa: S606
+        return {"opened": True}
+
     def _settings(self, cmd: Command):
         os.startfile(f"ms-settings:{cmd.text}")  # noqa: S606 — ms-settings: открывает нужную страницу «Параметров»
         return {}

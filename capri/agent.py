@@ -42,6 +42,9 @@ RE_HELP = re.compile(r"что ты (?:умеешь|можешь)|какие (?:�
                      r"(?:твоих|своих|твои|свои)\s+команд|what can you do|your commands|was kannst du", re.I)
 # «найди ближайший ресторан», «где рядом аптека»
 RE_NEARBY = re.compile(r"^(?:найди|покажи|подскажи|где)\s+.*\b(?:ближайш\w*|рядом|поблизости|недалеко|возле меня|около меня)\b.*$", re.I)
+# «напоминай мне отдыхать каждые 2 часа», «не напоминай про отдых»
+RE_BREAKS = re.compile(r"(?:напомина\w*|напомни)\b.{0,30}\b(?:отдох\w*|отдыха\w*|перерыв\w*|размя\w*|разминк\w*)|"
+                       r"(?:не|хватит|выключи|отключи|убери)\s+напомина\w*.{0,20}(?:отдых|перерыв)", re.I)
 RE_TIMER_BARE = re.compile(r"^(?:поставь\s+|заведи\s+|включи\s+|сделай\s+)?(?:таймер|будильник|напоминалк\w*|timer)[.!?]?$", re.I)
 # слова о времени: без них «напомни мне команду…» — это вопрос, а не таймер
 RE_TIME_WORDS = re.compile(r"\d|минут|секунд|час|таймер|будильник|через|завтра|утром|вечером|timer|minute|hour|second", re.I)
@@ -80,6 +83,13 @@ UNIT_TO_MIN = {
     "мин": 1, "м": 1, "min": 1, "m": 1,
     "час": 60, "ч": 60, "stunde": 60, "std": 60, "h": 60, "hour": 60,
 }
+
+
+def _human(minutes: int) -> str:
+    if minutes % 60 == 0:
+        h = minutes // 60
+        return "час" if h == 1 else f"{h} часа" if h in (2, 3, 4) else f"{h} часов"
+    return f"{minutes} минут"
 
 
 class Agent:
@@ -322,6 +332,17 @@ class Agent:
         if m := RE_NTH.match(text.rstrip(".!? ")):
             return self._open_nth(m.group("n") or m.group("n2"))
         # системные команды (музыка, громкость, клавиши, проверка ПК…) — выполняем прямо здесь, в рабочем потоке
+        from . import scenarios
+        sc_data = scenarios.load()
+        if hit := scenarios.match(text, sc_data):
+            return self._scenario(hit[0], hit[1], sc_data)
+        if RE_BREAKS.search(text):
+            m = re.search(r"(\d+(?:[.,]\d+)?)\s*(час|ч\b|минут|мин)", text, re.I)
+            off = re.search(r"не напомина|хватит напомин|выключи напомин|отключи напомин|убери напомин", text, re.I)
+            minutes = 0 if off else round(float(m.group(1).replace(",", ".")) * (60 if m.group(2).startswith("ч") else 1)) if m else 120
+            act = A.Action("break_reminder", "Напоминание об отдыхе", {"minutes": minutes}, needs_confirm=False)
+            msg = "Окей, напоминать не буду." if not minutes else f"Буду напоминать отдохнуть каждые {_human(minutes)}."
+            return Reply(msg, [act], "rules")
         if cmd := C.match(text):
             if cmd.op == "quiet":
                 return Reply("Молчу.", [A.Action("quiet", "Замолчать", needs_confirm=False)], "rules")
@@ -376,26 +397,50 @@ class Agent:
             # «открой в YouTube Music понравившуюся музыку» / «…, понравившаяся музыка» — сначала то, что внутри
             if "," in target and (inner := A.make_open_site(target.split(",", 1)[1], self.cfg.get("sites"))):
                 return Reply(f"{inner.description}.", [inner], "rules")
-            # ты сам попросил открыть — без лишнего «Вы уверены?»
-            if act := A.make_open_app(target, self.cfg["apps"]):
-                act.needs_confirm = False
-                return Reply(f"{act.description}.", [act], "rules")
-            # программа на компьютере с точным названием → сайт из списка → программа «похоже на то» → браузер
-            app = self.apps.find(target, threshold=0.95)
-            site = A.make_open_site(target, self.cfg.get("sites"))
-            if not app and not site:
-                app = self.apps.find(target)
-            if app:
-                act = A.make_start_app(app)
-                return Reply(f"{act.description}.", [act], "rules")
-            if site:
-                return Reply(f"{site.description}.", [site], "rules")
-            if RE_DOMAIN.match(target) and (act := A.make_open_url(target)):
-                act.needs_confirm = False
+            if act := self.open_action(target):
                 return Reply(f"{act.description}.", [act], "rules")
             if (r := self._open_on_screen(target)) is not None:
                 return r
         return None  # не узнали команду — пусть думает модель
+
+    def open_action(self, target: str) -> A.Action | None:
+        """Что значит «открой <target>»: программа из config → программа из «Пуска» (точно) → сайт → программа «похоже» → домен."""
+        target = re.sub(r"(?:ютуб|youtube|ютьюб)[\s-]*(?:m\w*sic|м\w{0,3}з\w*к\w*)", "youtube music", target, flags=re.I)
+        # ты сам попросил открыть — без лишнего «Вы уверены?»
+        if act := A.make_open_app(target, self.cfg["apps"]):
+            act.needs_confirm = False
+            return act
+        app = self.apps.find(target, threshold=0.95)
+        site = A.make_open_site(target, self.cfg.get("sites"))
+        if not app and not site:
+            app = self.apps.find(target)
+        if app:
+            return A.make_start_app(app)
+        if site:
+            return site
+        if RE_DOMAIN.match(target) and (act := A.make_open_url(target)):
+            act.needs_confirm = False
+            return act
+        return None
+
+    # сценарии ---------------------------------------------------------------
+    def _scenario(self, name: str, on: bool, data: dict) -> Reply:
+        from . import scenarios
+        sc = data.get(name) or {}
+        steps = sc.get("steps" if on else "off_steps") or []
+        if not on and not steps:
+            return Reply(f"Сценарий «{name}» нечего выключать.", route="rules")
+        runner = scenarios.Runner(self.open_action, self.system, lambda act: A.execute(act, self.cfg))
+        done, failed, reminder, say = runner.run(steps)
+        parts = [say or (f"Сценарий «{name}» готов." if on else f"Сценарий «{name}» выключен.")]
+        if failed:
+            parts.append("Не вышло: " + "; ".join(failed) + ".")
+        acts = []
+        if reminder is not None:
+            acts.append(A.Action("break_reminder", "Напоминание об отдыхе", {"minutes": reminder}, needs_confirm=False))
+        from .log import log
+        log.info("сценарий %s (%s): готово %s, ошибки %s", name, "вкл" if on else "выкл", done, failed)
+        return Reply(" ".join(parts), acts, "rules")
 
     # локальная модель -------------------------------------------------------
     def _local(self, text: str, on_status, on_token=None, should_stop=None, escalate: bool = True,

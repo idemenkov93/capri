@@ -25,7 +25,7 @@ from capri.google_api import RE_MAIL
     ("Сделай тишину!", "mute", None), ("Shut up", "quiet", None), ("замолчи", "quiet", None),
     ("Прокрути чуть ниже и тут ниже", "scroll", None),
     ("YouTube на весь экран.", "fullscreen", None), ("YouTube во весь экран.", "fullscreen", None),
-    ("ночной режим", "settings", "nightlight"),
+    ("ночной свет", "nightlight", None), ("выключи ночной свет", "nightlight", None),
     ("оставь только второй экран", "display", "external"), ("Да, убери первый экран.", "display", "external"),
     ("верни оба экрана", "display", "extend"),
 ])
