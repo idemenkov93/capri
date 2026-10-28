@@ -705,7 +705,8 @@ class CapriApp:
             self.connect_google(act.kind)
             return
         # удаление — всегда с вопросом, даже если подтверждения выключены
-        if (act.needs_confirm and self.cfg.get("confirm_actions", True)) or act.kind == "trash":
+        if (act.needs_confirm and self.cfg.get("confirm_actions", True)) or act.kind == "trash" or \
+                (act.kind == "power" and act.needs_confirm):      # выключить/перезагрузить — всегда с вопросом
             # окно подтверждения всегда поверх Капри и чата — раньше оно пряталось сзади, и казалось, что всё зависло
             box = QMessageBox(QMessageBox.Question, "Capri", f"{act.description}?",
                               QMessageBox.Yes | QMessageBox.No, self.chat if self.chat.isVisible() else None)

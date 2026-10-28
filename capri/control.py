@@ -625,6 +625,65 @@ def page_links(hwnd: int | None = None, min_len: int = 12, limit: int = 6000, ti
 PLAYER_BUTTONS = {"play": ("воспроизвести", "play", "wiedergabe"), "pause": ("пауза", "pause"),
                   "next": ("следующий трек", "next", "следующее", "nächster titel"),
                   "previous": ("предыдущий трек", "previous", "vorheriger titel")}
+# точные подписи кнопок плеера YouTube Music (ищутся быстрым поиском UI Automation, без обхода всей страницы)
+PLAYER_EXACT = {"next": ("Следующий трек", "Следующая композиция", "Далее", "Next", "Next song", "Nächster Titel", "Weiter"),
+                "previous": ("Предыдущий трек", "Предыдущая композиция", "Назад", "Previous", "Previous song", "Vorheriger Titel"),
+                "play": ("Воспроизвести", "Play", "Wiedergabe"), "pause": ("Пауза", "Приостановить", "Pause")}
+# горячие клавиши YouTube Music: Shift+N — следующая песня, Shift+P — предыдущая, пробел — пауза/играть
+YTM_KEYS = {"next": (0x10, 0x4E), "previous": (0x10, 0x50), "play": (0x20,), "pause": (0x20,)}
+
+
+def find_exact(hwnd: int, names) -> object | None:
+    """Кнопка с точно таким названием — поиском внутри UI Automation (быстро даже на огромной странице)."""
+    import uiautomation as auto
+    root = auto.ControlFromHandle(hwnd)
+    uia = auto._AutomationClient.instance().IUIAutomation
+    for name in names:
+        try:
+            cond = uia.CreatePropertyCondition(30005, name)          # UIA_NamePropertyId
+            el = root.Element.FindFirst(4, cond)                     # TreeScope_Descendants
+        except Exception:  # noqa: BLE001
+            continue
+        if el:
+            ctrl = auto.Control.CreateControlFromElement(el)
+            if ctrl is not None:
+                return ctrl
+    return None
+
+
+def ytm_window() -> int:
+    for cand in (user32.GetForegroundWindow(), last_external_hwnd):
+        if cand and "youtube music" in window_title(cand).lower():
+            return cand
+    h = find_app_window("youtube music")
+    return h if h and "youtube music" in window_title(h).lower() else 0
+
+
+def ytm_hotkey(action: str) -> bool:
+    """Горячая клавиша прямо в окне YouTube Music. На время нажатия — английская раскладка:
+    с русской браузер видит «Т» вместо N, и YouTube Music клавишу не узнаёт."""
+    h = ytm_window()
+    if not h or action not in YTM_KEYS:
+        return False
+    focus(h)
+    user32.GetKeyboardLayout.restype = ctypes.c_void_p             # HKL — 64-битное значение
+    user32.LoadKeyboardLayoutW.restype = ctypes.c_void_p
+    tid = user32.GetWindowThreadProcessId(h, None)
+    before = user32.GetKeyboardLayout(tid) or 0
+    en = user32.LoadKeyboardLayoutW("00000409", 1) or 0
+    switched = bool(en) and (before & 0xFFFF) != 0x0409
+    if switched:
+        user32.PostMessageW(h, 0x0050, 0, ctypes.c_void_p(en))        # WM_INPUTLANGCHANGEREQUEST
+        time.sleep(0.15)
+    keys = YTM_KEYS[action]
+    for k in keys:
+        user32.keybd_event(k, 0, 0, 0)
+    for k in reversed(keys):
+        user32.keybd_event(k, 0, KEYEVENTF_KEYUP, 0)
+    if switched:
+        time.sleep(0.1)
+        user32.PostMessageW(h, 0x0050, 0, ctypes.c_void_p(before))
+    return True
 
 
 def press_player_button(action: str, title_has: str = "youtube music") -> str | None:
@@ -643,6 +702,9 @@ def press_player_button(action: str, title_has: str = "youtube music") -> str | 
             if not h or title_has not in window_title(h).lower():
                 return None
         focus(h)
+        if (exact := find_exact(h, PLAYER_EXACT.get(action, ()))) is not None:
+            click_element(exact)
+            return exact.Name or action
         best, best_s, best_name = None, 0.0, ""
         for name in PLAYER_BUTTONS[action]:
             ctrl, found, sc = find_element(name, hwnd=h, limit=6000, timeout=4.0)
