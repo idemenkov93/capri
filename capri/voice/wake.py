@@ -73,6 +73,7 @@ class WakeListener(QThread):
         self._stop = False
         self._last_hit = 0.0
         self.model = None
+        self.last_audio = None   # 3 секунды звука до «Капри» — для проверки Whisper-ом (float32, 16 кГц)
 
     @property
     def paused(self) -> bool:
@@ -141,6 +142,10 @@ class WakeListener(QThread):
     def _listen(self, sd, rate, cb, audio, free, kw, log, last):
         """Один «сеанс» микрофона. Если звук перестал приходить — бросаем _Reopen, и run() откроет его заново."""
         import json
+        import collections
+
+        import numpy as np
+        ring: collections.deque[bytes] = collections.deque(maxlen=15)     # 15 × 0.2 с = 3 с
         got, beat_at, silent_since = 0, time.monotonic(), time.monotonic()
         with sd.RawInputStream(samplerate=rate, blocksize=3200, dtype="int16", channels=1,
                                device=self.device, callback=cb):
@@ -157,6 +162,7 @@ class WakeListener(QThread):
                         continue
                     got += 1
                     silent_since = now
+                    ring.append(data)
                     if self.paused:
                         free.Reset()
                         kw.Reset()
@@ -181,4 +187,5 @@ class WakeListener(QThread):
                         free.Reset()
                         kw.Reset()
                         log.info("wake: сработало на «%s»", hit)
+                        self.last_audio = np.frombuffer(b"".join(ring), np.int16).astype(np.float32) / 32768.0
                         self.woke.emit(hit)

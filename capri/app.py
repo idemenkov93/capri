@@ -231,17 +231,52 @@ class CapriApp:
 
     def on_wake(self, heard: str):
         from .log import log
-        self.wake_up()
         if not self.voice or self.voice.recording:
             log.info("wake пропущен: уже слушаю")
             return
+        audio = getattr(self.wake, "last_audio", None)
+        stt = self.voice.stt
+        # вторая проверка: Whisper слушает 3 секунды до «Капри». Пишем звук сразу (чтобы не потерять начало команды),
+        # а «дзынь» — когда Whisper подтвердил имя. Не подтвердил — молча перестаём слушать.
+        verify = (self.prefs.get("wake_verify", True) and audio is not None and not self.in_game
+                  and hasattr(stt, "heard_name"))
+        self._wake_ok = None if verify else True
+        self.voice.quiet()
+        self._wake_pending = True
+        self.voice.listen_once()
+        self._wake_pending = False
+        if not verify:
+            self._wake_confirmed()
+            return
+        token = object()
+        self._wake_token = token
+
+        def done(result):
+            ok, text = result
+            if self._wake_token is not token:
+                return
+            if ok:
+                log.info("wake: Whisper подтвердил: «%s»", text)
+                self._wake_confirmed()
+            else:
+                log.info("wake: ложное срабатывание — Whisper услышал «%s»", text)
+                self._wake_ok = False
+                self.voice.cancel_record()
+
+        def failed(err):
+            log.warning("wake: проверка не удалась (%s) — верю vosk", err)
+            if self._wake_token is token:
+                self._wake_confirmed()
+        self.voice._run(lambda: stt.heard_name(audio), done, failed)
+
+    def _wake_confirmed(self):
+        self._wake_ok = True
+        self.wake_up()
         if self.worker and self.worker.isRunning():
             self.stop_current()          # позвали, пока думала, — бросаем старое и слушаем новое
         if not self.avatar.isVisible() and not self.in_game:   # в игре не выскакиваем поверх неё
             self.avatar.show()
-        self.voice.quiet()
         self.voice.chime()
-        self.voice.listen_once()
 
     def call_capri(self):
         """Позвать: показаться, открыть окно и сразу слушать."""
@@ -551,6 +586,16 @@ class CapriApp:
         log.debug("голос: %s", state)
         if self.wake:
             self.wake.paused = state != "IDLE"   # пока сама слушает или говорит — фразу не ищем
+        if state == "LISTENING" and not getattr(self, "_wake_pending", False):
+            self._wake_ok = True                 # слушаю по кнопке 🎤 / горячей клавише — проверять нечего
+        if self.prefs.get("duck_music", True) and self.voice:
+            if not hasattr(self, "ducker"):
+                from .voice.duck import Ducker
+                self.ducker = Ducker()
+            if state == "LISTENING":
+                self.ducker.duck()               # музыка тише, пока слушаю, — иначе не слышу, где ты договорил
+            else:
+                self.ducker.restore()
         self.chat.set_recording(state == "LISTENING")
         if state == "IDLE":
             self.set_status("ONLINE")
@@ -560,6 +605,8 @@ class CapriApp:
             self.chat.add_system("Распознаю…")
 
     def on_transcribed(self, text: str, lang: str):
+        if getattr(self, "_wake_ok", True) is False:
+            return                               # ложное «Капри» — не отвечаем
         if not text:
             self.chat.add_system("Ничего не расслышала. Попробуй ещё раз.")
             return
@@ -796,6 +843,7 @@ class CapriApp:
         self.qt.aboutToQuit.connect(self.stop_wake)
         self.qt.aboutToQuit.connect(self.stop_dancing)
         self.qt.aboutToQuit.connect(self.game.shutdown)
+        self.qt.aboutToQuit.connect(lambda: hasattr(self, "ducker") and self.ducker.close())
         self._watch_hangs()
         return self.qt.exec()
 
