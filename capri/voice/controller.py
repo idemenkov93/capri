@@ -56,6 +56,8 @@ class VoiceController(QObject):
         if v.get("tts_engine", "edge") == "edge" and importlib.util.find_spec("edge_tts") is not None:
             self.edge = EdgeSpeaker(dict(v["edge_voices"]), v.get("edge_rate", "+0%"), v.get("edge_pitch", "+0Hz"))
             self.speaker = FallbackSpeaker(self.edge, piper)
+        self.stt_override = None        # строгий игровой режим: vosk вместо Whisper
+        self._cache: dict[str, tuple] = {}   # заранее записанные фразы (таймер бомбы)
         self.recording = False
         self._speaking = 0
         self.last_lang = "ru"
@@ -185,7 +187,7 @@ class VoiceController(QObject):
         def done(result):
             text, lang = result
             from ..log import log
-            log.info("stt [%s/%s]: «%s»", getattr(self.stt, "device", "?"), lang, text)
+            log.info("stt [%s/%s]: «%s»", getattr(stt, "device", "?"), lang, text)
             self.state.emit("IDLE")
             if lang:
                 self.last_lang = lang
@@ -197,7 +199,50 @@ class VoiceController(QObject):
             self.state.emit("IDLE")
             self.error.emit(f"Не получилось распознать: {err}")
 
-        self._run(lambda: self.stt.transcribe(audio), done, failed)
+        stt = self.stt_override or self.stt
+        self._run(lambda: stt.transcribe(audio), done, failed)
+
+    # заранее записанные фразы -------------------------------------------------
+    def precache(self, phrases: dict[str, str], lang: str = "ru") -> None:
+        """Озвучить фразы заранее (в меню игры), чтобы в раунде только проиграть их — без сети и без нагрузки."""
+        todo = {k: v for k, v in phrases.items() if k not in self._cache}
+        if not todo:
+            return
+
+        def work():
+            for key, text in todo.items():
+                audio = None
+                if self.edge:
+                    try:
+                        audio = self.edge._synth(text, self.edge.voices.get(lang) or self.edge.voices.get("en"))
+                    except Exception:  # noqa: BLE001 — нет интернета: запишем голосом Piper
+                        audio = None
+                if audio is None and self.piper:
+                    try:
+                        audio = self.piper._synthesize(self.piper._piper(lang), text)
+                    except Exception:  # noqa: BLE001
+                        audio = None
+                if audio is not None:
+                    self._cache[key] = audio
+            return len(self._cache)
+        self._run(work, on_fail=lambda e: None)
+
+    def play_cached(self, key: str, fallback: str = "") -> None:
+        """Проиграть записанную фразу сразу (перебивает текущую речь). Нет записи — обычная озвучка."""
+        item = self._cache.get(key)
+        if item is None:
+            if fallback:
+                self.speak(fallback)
+            return
+        import threading
+
+        import sounddevice as sd
+
+        from .tts import play_blocking
+        if self.speaker:
+            self.speaker.stop()
+        audio, sr = item
+        threading.Thread(target=lambda: play_blocking(sd, audio, sr, lambda: False), daemon=True).start()
 
     # озвучка ----------------------------------------------------------------
     def speak(self, text: str):

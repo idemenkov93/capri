@@ -388,11 +388,11 @@ class SystemControl:
         return Path.home() / "Pictures"
 
     def _screenshot(self, cmd):
-        from PIL import ImageGrab
+        from .grab import grab_all
         folder = self.pictures_dir() / "Capri"
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"Screenshot_{dt.datetime.now():%Y-%m-%d_%H-%M-%S}.png"
-        ImageGrab.grab(all_screens=True).save(path)
+        grab_all().save(path)          # полноэкранная игра тоже попадёт (через видеокарту)
         return {"path": str(path)}
 
     def _lock(self, cmd):

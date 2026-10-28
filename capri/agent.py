@@ -72,6 +72,21 @@ RE_NTH = re.compile(r"^(?:открой|включи|запусти|кликни|
                     r"(?:\s+(?:в|на)\s+\S+)?$|^(?:open|play)\s+the\s+(?P<n2>\S+)\s+(?:link|video|result)$", re.I)
 RE_VIDEO_WORDS = re.compile(r"\b(выпуск\w*|сери[яюи]|сезон\w*|видео|ролик\w*|клип\w*|трейлер\w*|обзор\w*|подкаст\w*|стрим\w*)\b|#\d+", re.I)
 RE_DOMAIN = re.compile(r"^[\w-]+(\.[\w-]+)+(/\S*)?$")
+# игры
+RE_GAME_STATS = re.compile(r"\bкак я (?:сыграл\w*|играю|отыграл\w*|играл)\b|\b(?:моя|мою) (?:игров\w* )?статистик\w*|"
+                           r"\bстатистик\w* (?:матча|игры|катки|за матч|в кс|в cs)|\bкакой у меня (?:кд|к ?д|счёт|счет)\b|\bhow did i play\b", re.I)
+RE_GAME_COACH = re.compile(r"\b(?:разбери|оцени|проанализируй|проанализировать|разобрать)\s+(?:мою\s+|мой\s+|эту\s+|этот\s+)?"
+                           r"(?:игру|катку|матч|каточку)|\bчто мне (?:улучшить|подтянуть|исправить) в (?:игре|кс|cs|катке)", re.I)
+RE_GPU_TEMP = re.compile(r"температур\w* (?:видеокарт\w*|видюх\w*|gpu)|(?:видеокарт\w*|видюх\w*) (?:греется|горячая|сколько градусов)|"
+                         r"как там видеокарт\w*|сколько градусов (?:на|у) (?:видеокарт\w*|видюх\w*)", re.I)
+RE_OFF = r"(?:выключи|отключи|убери|не надо|останови|хватит)"
+GAME_TOGGLES = (   # (регулярка «включить», регулярка «выключить», ключ)
+    (r"(?:включи|верни)\s+игров\w* помощник\w*", rf"{RE_OFF}\s+игров\w* помощник\w*|не мешай (?:мне )?в играх", "game_assist"),
+    (r"(?:включи\s+|запусти\s+)?турнирн\w* режим", rf"{RE_OFF}\s+турнирн\w* режим", "cs2_tournament"),
+    (r"(?:включи|верни)\s+таймер\w* бомб\w*", rf"{RE_OFF}\s+таймер\w* бомб\w*", "cs2_bomb_timer"),
+    (r"(?:включи|верни)\s+подсказк\w* (?:по )?(?:экономик\w*|закуп\w*)",
+     rf"{RE_OFF}\s+подсказк\w* (?:по )?(?:экономик\w*|закуп\w*)|не подсказывай (?:по )?(?:экономик\w*|закуп\w*)", "cs2_econ"),
+)
 
 UNIT_TO_MIN = {
     "сек": 1 / 60, "с": 1 / 60, "sek": 1 / 60, "sec": 1 / 60, "s": 1 / 60,
@@ -108,6 +123,7 @@ class Agent:
         self.llm = llm or OllamaClient(o["url"], o["model"], o["timeout"], o.get("think"), o.get("options"))
         self.claude = claude
         self.history: list[dict] = []
+        self.game = None      # GameMode из app.py: идёт ли игра, строгий ли режим, данные CS2
 
     # публичный вход -------------------------------------------------------
     def handle(self, text: str, on_status: Callable[[str], None] = lambda s: None,
@@ -125,15 +141,28 @@ class Agent:
             return self._vision_click(reply.text, on_status)
         if reply:
             return reply
+        from . import screen, weather
+        g = self.game if self.game is not None and self.game.active else None
+        if g and g.busy_round() and not screen.is_screen_question(text):
+            # посреди раунда CS2 не думаем: Claude и модель — после раунда (команды выше уже выполнились)
+            return Reply("Отвечу после раунда.", [A.Action("game_defer", "Ответить после раунда", {"text": text},
+                                                          needs_confirm=False)], "rules")
         if m := RE_CLAUDE.match(text):
             return self._ask_claude(m.group(1), on_status)
-        from . import screen, weather
         if weather.is_weather_question(text) and len(text) < 120:
             return self._weather(text)
         if screen.is_screen_question(text):
             return self._screen(text, on_status)
         if RE_COMPLEX.search(text) or len(text) > 300 or text.count("\n") >= 3:
             return self._ask_claude(text, on_status)
+        if g:
+            # локальная модель выгружена из видеокарты ради игры — спрашиваем Claude (он в облаке)
+            if self.cfg["claude_code"].get("enabled", True):
+                return self._ask_claude(f"{g.context()} Вопрос: «{text}». Ответь коротко, 1–3 предложения, для озвучки, без markdown.",
+                                        on_status, label=text)
+            if g.strict:
+                return Reply("Пока идёт игра, локальную модель не включаю — она займёт видеокарту. Спроси после матча "
+                             "или включи Claude в config.yaml.", route="rules")
         return self._local(text, on_status, on_token, should_stop)
 
     def _google(self, text: str) -> Reply | None:
@@ -316,13 +345,47 @@ class Agent:
         from .config import expand
         on_status("CLAUDE")
         try:
-            paths, title = screen.capture(expand(self.cfg["claude_code"].get("workdir", "workspace")))
+            in_game = bool(self.game is not None and self.game.active)
+            workdir = expand(self.cfg["claude_code"].get("workdir", "workspace"))
+            paths, title = screen.capture(workdir, in_game=True) if in_game else screen.capture(workdir)
         except Exception as e:  # noqa: BLE001
             return Reply(f"Не смогла сделать снимок экрана: {e}", route="error")
         return self._ask_claude(screen.prompt(text, paths, title), on_status, label=text)
 
     # быстрые правила --------------------------------------------------------
+    def _games(self, text: str) -> Reply | None:
+        """Команды игрового помощника: статистика CS2, разбор матча, температура видеокарты, переключатели."""
+        from . import cs2
+        bare = text.strip(" .!?").lower()
+        for on_rx, off_rx, key in GAME_TOGGLES:
+            for rx, on in ((off_rx, False), (on_rx, True)):
+                if re.fullmatch(rx, bare, re.I):
+                    from .game import TOGGLE_TEXT
+                    return Reply(TOGGLE_TEXT[key][on], [A.Action("game_set", "Игры", {"key": key, "on": on}, needs_confirm=False)], "rules")
+        tracker = getattr(self.game, "tracker", None)
+        if RE_GAME_STATS.search(text):
+            return Reply(cs2.summary_text(tracker.current() if tracker else None), route="rules")
+        if RE_GAME_COACH.search(text):
+            data = tracker.current() if tracker else None
+            if not data:
+                return Reply(cs2.summary_text(None), route="rules")
+            if self.game is not None and self.game.busy_round():
+                return Reply("Отвечу после раунда.", [A.Action("game_defer", "Ответить после раунда", {"text": text},
+                                                              needs_confirm=False)], "rules")
+            return self._ask_claude(cs2.coach_prompt(text, data), lambda s: None, label=text)
+        if RE_GPU_TEMP.search(text):
+            from . import gpu
+            g = gpu.read()
+            if not g:
+                return Reply("Не вижу датчиков видеокарты: нужна NVIDIA с драйвером.", route="rules")
+            load = f", загрузка {g['load']}%" if g.get("load") is not None else ""
+            hot = " Горячо — проверь обдув." if g["temp"] >= 85 else ""
+            return Reply(f"Видеокарта: {g['temp']}°{load}.{hot}", route="rules")
+        return None
+
     def _rules(self, text: str) -> Reply | None:
+        if (gr := self._games(text)) is not None:
+            return gr
         # «открой вторую ссылку / третье видео» — до системных команд, иначе «нажми …» уйдёт в поиск кнопки
         if m := RE_NTH.match(text.rstrip(".!? ")):
             return self._open_nth(m.group("n") or m.group("n2"))

@@ -50,18 +50,20 @@ def _foreground() -> tuple[str, tuple[int, int, int, int] | None]:
     return buf.value, box if box[2] - box[0] > 50 and box[3] - box[1] > 50 else None
 
 
-def capture(workdir: Path, keep: int = 10) -> tuple[list[str], str]:
-    """Сделать снимки. Возвращает (пути относительно workdir, заголовок активного окна)."""
-    from PIL import ImageGrab
+def capture(workdir: Path, keep: int = 10, in_game: bool = False) -> tuple[list[str], str]:
+    """Сделать снимки. Возвращает (пути относительно workdir, заголовок активного окна).
+    Полноэкранная игра в обычном снимке чёрная — тогда кадр берём через видеокарту (grab.py)."""
+    from . import grab
 
     folder = Path(workdir) / "screens"
     folder.mkdir(parents=True, exist_ok=True)
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     title, box = _foreground()
     paths: list[str] = []
-    full = ImageGrab.grab(all_screens=True)
+    center = ((box[0] + box[2]) // 2, (box[1] + box[3]) // 2) if box else None
+    full = grab.grab_all(center if in_game else None)
     if box:
-        ImageGrab.grab(bbox=box, all_screens=True).save(folder / f"window-{stamp}.png")
+        grab.grab_box(box, prefer_dxgi=in_game).save(folder / f"window-{stamp}.png")
         paths.append(f"screens/window-{stamp}.png")
     if full.width > 1920:
         full = full.resize((1920, round(full.height * 1920 / full.width)))
@@ -89,8 +91,8 @@ def screenshot_for_locate(workdir: Path) -> tuple[str, float, int, int, int, int
     """Снимок всех экранов (уменьшенный до 1600 по ширине). → (путь, масштаб, x0, y0, ширина, высота)."""
     import ctypes
 
-    from PIL import ImageGrab
-    img = ImageGrab.grab(all_screens=True)
+    from . import grab
+    img = grab.grab_all()
     x0 = y0 = 0
     if sys.platform == "win32":
         x0 = ctypes.windll.user32.GetSystemMetrics(76)   # SM_XVIRTUALSCREEN: левый край всех мониторов

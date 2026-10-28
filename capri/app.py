@@ -124,6 +124,10 @@ class CapriApp:
         self._eco_timer.start()
         if self.prefs.get("break_every"):
             self.set_break_reminder(int(self.prefs.get("break_every")))   # режим работы пережил перезапуск
+        # игровой помощник: сам замечает игру (CS2 — строгий режим) и не мешает ей
+        from .gamemode import GameMode
+        self.game = GameMode(self)
+        self.agent.game = self.game
         # запоминаем последнее «чужое» окно: «напечатай…», «нажми кнопку…» из чата Капри идут туда, а не в чат
         from . import control
         self._fg_timer = QTimer(interval=1000, timeout=control.remember_foreground)
@@ -230,7 +234,7 @@ class CapriApp:
             return
         if self.worker and self.worker.isRunning():
             self.stop_current()          # позвали, пока думала, — бросаем старое и слушаем новое
-        if not self.avatar.isVisible():
+        if not self.avatar.isVisible() and not self.in_game:   # в игре не выскакиваем поверх неё
             self.avatar.show()
         self.voice.quiet()
         self.voice.chime()
@@ -335,6 +339,13 @@ class CapriApp:
         scm.addAction(t("scenarios_edit", L), self.edit_scenarios)
         if self.prefs.get("break_every"):
             scm.addAction(t("breaks_off", L), lambda: self.set_break_reminder(0))
+        gm2 = menu.addMenu(t("games", L))
+        for key, label, default in (("game_assist", "game_assist", True), ("cs2_bomb_timer", "bomb_timer", True),
+                                    ("cs2_econ", "econ_tips", True), ("cs2_tournament", "tournament", False)):
+            gm2.addAction(self._check(gm2, t(label, L), self.prefs.get(key, default),
+                                      lambda k=key, d=default: self.chat.add_system(self.game.set_pref(k, not self.prefs.get(k, d)))))
+        gm2.addSeparator()
+        gm2.addAction(t("game_stats", L), lambda: self.on_message("как я сыграл"))
         menu.addAction(self._check(menu, t("wander", L), self.avatar.wander, self.toggle_wander))
         dm = menu.addMenu(t("dance", L))
         dm.addAction(self._check(dm, t("dance_on", L), self.prefs.get("dance", True), self.toggle_dance))
@@ -491,7 +502,7 @@ class CapriApp:
             if self.music:
                 self.music.slow = False
             log.info("режим ожидания: выход")
-        if self.models_unloaded:
+        if self.models_unloaded and not self.in_game:     # в игре модели не грузим — видеокарта занята
             self.models_unloaded = False
             log.info("загружаю модели обратно")
             self.warmup = Warmup(self.agent)
@@ -513,13 +524,17 @@ class CapriApp:
             if self.music:
                 self.music.slow = True
             log.info("режим ожидания: вход (меньше кадров и опросов)")
-        if not self.models_unloaded and idle > self.UNLOAD_AFTER and self.prefs.get("eco_unload", True):
+        if not self.models_unloaded and idle > self.UNLOAD_AFTER and self.prefs.get("eco_unload", True) and not self.in_game:
             self.models_unloaded = True
             log.info("режим ожидания: выгружаю модели из памяти")
             import threading
             threading.Thread(target=self.agent.llm.unload, daemon=True).start()
             if self.voice:
                 self.voice.stt.unload()
+
+    @property
+    def in_game(self) -> bool:
+        return bool(getattr(self, "game", None) and self.game.active)
 
     def toggle_wander(self):
         self.avatar._toggle_wander()
@@ -614,7 +629,10 @@ class CapriApp:
         self.chat.set_busy(False)
         v = self.cfg["voice"]
         if self.voice and v["speak"] and (self.last_input_was_voice or self.prefs.get("speak_typed", True)):
-            self.voice.speak(reply.text)
+            if any(a.kind == "game_defer" for a in reply.actions):
+                self.voice.play_cached("later", reply.text)     # посреди раунда — записанной фразой, без сети
+            else:
+                self.voice.speak(reply.text)
         self.last_input_was_voice = False
         if getattr(self, "_queued", None):
             text, self._queued = self._queued, None
@@ -659,6 +677,12 @@ class CapriApp:
             return
         if act.kind == "break_reminder":
             self.set_break_reminder(int(act.params.get("minutes") or 0))
+            return
+        if act.kind == "game_defer":
+            self.game.defer(act.params["text"])
+            return
+        if act.kind == "game_set":
+            self.game.set_pref(act.params["key"], bool(act.params["on"]))   # что сделала — уже сказала в ответе
             return
         if act.kind in ("connect_mail", "connect_calendar", "connect_simple"):
             self.connect_google(act.kind)
@@ -719,22 +743,32 @@ class CapriApp:
             return
         if now - self._work_since >= every * 60:
             self._work_since = now
-            import random
-            h = every / 60
-            dur = f"{h:g} ч" if every >= 60 else f"{every} мин"
-            text = random.choice((
-                f"Чумба, ты в деле уже {dur}. Дельтуй минут на десять: вода, окно, спина.",
-                f"{dur} без перерыва — даже хрому нужен отдых. Встань, разомнись.",
-                f"Перерыв! {dur} за экраном. Пять минут без монитора — глаза спасибо скажут.",
-            ) if self.prefs.get("slang", True) else (
-                f"Ты за компьютером уже {dur}. Сделай перерыв минут на десять.",
-                f"{dur} без перерыва — встань, разомнись, попей воды.",
-            ))
-            self.timer_fired(text, prefix="")
+            if self.in_game:
+                self._break_due = True          # посреди игры не дёргаем — скажу после матча или когда закроешь игру
+                return
+            self.timer_fired(self.break_text(every), prefix="")
+
+    def break_text(self, every: int, played: bool = False) -> str:
+        import random
+        h = every / 60
+        dur = f"{h:g} ч" if every >= 60 else f"{every} мин"
+        if played:
+            return random.choice((f"Чумба, ты за экраном уже больше {dur}. Перед следующей каткой — встань, вода, разомнись.",
+                                  f"Больше {dur} без перерыва. Пять минут отдыха — и в бой.")) if self.prefs.get("slang", True) \
+                else f"Ты за компьютером больше {dur}. Перед следующей игрой сделай перерыв."
+        return random.choice((
+            f"Чумба, ты в деле уже {dur}. Дельтуй минут на десять: вода, окно, спина.",
+            f"{dur} без перерыва — даже хрому нужен отдых. Встань, разомнись.",
+            f"Перерыв! {dur} за экраном. Пять минут без монитора — глаза спасибо скажут.",
+        ) if self.prefs.get("slang", True) else (
+            f"Ты за компьютером уже {dur}. Сделай перерыв минут на десять.",
+            f"{dur} без перерыва — встань, разомнись, попей воды.",
+        ))
 
     def timer_fired(self, label: str, prefix: str = "⏰ Эй! "):
         self.set_status("TALKING")
-        self.tray.showMessage("Capri", label)
+        if not self.in_game:                    # всплывашка поверх полноэкранной игры может сбить вывод кадров
+            self.tray.showMessage("Capri", label)
         self.chat.add_capri(f"{prefix}{label}", "rules")
         if self.voice and self.cfg["voice"]["speak"]:
             self.voice.speak(f"{prefix.replace('⏰ ', '')}{label}")
@@ -743,6 +777,7 @@ class CapriApp:
     def run(self) -> int:
         self.qt.aboutToQuit.connect(self.stop_wake)
         self.qt.aboutToQuit.connect(self.stop_dancing)
+        self.qt.aboutToQuit.connect(self.game.shutdown)
         self._watch_hangs()
         return self.qt.exec()
 

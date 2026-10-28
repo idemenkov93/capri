@@ -41,6 +41,15 @@ DEFAULTS: dict = {
     "notes_file": "data/notes.md",
     "avatar": {"size": 150, "custom_image": "", "fps": 12, "wander": True, "desktop_mode": "auto"},
     "ui": {"style": "hud"},  # hud — панель «Personal Link», classic — простой чат
+    "games": {
+        "enabled": True,       # игровой помощник: сам замечает игру и не мешает ей
+        "strict": ["cs2.exe"],  # строгий режим (ноль нагрузки на видеокарту): можно дописать свои exe
+        "extra": [],           # что ещё считать игрой (если не узнала сама)
+        "ignore": [],          # что точно не игра
+        "cs2_port": 3127,      # порт для CS2 Game State Integration
+        "c4_time": 40,         # таймер бомбы, секунд
+        "gsi_delay": 0.3,      # на сколько раньше говорить (сообщение от игры приходит чуть позже)
+    },
     "voice": {
         "enabled": True,
         "hotkey": "Ctrl+Space",

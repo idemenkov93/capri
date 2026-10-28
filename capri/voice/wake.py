@@ -72,6 +72,7 @@ class WakeListener(QThread):
         self._paused_at = 0.0
         self._stop = False
         self._last_hit = 0.0
+        self.model = None
 
     @property
     def paused(self) -> bool:
@@ -106,6 +107,7 @@ class WakeListener(QThread):
         except Exception as e:  # noqa: BLE001
             self.failed.emit(f"модель vosk не загрузилась: {e}")
             return
+        self.model = model       # тем же словарём распознаёт фразы в строгом игровом режиме
         rate = 16000
         # два слушателя на одном звуке:
         #  free — обычное распознавание всей речи (ловит «привет капри» внутри фразы);
