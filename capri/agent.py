@@ -76,6 +76,7 @@ RE_DOMAIN = re.compile(r"^[\w-]+(\.[\w-]+)+(/\S*)?$")
 # ответы на её вопросы
 RE_YES = re.compile(r"^(?:да|ага|угу|давай|конечно|ок|окей|ok|okay|включай|включи|ставь|поставь|го|yes|yeah|yep|ja|klar)\b", re.I)
 RE_NO = re.compile(r"^(?:нет|неа|не надо|не нужно|не включай|не ставь|отмена|отмени|забей|no|nope|nein)\b", re.I)
+NO_YTM = "YouTube Music не открыт. Скажи «открой YouTube Music», а потом — «включи плейлист …»."
 PENDING_TTL = 90          # секунд: столько ждём ответ на свой вопрос
 # куда искать, если сказал прямо: «… в ютуб мюзик» — YouTube Music, «… на ютубе» — обычный YouTube
 RE_IN_YTM = re.compile(r"\s+(?:в|на|из)\s+(?:ютуб\w*|youtube|ютьюб\w*)[\s-]*(?:music|мюзик\w*|мьюзик\w*|музык\w*)$", re.I)
@@ -349,7 +350,8 @@ class Agent:
         except Exception:  # noqa: BLE001
             h = 0
         if not h:
-            return None
+            # «включи плейлист …» без открытого YouTube Music — подскажем, а не отдадим модели
+            return Reply(NO_YTM, route="rules") if re.search(r"плейлист|микс|альбом", bare, re.I) or said_ytm else None
         if not said_ytm and not m_nth:
             # YouTube Music открыт, но ты сейчас в другом окне (например, YouTube в браузере) — не перехватываем.
             # «Третий трек» — только про YouTube Music (на YouTube говорят «третье видео»), его не проверяем
@@ -395,7 +397,7 @@ class Agent:
         from . import control
         h = control.ytm_window()
         if not h:
-            return None
+            return Reply(NO_YTM, route="rules")
         name = re.sub(r"^(?:плейлист\w*|микс|альбом)\s+", "", name, flags=re.I).strip()
         try:
             import uiautomation as auto
@@ -524,6 +526,17 @@ class Agent:
 
     # быстрые правила --------------------------------------------------------
     def _rules(self, text: str) -> Reply | None:
+        from . import quick
+        if (q := quick.time_answer(text)) or (q := quick.calc(text)) or (q := quick.pc_info(text)):
+            return Reply(q, route="rules")
+        if rem := quick.reminder(text):
+            minutes, label = rem
+            act = A.make_timer(minutes, label)
+            if act:
+                return Reply(f"Окей, {act.description.lower()}.", [act], "rules")
+        if re.fullmatch(r"(?:очисти|почисти|опустоши)\s+корзин\w*|empty (?:the )?recycle bin", text.strip(" .!?"), re.I):
+            return Reply("Очищаю Корзину.", [A.Action("empty_bin", "Очистить Корзину — файлы удалятся насовсем",
+                                                    needs_confirm=True)], "rules")
         bare_cmd = text.strip(" .!?")
         for rx, mode, ask, said in RE_POWER:
             if rx.fullmatch(bare_cmd):

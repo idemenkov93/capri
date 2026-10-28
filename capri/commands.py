@@ -117,6 +117,7 @@ VK = {
     "win": 0x5B, "ctrl": 0x11, "shift": 0x10, "alt": 0x12, "tab": 0x09, "enter": 0x0D, "esc": 0x1B, "space": 0x20,
     "backspace": 0x08, "delete": 0x2E, "insert": 0x2D, "home": 0x24, "end": 0x23, "pageup": 0x21, "pagedown": 0x22,
     "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27, "printscreen": 0x2C, "capslock": 0x14,
+    "plus": 0xBB, "minus": 0xBD,
 }
 EXTENDED = {"win", "delete", "insert", "home", "end", "pageup", "pagedown", "up", "down", "left", "right", "printscreen"}
 KEY_WORDS = {
@@ -264,10 +265,11 @@ def _media(t: str) -> Command | None:
         if 1 <= n <= 10:
             back = m.group(1) in ("назад", "верни") or m.group(3) == "назад"
             return Command("previous" if back else "next", repeat=n)
-    if re.fullmatch(r"следующ\w* (трек|песн\w*|видео|композици\w*)|пропусти( трек| песню)?|переключи (трек|песню)|"
+    if re.fullmatch(r"(?:включи|давай|поставь)\s+следующ\w*(?:\s+(?:трек|песн\w*|композици\w*))?|следующую|"
+                    r"следующ\w* (трек|песн\w*|видео|композици\w*)|пропусти( трек| песню)?|переключи (трек|песню)|"
                     r"next( track| song| video)?|skip( (this|the) (song|track))?|nächst\w* (titel|lied|song)", t):
         return Command("next")
-    if re.fullmatch(r"предыдущ\w* (трек|песн\w*|видео)|прошл\w* (трек|песн\w*)|верни (трек|песню)|"
+    if re.fullmatch(r"(?:включи |верни |давай )?предыдущ\w*(?: (трек|песн\w*|видео|композици\w*))?|прошл\w* (трек|песн\w*)|верни (трек|песню)|"
                     r"previous( track| song)?|last (track|song)|vorherig\w* (titel|lied)", t):
         return Command("previous")
     if re.match(r"^(включи|начни|поставь|запусти)\s+(сначала|с начала|заново)|^(start over|restart the (song|video))$|^von vorne$", t):
@@ -416,8 +418,9 @@ def match(text: str) -> Command | None:
     # --- настройки Windows: ночной свет и т.п. (переключатель сам не нажимаем — открываем нужную страницу)
     if re.fullmatch(r"(?:включи |выключи |отключи |открой )?(?:ночн\w* (?:режим|свет)|ночник|night ?light)", t):
         return Command("nightlight", 0 if re.match(r"выключ|отключ", t) else 1)
-    for rx, page in (                     (r"(?:открой )?(?:настройки )?(?:блютуз\w*|bluetooth)", "bluetooth"),
-                     (r"(?:открой )?(?:настройки )?(?:вай ?фай|wi-?fi|вайфай)", "network-wifi"),
+    for rx, page in ((r"(?:открой |покажи )?(?:настройки|параметры)(?: windows| виндоус\w*| компьютера)?|(?:открой )?settings", ""),
+                     (r"(?:открой |включи |выключи |отключи )?(?:настройки )?(?:блютуз\w*|bluetooth)", "bluetooth"),
+                     (r"(?:открой |включи |выключи |отключи )?(?:настройки )?(?:вай ?фай|wi-?fi|вайфай|интернет\w*)", "network-wifi"),
                      (r"(?:открой )?настройки (?:звука|звук)", "sound"),
                      (r"(?:открой )?настройки (?:экрана|дисплея|монитора)", "display"),
                      (r"(?:проверь |открой )?обновлени\w* (?:windows|виндоус\w*)|(?:открой )?центр обновлени\w*", "windowsupdate")):
@@ -433,8 +436,34 @@ def match(text: str) -> Command | None:
         app = "notepad" if re.match(r"блокнот|notepad", app) else "cmd" if re.match(r"cmd|командн", app) else "powershell"
         body = _fix_commands(m.group("text").strip().strip("«»\"“”"))
         return Command("type_in", text=body + ("" if app == "notepad" else "\n"), keys=[app])
+    # --- частые сочетания клавиш словами
+    for rx, keys in ((r"(?:скопируй|копируй)(?: это| текст| выделенное)?|copy( that)?|kopier\w*", ["ctrl", "c"]),
+                     (r"вставь(?: это| текст)?|paste|einfügen", ["ctrl", "v"]),
+                     (r"вырежи(?: это| текст)?|cut", ["ctrl", "x"]),
+                     (r"отмени(?: это| последнее| последнее действие| действие)?|верни как было|undo|rückgängig", ["ctrl", "z"]),
+                     (r"повтори действие|redo", ["ctrl", "y"]),
+                     (r"выдели вс[её](?: текст)?|select all|alles markieren", ["ctrl", "a"]),
+                     (r"сохрани(?: файл| документ| это| изменения)?|save( it)?|speicher\w*", ["ctrl", "s"]),
+                     (r"обнови(?: страницу)?|перезагрузи страницу|refresh|reload", ["f5"]),
+                     (r"(?:вернись |иди |перейди )?назад(?: на страницу| на прошлую страницу)?|go back", ["alt", "left"]),
+                     (r"(?:иди |перейди )?вперед(?: на страницу)?|go forward", ["alt", "right"]),
+                     (r"увеличь масштаб|приблизь|zoom in|сделай крупнее", ["ctrl", "plus"]),
+                     (r"уменьши масштаб|отдали|zoom out|сделай мельче", ["ctrl", "minus"]),
+                     (r"сбрось масштаб|обычный масштаб|reset zoom", ["ctrl", "0"]),
+                     (r"(?:открой |перейди на |покажи )?последн\w* вкладк\w*|last tab", ["ctrl", "9"]),
+                     (r"покажи рабочий стол|рабочий стол|show desktop", ["win", "d"]),
+                     (r"(?:открой |запусти |покажи )?диспетчер задач|task manager", ["ctrl", "shift", "esc"])):
+        if re.fullmatch(rx, t):
+            return Command("keys", keys=keys)
+    if re.fullmatch(r"(?:выключи|погаси|отключи|усыпи)\s+(?:монитор\w*|экран\w*|дисплей)|monitor off", t) and \
+            not re.search(r"основн|главн|перв|втор|вспомогат|дополнит|внешн", t):
+        return Command("monitor_off")
+    if m := re.fullmatch(r"(прибавь|убавь|увеличь|уменьши|подними|опусти)\s+(?:звук|громкость)(?:\s+на\s+(.+?))?(?:\s*(?:процент\w*|%))?", t):
+        down = m.group(1) in ("убавь", "уменьши", "опусти")
+        n = level(m.group(2)) if m.group(2) else None
+        return Command("volume_change", (-1 if down else 1) * (n or 10))
     # --- окна по имени программы: «разверни хром», «сверни телеграм», «закрой YouTube»
-    if m := re.fullmatch(r"(сверни|разверни|закрой|верни|покажи)\s+(?!окно|все|вкладк|программу|эту|это|меню)(.+)", t):
+    if m := re.fullmatch(r"(сверни|разверни|закрой|верни|покажи)\s+(?!окно|все|вкладк|программу|эту|это|меню|рабоч)(.+)", t):
         action = {"сверни": "minimize", "разверни": "maximize", "закрой": "close", "верни": "restore", "покажи": "restore"}[m.group(1)]
         name = re.sub(r"(?:ютуб|youtube|ютьюб)[\s-]*(?:m\w*sic|м\w{0,3}з\w*к\w*)", "youtube music", m.group(2))
         name = re.sub(r"^ютуб\w*$", "youtube", name)
@@ -530,8 +559,10 @@ def reply(cmd: Command, lang: str, result: dict) -> str:
     op, v = cmd.op, cmd.value
     if result.get("error"):
         return L(f"Не вышло: {result['error']}", f"Didn't work: {result['error']}", f"Hat nicht geklappt: {result['error']}")
+    if op == "monitor_off":
+        return L("Гашу экраны. Пошевели мышкой — включатся.", "Screens off.", "Bildschirme aus.")
     if op == "keys":
-        k = "+".join(cmd.keys or [])
+        k = "+".join(cmd.keys or []).replace("plus", "+").replace("minus", "−")
         return L(f"Нажала {k}.", f"Pressed {k}.", f"{k} gedrückt.")
     if op == "type":
         return L("Напечатала.", "Typed it.", "Getippt.")
@@ -545,7 +576,8 @@ def reply(cmd: Command, lang: str, result: dict) -> str:
         w = result.get("title") or L("окно", "window", "Fenster")
         names = {"minimize": ("Свернула", "Minimised", "Minimiert"), "maximize": ("Развернула", "Maximised", "Maximiert"),
                  "close": ("Закрываю", "Closing", "Schließe"), "left": ("Подвинула влево", "Moved left", "Nach links"),
-                 "right": ("Подвинула вправо", "Moved right", "Nach rechts")}[cmd.text]
+                 "right": ("Подвинула вправо", "Moved right", "Nach rechts"),
+                 "restore": ("Показала", "Restored", "Wiederhergestellt")}.get(cmd.text, ("Готово", "Done", "Fertig"))
         return L(f"{names[0]}: {w}.", f"{names[1]}: {w}.", f"{names[2]}: {w}.")
     if op == "fullscreen":
         return L("Во весь экран.", "Fullscreen.", "Vollbild.")
@@ -565,6 +597,10 @@ def reply(cmd: Command, lang: str, result: dict) -> str:
     if op == "settings":
         return {"nightlight": L("Открыла ночной свет — щёлкни переключатель «Включить сейчас».", "Night light settings open.",
                                 "Nachtmodus-Einstellungen geöffnet."),
+                "bluetooth": L("Открыла Bluetooth — переключатель сверху (сама его не нажимаю).", "Bluetooth settings open.",
+                               "Bluetooth-Einstellungen geöffnet."),
+                "network-wifi": L("Открыла Wi-Fi — переключатель сверху (сама его не нажимаю).", "Wi-Fi settings open.",
+                                  "WLAN-Einstellungen geöffnet."),
                 }.get(cmd.text or "", L("Открыла настройки.", "Settings open.", "Einstellungen geöffnet."))
     if op == "type_in":
         return L(f"Напечатала в {result.get('title') or 'окно'}.", "Typed it.", "Getippt.")
