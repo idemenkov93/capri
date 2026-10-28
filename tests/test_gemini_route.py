@@ -65,3 +65,12 @@ def test_key_from_chat(monkeypatch):
     assert "Gemini подключён" in r.text and saved == ["AIzaSyA1234567890abcdefghijklmnopqrstu"]
     r = a.handle("как подключить gemini")
     assert "aistudio.google.com/apikey" in r.text and r.actions[0].kind == "open_url"
+
+
+def test_new_aq_keys_are_accepted(monkeypatch):
+    saved = []
+    monkeypatch.setattr(gemini, "check_key", lambda key, tier: "gemini-flash-latest")
+    monkeypatch.setattr(gemini, "set_key", saved.append)
+    a = agent(lambda t, c: "", None)
+    r = a.handle("AQ.Ab8RN6IKTQEnnNn_XBx14MO9TEtT7L9UwYygotOXabcdEzA")
+    assert "Gemini подключён" in r.text and saved[0].startswith("AQ.Ab8RN6")
