@@ -141,6 +141,14 @@ def execute(action: Action, config: dict) -> str:
     if action.kind == "gcal_add":
         from .google_api import Google
         return Google(expand("data")).add_event(action.params["event"])
+    if action.kind == "empty_bin":
+        import ctypes
+        import sys
+        if sys.platform != "win32":
+            return "Это только для Windows."
+        # SHERB_NOCONFIRMATION | NOPROGRESSUI | NOSOUND — спросили уже мы сами
+        r = ctypes.windll.shell32.SHEmptyRecycleBinW(None, None, 0x7)
+        return "Корзина пуста." if r in (0, -2147418113) else f"Не вышло (код {r})."
     if action.kind == "power":
         import subprocess
         import sys

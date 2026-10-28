@@ -46,6 +46,17 @@ def _init() -> bool:
         return False
 
 
+def name() -> str | None:
+    """«NVIDIA GeForce GTX 1070» или None."""
+    with _lock:
+        if not _init():
+            return None
+        buf = ctypes.create_string_buffer(96)
+        if _lib.nvmlDeviceGetName(_handle, buf, 96) != 0:
+            return None
+        return buf.value.decode("utf-8", "ignore") or None
+
+
 class _Util(ctypes.Structure):
     _fields_ = [("gpu", ctypes.c_uint), ("memory", ctypes.c_uint)]
 

@@ -166,6 +166,12 @@ class SystemControl:
             os.startfile("ms-settings:nightlight")  # noqa: S606
         return {"opened": True}
 
+    def _monitor_off(self, cmd: Command):
+        import ctypes
+        time.sleep(0.5)                                   # чтобы последнее движение мыши не разбудило экран сразу
+        ctypes.windll.user32.PostMessageW(0xFFFF, 0x0112, 0xF170, 2)   # всем окнам: SC_MONITORPOWER, выключить
+        return {}
+
     def _settings(self, cmd: Command):
         os.startfile(f"ms-settings:{cmd.text}")  # noqa: S606 — ms-settings: открывает нужную страницу «Параметров»
         return {}

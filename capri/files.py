@@ -139,6 +139,19 @@ def _target(name: str, place: str | None) -> Target | str:
             base = (outer[0] / clean_name(m.group(1)), f"папке «{clean_name(m.group(1))}» на {outer[1]}")
         else:
             base = find_place(place)
+        if not base and (m := re.match(r"(?:папке|папку|folder|ordner)\s+(.+)$", place, re.I)):
+            # «в папке Проекты» без «где» — ищем такую папку на рабочем столе, в документах, в загрузках
+            sub = clean_name(m.group(1))
+            for key in ("desktop", "documents", "downloads", "home"):
+                try:
+                    root = known_folder(key)
+                except Exception:  # noqa: BLE001
+                    continue
+                if (root / sub).is_dir():
+                    base = (root / sub, f"папке «{sub}» ({PLACE_NAMES.get(key, key)})")
+                    break
+            else:
+                base = (known_folder("desktop") / sub, f"папке «{sub}» на рабочем столе")
         if not base:
             return f"не поняла, где это: «{place}»"
     base = base or (known_folder("desktop"), PLACE_NAMES["desktop"])
