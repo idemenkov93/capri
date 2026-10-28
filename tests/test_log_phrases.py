@@ -191,3 +191,16 @@ def test_power_is_real_and_asks_first(text, mode, confirm):
     r = agent(LLM({"content": "я перезагружаю"})).handle(text)
     assert r.actions[0].kind == "power" and r.actions[0].params["mode"] == mode and r.actions[0].needs_confirm is confirm
     assert C.match("выключи звук").op == "mute"           # «выключи …» без компьютера — как раньше
+
+
+def test_exact_search_never_breaks_the_old_one(monkeypatch):
+    """Быстрый поиск кнопки сломался (другая версия uiautomation) — должен тихо уступить обычному поиску."""
+    import sys
+    import types
+
+    from capri import control
+    fake = types.ModuleType("uiautomation")
+    fake.ControlFromHandle = lambda h: None
+    monkeypatch.setitem(sys.modules, "uiautomation", fake)
+    monkeypatch.setitem(sys.modules, "uiautomation.uiautomation", types.ModuleType("uiautomation.uiautomation"))
+    assert control.find_exact(1, ["Next"]) is None
