@@ -516,7 +516,8 @@ class Agent:
         """Задать вопрос умному помощнику. → (ответ, route). Ошибки — BrainError."""
         p = self.provider()
         rude = self.cfg["claude_code"].get("attitude") == "rude"
-        prefix = (claude_code.PREFIX + (claude_code.RUDE if rude else "")) if persona else ""
+        slang = self.cfg["claude_code"].get("slang", True)
+        prefix = (claude_code.PREFIX + (claude_code.SLANG if slang else "") + (claude_code.RUDE if rude else "")) if persona else ""
         if p == "claude":
             prompt = task
             if images:
