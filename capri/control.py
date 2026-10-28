@@ -305,6 +305,44 @@ def find_app_window(name: str | None, strict: bool = False) -> int:
     return found[0] if found else 0
 
 
+def connected_displays() -> int:
+    """Сколько мониторов подключено к видеокартам — даже выключенных через Win+P (monitors() видит только включённые)."""
+    if not IS_WIN:
+        return 0
+
+    class DISPLAY_DEVICE(ctypes.Structure):
+        _fields_ = [("cb", wintypes.DWORD), ("DeviceName", wintypes.WCHAR * 32), ("DeviceString", wintypes.WCHAR * 128),
+                    ("StateFlags", wintypes.DWORD), ("DeviceID", wintypes.WCHAR * 128), ("DeviceKey", wintypes.WCHAR * 128)]
+    n, i = 0, 0
+    while True:
+        dev = DISPLAY_DEVICE(cb=ctypes.sizeof(DISPLAY_DEVICE))
+        if not user32.EnumDisplayDevicesW(None, i, ctypes.byref(dev), 0):
+            break
+        i += 1
+        if dev.StateFlags & 0x8:                    # DISPLAY_DEVICE_MIRRORING_DRIVER — не настоящий выход
+            continue
+        mon = DISPLAY_DEVICE(cb=ctypes.sizeof(DISPLAY_DEVICE))
+        if user32.EnumDisplayDevicesW(dev.DeviceName, 0, ctypes.byref(mon), 0) and mon.DeviceID:
+            n += 1                                  # к этому выходу подключён монитор
+    return n
+
+
+def switch_display(mode: str, wait: float = 6.0) -> int:
+    """Как Win+P: extend (оба), internal (только основной), external (только второй), clone (дублировать).
+    Ждём, пока Windows перестроит экраны, и возвращаем, сколько их теперь включено."""
+    import subprocess
+    want = {"extend": 2, "clone": 1, "internal": 1, "external": 1}[mode]
+    subprocess.Popen(["DisplaySwitch.exe", f"/{mode}"], creationflags=0x08000000)
+    t0 = time.monotonic()
+    time.sleep(1.0)
+    while time.monotonic() - t0 < wait:
+        if (len(monitors()) >= 2) == (want >= 2):
+            time.sleep(1.0)                         # окна ещё переезжают
+            break
+        time.sleep(0.4)
+    return len(monitors())
+
+
 def wait_window(name: str, timeout: float = 20.0, ignore: set | None = None) -> int:
     """Дождаться окна программы после запуска (Steam и Discord открываются по 5–15 секунд)."""
     t0 = time.monotonic()

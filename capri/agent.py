@@ -428,6 +428,8 @@ class Agent:
         runner = scenarios.Runner(self.open_action, self.system, lambda act: A.execute(act, self.cfg))
         done, failed, reminder, say = runner.run(steps)
         parts = [say or (f"Сценарий «{name}» готов." if on else f"Сценарий «{name}» выключен.")]
+        if runner.notes:
+            parts.append("(" + "; ".join(runner.notes).capitalize() + ".)")
         if failed:
             parts.append("Не вышло: " + "; ".join(failed) + ".")
         acts = []

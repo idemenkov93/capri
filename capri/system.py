@@ -123,9 +123,11 @@ class SystemControl:
         return {"title": title}
 
     def _display(self, cmd: Command):
-        mode = {"external": "/external", "internal": "/internal", "extend": "/extend", "clone": "/clone"}[cmd.text or "extend"]
-        subprocess.Popen(["DisplaySwitch.exe", mode], creationflags=NO_WINDOW)
-        return {}
+        from . import control
+        mode = cmd.text or "extend"
+        if mode in ("external", "extend") and control.connected_displays() < 2 and len(control.monitors()) < 2:
+            return {"error": "второй монитор не подключён — переключать нечего"}
+        return {"active": control.switch_display(mode)}
 
     def _nightlight(self, cmd: Command):
         from . import control

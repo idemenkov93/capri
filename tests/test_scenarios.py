@@ -127,3 +127,74 @@ def test_app_reminds_only_while_you_work(monkeypatch):
 def test_night_light_phrase():
     assert (C.match("включи ночной свет").op, C.match("включи ночной свет").value) == ("nightlight", 1)
     assert C.match("выключи ночной свет").value == 0
+
+
+def _fake_screens(monkeypatch, active, connected):
+    from capri import control
+    state = {"active": active}
+    switched = []
+    monkeypatch.setattr(control, "monitors", lambda: [(0, 0, 1920, 1080, True)] * state["active"])
+    monkeypatch.setattr(control, "connected_displays", lambda: connected)
+
+    def switch(mode, wait=6.0):
+        switched.append(mode)
+        state["active"] = 2 if mode == "extend" else 1
+        return state["active"]
+    monkeypatch.setattr(control, "switch_display", switch)
+    for name in ("find_app_window", "wait_window"):
+        monkeypatch.setattr(control, name, lambda n, *a, **k: 7)
+    monkeypatch.setattr(control, "place_window", lambda h, screen, place: "окно")
+    monkeypatch.setattr(control, "window_title", lambda h: "окно")
+    return switched
+
+
+def test_second_screen_is_switched_on_when_needed(monkeypatch):
+    switched = _fake_screens(monkeypatch, active=1, connected=2)
+    r = scenarios.Runner(lambda n: "A", Sys(), lambda a: None)
+    r.run([{"open": "discord", "screen": 2, "place": "left"}])
+    assert switched == ["extend"] and r.notes == ["включила второй экран"]
+
+
+def test_only_one_screen_at_all(monkeypatch):
+    switched = _fake_screens(monkeypatch, active=1, connected=1)
+    r = scenarios.Runner(lambda n: "A", Sys(), lambda a: None)
+    r.run([{"open": "discord", "screen": 2, "place": "left"}])
+    assert switched == [] and "второго экрана нет" in r.notes[0]
+    done, failed, *_ = r.run([{"display": "external"}])
+    assert switched == [] and "не подключён" in failed[0]
+
+
+def test_night_mode_keeps_only_second_screen(monkeypatch):
+    switched = _fake_screens(monkeypatch, active=2, connected=2)
+    from capri import control
+    monkeypatch.setattr(control, "night_light", lambda on: True)
+    monkeypatch.setattr(scenarios, "browser_exe", lambda: None)
+    monkeypatch.setattr(scenarios.webbrowser, "open_new_tab", lambda u: None)
+    r = scenarios.Runner(lambda n: "A", Sys(), lambda a: None)
+    r.run(scenarios.DEFAULT["ночной"]["steps"])
+    r.run(scenarios.DEFAULT["ночной"]["off_steps"])
+    assert switched == ["external", "extend"]
+
+
+def test_old_example_file_is_upgraded(tmp_path, monkeypatch):
+    import subprocess
+    monkeypatch.setattr(scenarios, "path", lambda: tmp_path / "scenarios.yaml")
+    old = subprocess.run(["git", "show", "891624c:capri/scenarios.py"], capture_output=True, text=True).stdout
+    if not old:
+        pytest.skip("нет истории git")
+    ns = {}
+    exec(old.split("DEFAULT = yaml")[0], ns)
+    (tmp_path / "scenarios.yaml").write_text(ns["DEFAULT_TEXT"], encoding="utf-8")
+    assert scenarios.load()["ночной"]["steps"][0] == {"display": "external"}
+    (tmp_path / "scenarios.yaml").write_text("моё:\n  phrases: [мой режим]\n  steps: []\n", encoding="utf-8")
+    assert list(scenarios.load()) == ["моё"]          # свой файл не трогаем
+
+
+@pytest.mark.parametrize("text,mode", [
+    ("выключи основной экран", "external"), ("отключи главный монитор", "external"),
+    ("выключи второй экран", "internal"), ("погаси вспомогательный монитор", "internal"),
+    ("включи второй экран", "extend"), ("верни оба экрана", "extend"),
+])
+def test_display_phrases(text, mode):
+    c = C.match(text)
+    assert (c.op, c.text) == ("display", mode)
