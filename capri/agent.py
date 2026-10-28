@@ -74,6 +74,10 @@ RE_NTH = re.compile(r"^(?:открой|включи|запусти|кликни|
                     r"(?:\s+(?:в|на)\s+\S+)?$|^(?:open|play)\s+the\s+(?P<n2>\S+)\s+(?:link|video|result)$", re.I)
 RE_VIDEO_WORDS = re.compile(r"\b(выпуск\w*|сери[яюи]|сезон\w*|видео|ролик\w*|клип\w*|трейлер\w*|обзор\w*|подкаст\w*|стрим\w*)\b|#\d+", re.I)
 RE_DOMAIN = re.compile(r"^[\w-]+(\.[\w-]+)+(/\S*)?$")
+# в игре в микрофон попадает разговор с друзьями: к умному помощнику — только то, что похоже на вопрос или просьбу
+RE_ASKISH = re.compile(r"\?|^(?:а\s+|и\s+|ну\s+)?(?:как|что|чем|где|когда|почему|зачем|сколько|какой|какая|какое|какие|каким|кто|куда|"
+                       r"откуда|можно ли|есть ли|стоит ли|подскажи|посоветуй|объясни|расскажи|скажи|помоги|найди|дай|напомни|"
+                       r"переведи|сравни|what|how|why|where|which|who|when|can|should|is there|tell|explain|wie|was|warum|wo)(?=\s+\S)", re.I)
 RE_GEMINI_KEY = re.compile(r"(?:(?:ключ|key)\s+(?:для\s+)?(?:gemini|гемини|джемини|джеминай)\s*[:=—-]?\s*)?(?P<key>AIza[\w-]{30,})", re.I)
 # ответы на её вопросы
 RE_YES = re.compile(r"^(?:да|ага|угу|давай|конечно|ок|окей|ok|okay|включай|включи|ставь|поставь|го|yes|yeah|yep|ja|klar)\b", re.I)
@@ -185,6 +189,10 @@ class Agent:
             return reply
         from . import screen, weather
         g = self.game if self.game is not None and self.game.active else None
+        if g and not RE_ASKISH.search(text) and not RE_CLAUDE.match(text) and not screen.is_screen_question(text) \
+                and not weather.is_weather_question(text):
+            # «Капец, уронка.», «Я не буду видеть фильмы» — это ты говоришь с друзьями, а не мне
+            return Reply("", route="ignored")
         if g and g.busy_round() and not screen.is_screen_question(text):
             # посреди раунда CS2 не думаем: Claude и модель — после раунда (команды выше уже выполнились)
             return Reply("Отвечу после раунда.", [A.Action("game_defer", "Ответить после раунда", {"text": text},
@@ -710,6 +718,7 @@ class Agent:
             return Reply(f"{f.description}.", [f], "rules")
         if m := RE_YOUTUBE.match(bare):
             q = next(g for g in m.groups() if g).strip()
+            q = re.sub(r"^(?:видео|ролик|клип)\s+(?:про\s+)?", "", q, flags=re.I) or q
             return Reply(f"Ищу на YouTube «{q}».", [A.make_youtube_search(q)], "rules")
         if m := RE_OPEN.match(bare):
             target = re.sub(r"^(?:в|на|in|auf)\s+", "", m.group(1).strip())

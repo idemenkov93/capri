@@ -72,3 +72,13 @@ def test_key_from_chat(monkeypatch):
     assert "Gemini подключён" in r.text and saved == ["AIzaSyA1234567890abcdefghijklmnopqrstu"]
     r = a.handle("как подключить gemini")
     assert "aistudio.google.com/apikey" in r.text and r.actions[0].kind == "open_url"
+
+
+def test_chat_with_friends_in_game_is_ignored():
+    asked = []
+    a = agent(lambda t, c: asked.append(t) or "C", lambda t, cfg, images=None, system="": asked.append(t) or "G", Game())
+    for chatter in ("Капец, уронка.", "Я не буду видеть фильмы, конечно.", "какая-то", "Ah", "если он будет столбой"):
+        assert a.handle(chatter).route == "ignored", chatter
+    assert not asked
+    assert a.handle("что ты знаешь про эту игру?").text == "G"
+    assert a.handle("громкость 30").route == "rules"             # команды — как обычно

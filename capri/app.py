@@ -706,6 +706,13 @@ class CapriApp:
 
     def on_reply(self, reply: Reply):
         from .log import log
+        if reply.route == "ignored":
+            log.info("в игре: не вопрос и не команда — молчу (наверное, это разговор с друзьями)")
+            self.chat.end_stream()
+            self.chat.set_busy(False)
+            self.set_status("ONLINE")
+            self.last_input_was_voice = False
+            return
         log.info("ответ [%s]: «%s»", reply.route, reply.text[:200].replace("\n", " "))
         self.set_status("ERROR" if reply.route == "error" else "TALKING")
         QTimer.singleShot(2500, lambda: self.state in ("TALKING", "ERROR") and self.set_status("ONLINE"))

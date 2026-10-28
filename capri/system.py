@@ -325,6 +325,8 @@ class SystemControl:
             if sent["v"]:
                 return {}                                    # трек уже переключился — просто не узнали название
             # медиа-служба Windows не отвечает — жмём настоящую кнопку в окне YouTube Music, потом его горячую клавишу
+            if action in ("play", "pause") and target in (None, "browser") and self._yt_button(action, target):
+                return {}                                    # обычный YouTube в браузере — его кнопка ▶/⏸
             if target in (None, "music") and action in ("play", "pause"):
                 # ▶/⏸ — только кнопкой в панели плеера: она не переключатель, двойного нажатия не будет
                 self._ytm_bar(action)
@@ -350,6 +352,23 @@ class SystemControl:
                 self.press([(VK_MEDIA["toggle"], True)])
                 return {}
             return {"error": "плеер не ответил"}
+
+    @staticmethod
+    def _yt_button(action: str, target: str | None) -> bool:
+        from . import control
+        from .log import log
+        try:
+            import uiautomation as auto
+            with auto.UIAutomationInitializerInThread():
+                h = control.yt_window()
+                if not h or (target is None and control.ytm_window() and control.media_context() == "music"):
+                    return False
+                res = control.yt_player_button(h, action)
+        except Exception as e:  # noqa: BLE001
+            log.warning("плеер: кнопка YouTube: %s", e)
+            return False
+        log.info("плеер: кнопка YouTube, «%s» → %s", action, res or "не нашла")
+        return bool(res)
 
     @staticmethod
     def _ytm_bar(action: str) -> bool:

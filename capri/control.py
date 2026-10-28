@@ -726,6 +726,50 @@ def ytm_bar_button(h: int, action: str) -> str:
     return ""
 
 
+YT_PLAY = ("Смотреть (k)", "Воспроизвести (k)", "Play (k)", "Wiedergabe (k)", "Abspielen (k)")
+YT_PAUSE = ("Пауза (k)", "Pause (k)", "Приостановить (k)")
+
+
+def yt_window() -> int:
+    """Окно браузера с обычным YouTube (не YouTube Music)."""
+    for cand in (user32.GetForegroundWindow(), last_external_hwnd):
+        t = window_title(cand).lower() if cand else ""
+        if "youtube" in t and "youtube music" not in t:
+            return cand
+    h = find_app_window("youtube")
+    t = window_title(h).lower() if h else ""
+    return h if "youtube" in t and "youtube music" not in t else 0
+
+
+def yt_player_button(h: int, action: str) -> str:
+    """Кнопка ▶/⏸ плеера YouTube (подписи «Смотреть (k)» / «Пауза (k)»). Не переключатель: «пауза» при паузе
+    ничего не делает. → "clicked" | "already" | ""."""
+    import uiautomation as auto
+    try:
+        from uiautomation import uiautomation as core
+        uia = core._AutomationClient.instance().IUIAutomation
+        root = auto.ControlFromHandle(h)
+    except Exception:  # noqa: BLE001
+        return ""
+
+    def first(names):
+        for name in names:
+            try:
+                el = root.Element.FindFirst(4, uia.CreatePropertyCondition(30005, name))
+            except Exception:  # noqa: BLE001
+                continue
+            if el:
+                ctrl = auto.Control.CreateControlFromElement(el)
+                if ctrl is not None:
+                    return ctrl
+        return None
+    want, other = (YT_PLAY, YT_PAUSE) if action == "play" else (YT_PAUSE, YT_PLAY)
+    if (btn := first(want)) is not None:
+        click_element(btn)
+        return "clicked"
+    return "already" if first(other) is not None else ""
+
+
 def ytm_play_page(h: int) -> str | None:
     """На открытой странице плейлиста/микса YouTube Music нажать большую кнопку ▶ в шапке."""
     try:
