@@ -41,6 +41,15 @@ DEFAULTS: dict = {
     "notes_file": "data/notes.md",
     "avatar": {"size": 150, "custom_image": "", "fps": 12, "wander": True, "desktop_mode": "auto"},
     "ui": {"style": "hud"},  # hud — панель «Personal Link», classic — простой чат
+    # Gemini (Google AI Studio): бесплатный ключ на aistudio.google.com/apikey. Впиши его в чат Капри:
+    # «ключ gemini AIza…» — сохранится в Диспетчере учётных данных Windows (не в этом файле).
+    "gemini": {
+        "enabled": True,
+        "model": "gemini-flash-latest",   # бесплатно; лимиты маленькие — для игр и запаса хватает
+        "in_games": True,                 # в играх — Gemini вместо Claude: быстрый HTTP-запрос, без процессов
+        "when_claude_limit": True,        # лимит Claude кончился — отвечает Gemini
+        "timeout": 60,
+    },
     "voice": {
         "enabled": True,
         "hotkey": "Ctrl+Space",

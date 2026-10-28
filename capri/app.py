@@ -639,6 +639,8 @@ class CapriApp:
         self.chat.input.setFocus()
 
     def on_message(self, text: str):
+        import re as _re
+
         from .log import log
         self.wake_up()
         if self.worker and self.worker.isRunning():
@@ -652,11 +654,11 @@ class CapriApp:
                 self.worker = None
             else:
                 # раньше новый запрос молча терялся; теперь — ставим в очередь (последний побеждает)
-                log.info("занята, откладываю: «%s»", text)
+                log.info("занята, откладываю: «%s»", _re.sub(r"AIza[\w-]{10,}", "AIza…", text))
                 self._queued = text
                 self.stop_current()
                 return
-        log.info("запрос: «%s»", text)
+        log.info("запрос: «%s»", _re.sub(r"AIza[\w-]{10,}", "AIza…(ключ скрыт)", text))
         self.chat.set_busy(True)
         self.worker = Worker(self.agent, text)
         self.worker.status.connect(self.on_status)
