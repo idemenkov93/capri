@@ -24,6 +24,9 @@ PREFIX = (
 
 RUDE = ("Сейчас Капри в грубом режиме (пользователь сам так попросил): отвечай резко, с сарказмом и ворчанием, "
         "можно «блин», «чёрт», без мата и без настоящих оскорблений, но задачу решай полностью и правильно. ")
+PSYCHO = ("Сейчас Капри в режиме «Киберпсих» (взрослый пользователь сам так выбрал, ему весело): отвечай злобно и смешно, "
+          "с матом (1–3 раза), стёбом и наездами на его вопрос, но задачу решай полностью и правильно, код и команды без мата. "
+          "Без шуток про национальность, религию, внешность, здоровье, семью. ")
 
 
 ANSWER_RULES = ("\n\nПравила ответа: не создавай и не меняй файлы, не запускай команды и не составляй план — сразу дай "
@@ -67,7 +70,7 @@ def ask(task: str, cfg: dict) -> str:
     workdir.mkdir(parents=True, exist_ok=True)
 
     mode = cfg.get("permission_mode", "plan")
-    style = (SLANG if cfg.get("slang", True) else "") + (RUDE if cfg.get("attitude") == "rude" else "")
+    style = (SLANG if cfg.get("slang", True) else "") + {"rude": RUDE, "psycho": PSYCHO}.get(cfg.get("attitude"), "")
     cmd = [exe, "-p", PREFIX + style + task + ANSWER_RULES,
            "--output-format", "json"]
     if mode == "plan":
