@@ -74,6 +74,13 @@ RE_NTH = re.compile(r"^(?:открой|включи|запусти|кликни|
                     r"(?:\s+(?:в|на)\s+\S+)?$|^(?:open|play)\s+the\s+(?P<n2>\S+)\s+(?:link|video|result)$", re.I)
 RE_VIDEO_WORDS = re.compile(r"\b(выпуск\w*|сери[яюи]|сезон\w*|видео|ролик\w*|клип\w*|трейлер\w*|обзор\w*|подкаст\w*|стрим\w*)\b|#\d+", re.I)
 RE_DOMAIN = re.compile(r"^[\w-]+(\.[\w-]+)+(/\S*)?$")
+# в игре в микрофон попадает разговор с друзьями: к умному помощнику — только то, что похоже на вопрос или просьбу
+RE_ASKISH = re.compile(r"\?|^(?:а\s+|и\s+|ну\s+)?(?:как|что|чем|где|когда|почему|зачем|сколько|какой|какая|какое|какие|каким|кто|куда|"
+                       r"откуда|можно ли|есть ли|стоит ли|подскажи|посоветуй|объясни|расскажи|скажи|помоги|найди|дай|напомни|"
+                       r"переведи|сравни|what|how|why|where|which|who|when|can|should|is there|tell|explain|wie|was|warum|wo)(?=\s+\S)|"
+                       # в CS2 фразу распознаёт vosk — без «?»: ловим вопросы и в середине фразы
+                       r"\b(?:что скажешь|как думаешь|что думаешь|подскажи|посоветуй|сколько|почему|зачем|что делать|как лучше|"
+                       r"что у меня на экране|что на экране|посмотри)\b", re.I)
 # ключи AI Studio: старые «AIza…», новые (с 2026) — «AQ.…»
 RE_GEMINI_KEY = re.compile(r"(?:(?:ключ|key)\s+(?:для\s+)?(?:gemini|гемини|джемини|джеминай)\s*[:=—-]?\s*)?"
                            r"(?P<key>AIza[\w-]{30,}|AQ\.[\w.-]{30,})")
@@ -119,6 +126,14 @@ RE_POWER = (
     (re.compile(r"отмени\s+(?:перезагрузку|выключение)|не\s+(?:перезагружай|выключай)\s+(?:компьютер|комп|пк)", re.I), "abort",
      "", "Отменила."),
 )
+RE_OFF = r"(?:выключи|отключи|убери|не надо|останови|хватит)"
+GAME_TOGGLES = (   # (регулярка «включить», регулярка «выключить», ключ)
+    (r"(?:включи|верни)\s+игров\w* помощник\w*", rf"{RE_OFF}\s+игров\w* помощник\w*|не мешай (?:мне )?в играх", "game_assist"),
+    (r"(?:включи\s+|запусти\s+)?турнирн\w* режим", rf"{RE_OFF}\s+турнирн\w* режим", "cs2_tournament"),
+    (r"(?:включи|верни)\s+таймер\w* бомб\w*", rf"{RE_OFF}\s+таймер\w* бомб\w*", "cs2_bomb_timer"),
+    (r"(?:включи|верни)\s+подсказк\w* (?:по )?(?:экономик\w*|закуп\w*)",
+     rf"{RE_OFF}\s+подсказк\w* (?:по )?(?:экономик\w*|закуп\w*)|не подсказывай (?:по )?(?:экономик\w*|закуп\w*)", "cs2_econ"),
+)
 
 UNIT_TO_MIN = {
     "сек": 1 / 60, "с": 1 / 60, "sek": 1 / 60, "sec": 1 / 60, "s": 1 / 60,
@@ -158,6 +173,7 @@ class Agent:
         self.gemini_ask = gemini_ask or gemini.ask
         self._claude_limited_until = 0.0     # лимит Claude кончился — до этого времени сразу идём в Gemini
         self.history: list[dict] = []
+        self.game = None      # GameMode из app.py: идёт ли игра, строгий ли режим, данные CS2
         self.pending: dict | None = None   # Капри спросила и ждёт ответ: {"kind": "timer" | "confirm", "at": …}
 
     # публичный вход -------------------------------------------------------
@@ -182,15 +198,32 @@ class Agent:
             return self._vision_click(reply.text, on_status)
         if reply:
             return reply
+        from . import screen, weather
+        g = self.game if self.game is not None and self.game.active else None
+        if g and not RE_ASKISH.search(text) and not RE_CLAUDE.match(text) and not screen.is_screen_question(text) \
+                and not weather.is_weather_question(text):
+            # «Капец, уронка.», «Я не буду видеть фильмы» — это ты говоришь с друзьями, а не мне
+            return Reply("", route="ignored")
+        if g and g.busy_round() and not screen.is_screen_question(text):
+            # посреди раунда CS2 не думаем: Claude и модель — после раунда (команды выше уже выполнились)
+            return Reply("Отвечу после раунда.", [A.Action("game_defer", "Ответить после раунда", {"text": text},
+                                                          needs_confirm=False)], "rules")
         if m := RE_CLAUDE.match(text):
             return self._ask_claude(m.group(1), on_status)
-        from . import screen, weather
         if weather.is_weather_question(text) and len(text) < 120:
             return self._weather(text)
         if screen.is_screen_question(text):
             return self._screen(text, on_status)
         if RE_COMPLEX.search(text) or len(text) > 300 or text.count("\n") >= 3:
             return self._ask_claude(text, on_status)
+        if g:
+            # локальная модель выгружена из видеокарты ради игры — спрашиваем Claude (он в облаке)
+            if self.cfg["claude_code"].get("enabled", True) or self.gemini_ready():
+                return self._ask_claude(f"{g.context()} Вопрос: «{text}». Ответь коротко, 1–3 предложения, для озвучки, без markdown.",
+                                        on_status, label=text)
+            if g.strict:
+                return Reply("Пока идёт игра, локальную модель не включаю — она займёт видеокарту. Спроси после матча "
+                             "или подключи Gemini: скажи «как подключить gemini».", route="rules")
         return self._local(text, on_status, on_token, should_stop)
 
     def _google(self, text: str) -> Reply | None:
@@ -531,9 +564,10 @@ class Agent:
         from . import screen
         from .config import expand
         on_status("CLAUDE")
-        workdir = expand(self.cfg["claude_code"].get("workdir", "workspace"))
         try:
-            paths, title = screen.capture(workdir)
+            in_game = bool(self.game is not None and self.game.active)
+            workdir = expand(self.cfg["claude_code"].get("workdir", "workspace"))
+            paths, title = screen.capture(workdir, in_game=True) if in_game else screen.capture(workdir)
         except Exception as e:  # noqa: BLE001
             return Reply(f"Не смогла сделать снимок экрана: {e}", route="error")
         import os
@@ -544,6 +578,36 @@ class Agent:
         return self._ask_claude(screen.prompt(text, paths, title), on_status, label=text, gemini_task=g_task, images=abs_paths)
 
     # быстрые правила --------------------------------------------------------
+    def _games(self, text: str) -> Reply | None:
+        """Команды игрового помощника: статистика CS2, разбор матча, температура видеокарты, переключатели."""
+        from . import cs2
+        bare = text.strip(" .!?").lower()
+        for on_rx, off_rx, key in GAME_TOGGLES:
+            for rx, on in ((off_rx, False), (on_rx, True)):
+                if re.fullmatch(rx, bare, re.I):
+                    from .game import TOGGLE_TEXT
+                    return Reply(TOGGLE_TEXT[key][on], [A.Action("game_set", "Игры", {"key": key, "on": on}, needs_confirm=False)], "rules")
+        tracker = getattr(self.game, "tracker", None)
+        if RE_GAME_STATS.search(text):
+            return Reply(cs2.summary_text(tracker.current() if tracker else None), route="rules")
+        if RE_GAME_COACH.search(text):
+            data = tracker.current() if tracker else None
+            if not data:
+                return Reply(cs2.summary_text(None), route="rules")
+            if self.game is not None and self.game.busy_round():
+                return Reply("Отвечу после раунда.", [A.Action("game_defer", "Ответить после раунда", {"text": text},
+                                                              needs_confirm=False)], "rules")
+            return self._ask_claude(cs2.coach_prompt(text, data), lambda s: None, label=text)
+        if RE_GPU_TEMP.search(text):
+            from . import gpu
+            g = gpu.read()
+            if not g:
+                return Reply("Не вижу датчиков видеокарты: нужна NVIDIA с драйвером.", route="rules")
+            load = f", загрузка {g['load']}%" if g.get("load") is not None else ""
+            hot = " Горячо — проверь обдув." if g["temp"] >= 85 else ""
+            return Reply(f"Видеокарта: {g['temp']}°{load}.{hot}", route="rules")
+        return None
+
     def _gemini_setup(self, text: str) -> Reply | None:
         """«ключ gemini AIza…» — сохранить ключ; «как подключить gemini» — инструкция."""
         if m := RE_GEMINI_KEY.search(text):
@@ -595,6 +659,8 @@ class Agent:
             return gs
         if (at := self._attitude_cmd(text)) is not None:
             return at
+        if (gr := self._games(text)) is not None:
+            return gr
         from . import quick
         if (q := quick.time_answer(text)) or (q := quick.calc(text)) or (q := quick.pc_info(text)):
             return Reply(q, route="rules")
@@ -852,7 +918,7 @@ class Agent:
                     gemini_task: str | None = None, images: list | None = None) -> Reply:
         """Умный помощник. Claude, а Gemini — в играх (быстро, без окон и процессов) и когда лимит Claude кончился."""
         g = self._gcfg()
-        in_game = getattr(self, "game", None) is not None and self.game.active
+        in_game = self.game is not None and self.game.active
         claude_on = self.cfg["claude_code"].get("enabled", True)
         limited = time.monotonic() < self._claude_limited_until
         gem_ok = self.gemini_ready()
@@ -869,7 +935,8 @@ class Agent:
             except gemini.GeminiError as e:
                 from .log import log
                 log.warning("gemini не ответил (%s) — спрашиваю Claude", e)
-                if not claude_on or limited:
+                if not claude_on or limited or (in_game and self.game.strict):
+                    # в CS2 Claude не запускаем: это минуты ожидания и нагрузка на процессор посреди матча
                     return Reply(f"Gemini не ответил: {e}", route="error")
         if answer is None:
             on_status("CLAUDE")

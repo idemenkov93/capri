@@ -29,6 +29,13 @@ def agent(claude, gem, game=None):
     return a
 
 
+def test_games_use_gemini_first():
+    asked = []
+    a = agent(lambda t, c: asked.append("claude") or "C", lambda t, cfg, images=None, system="": asked.append("gemini") or "G",
+              Game())
+    assert a.handle("как построить базу быстрее?").text == "G" and asked == ["gemini"]
+
+
 def test_claude_limit_switches_to_gemini_and_remembers():
     calls = []
 
@@ -67,6 +74,16 @@ def test_key_from_chat(monkeypatch):
     assert "aistudio.google.com/apikey" in r.text and r.actions[0].kind == "open_url"
 
 
+def test_chat_with_friends_in_game_is_ignored():
+    asked = []
+    a = agent(lambda t, c: asked.append(t) or "C", lambda t, cfg, images=None, system="": asked.append(t) or "G", Game())
+    for chatter in ("Капец, уронка.", "Я не буду видеть фильмы, конечно.", "какая-то", "Ah", "если он будет столбой"):
+        assert a.handle(chatter).route == "ignored", chatter
+    assert not asked
+    assert a.handle("что ты знаешь про эту игру?").text == "G"
+    assert a.handle("громкость 30").route == "rules"             # команды — как обычно
+
+
 def test_new_aq_keys_are_accepted(monkeypatch):
     saved = []
     monkeypatch.setattr(gemini, "check_key", lambda key, tier: "gemini-flash-latest")
@@ -76,8 +93,24 @@ def test_new_aq_keys_are_accepted(monkeypatch):
     assert "Gemini подключён" in r.text and saved[0].startswith("AQ.Ab8RN6")
 
 
-def test_weekly_limit_is_a_limit():
+def test_vosk_questions_without_question_mark_pass():
+    a = agent(lambda t, c: "C", lambda t, cfg, images=None, system="": "G", Game())
+    assert a.handle("играю в каэс что скажешь").text == "G"
+    assert a.handle("русские на кэша на той стороне").route == "ignored"
+
+
+def test_weekly_limit_and_strict_game_without_claude():
     assert claude_code.RE_LIMIT.search("You've hit your weekly limit · resets Oct 31, 9pm (Europe/Berlin)")
+    calls = []
+
+    class Strict(Game):
+        strict = True
+
+    def gem(t, cfg, images=None, system=""):
+        raise gemini.GeminiError("Лимит Gemini на сегодня исчерпан")
+    a = agent(lambda t, c: calls.append("claude") or "C", gem, Strict())
+    r = a.handle("как другом кимон")
+    assert r.route == "error" and "Gemini" in r.text and not calls          # в CS2 Claude не запускаем
 
 
 def test_check_gemini_command():

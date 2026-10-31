@@ -95,8 +95,7 @@ def _app(monkeypatch):
     app = appmod.CapriApp()
     KEEP.append(app)
     app.warmup.wait(10_000)
-    if hasattr(app, "game"):
-        app.game._poll_timer.stop()
+    app.game._poll_timer.stop()
 
     class Wake:
         last_audio = np.zeros(16000 * 3, np.float32)

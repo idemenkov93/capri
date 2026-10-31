@@ -50,6 +50,15 @@ DEFAULTS: dict = {
         "when_claude_limit": True,        # лимит Claude кончился — отвечает Gemini
         "timeout": 60,
     },
+    "games": {
+        "enabled": True,       # игровой помощник: сам замечает игру и не мешает ей
+        "strict": ["cs2.exe"],  # строгий режим (ноль нагрузки на видеокарту): можно дописать свои exe
+        "extra": [],           # что ещё считать игрой (если не узнала сама)
+        "ignore": [],          # что точно не игра
+        "cs2_port": 3127,      # порт для CS2 Game State Integration
+        "c4_time": 40,         # таймер бомбы, секунд
+        "gsi_delay": 0.5,      # на сколько раньше говорить (сообщение от игры приходит чуть позже)
+    },
     "voice": {
         "enabled": True,
         "hotkey": "Ctrl+Space",

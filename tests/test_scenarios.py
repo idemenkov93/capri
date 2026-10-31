@@ -11,6 +11,8 @@ from capri.agent import Agent
 from capri.applist import AppIndex
 from capri.config import DEFAULTS
 
+KEEP = []   # Qt-объекты живут до конца тестов (сборка мусора посреди фоновых потоков роняет Windows)
+
 
 @pytest.fixture(autouse=True)
 def _no_background_watch(monkeypatch):
@@ -109,6 +111,7 @@ def test_app_reminds_only_while_you_work(monkeypatch):
     monkeypatch.setattr(appmod.CapriApp, "start_dancing", lambda self: None)
     monkeypatch.setattr(AI, "refresh", lambda self: 0)
     app = appmod.CapriApp()
+    KEEP.append(app)
     app.warmup.wait(10_000)
     said = []
     monkeypatch.setattr(app, "timer_fired", lambda text, prefix="": said.append(text))
