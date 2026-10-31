@@ -35,6 +35,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "att_soft": {"ru": "Мягкая", "en": "Soft"},
     "att_sassy": {"ru": "Дерзкая", "en": "Sassy"},
     "att_rude": {"ru": "Грубая", "en": "Rude"},
+    "att_psycho": {"ru": "🔥 Киберпсих (мат)", "en": "🔥 Cyberpsycho (swearing)"},
     "att_set": {"ru": "Характер: {name}.", "en": "Attitude: {name}."},
     "voice_saved": {"ru": "Голос сохранён.", "en": "Voice saved."},
     "language": {"ru": "🌐 Язык / Language", "en": "🌐 Language / Язык"},

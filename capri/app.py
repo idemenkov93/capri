@@ -365,7 +365,7 @@ class CapriApp:
             menu.addAction(t("voice_lab", L), self.open_voice_lab)
         am = menu.addMenu(t("attitude", L))
         ag = QActionGroup(am)
-        for code in ("soft", "sassy", "rude"):
+        for code in ("soft", "sassy", "rude", "psycho"):
             act = QAction(t(f"att_{code}", L), am, checkable=True, checked=(code == self.prefs.get("attitude", "sassy")))
             act.triggered.connect(lambda _=False, c=code: self.set_attitude(c))
             ag.addAction(act)
@@ -654,11 +654,11 @@ class CapriApp:
                 self.worker = None
             else:
                 # раньше новый запрос молча терялся; теперь — ставим в очередь (последний побеждает)
-                log.info("занята, откладываю: «%s»", _re.sub(r"AIza[\w-]{10,}|AQ\.[\w.-]{10,}", "(ключ скрыт)", text))
+                log.info("занята, откладываю: «%s»", _re.sub(r"AIza[\w-]{10,}|AQ\.[\w.-]{10,}|xai-\w{10,}", "(ключ скрыт)", text))
                 self._queued = text
                 self.stop_current()
                 return
-        log.info("запрос: «%s»", _re.sub(r"AIza[\w-]{10,}|AQ\.[\w.-]{10,}", "(ключ скрыт)", text))
+        log.info("запрос: «%s»", _re.sub(r"AIza[\w-]{10,}|AQ\.[\w.-]{10,}|xai-\w{10,}", "(ключ скрыт)", text))
         self.chat.set_busy(True)
         self.worker = Worker(self.agent, text)
         self.worker.status.connect(self.on_status)
@@ -748,6 +748,9 @@ class CapriApp:
             return
         if act.kind == "break_reminder":
             self.set_break_reminder(int(act.params.get("minutes") or 0))
+            return
+        if act.kind == "set_attitude":
+            self.set_attitude(act.params["code"])
             return
         if act.kind in ("connect_mail", "connect_calendar", "connect_simple"):
             self.connect_google(act.kind)

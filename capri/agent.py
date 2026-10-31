@@ -12,6 +12,7 @@ from . import commands as C
 from .llm import claude_code, gemini
 from .llm.ollama_client import OllamaClient, OllamaError
 from .persona import system_prompt
+from .llm import grok
 
 HISTORY_LIMIT = 20
 RE_WANTS_CODE = re.compile(r"скрипт|код\b|кода\b|программ|батник|\.bat\b|функци|script|code", re.I)
@@ -77,6 +78,12 @@ RE_DOMAIN = re.compile(r"^[\w-]+(\.[\w-]+)+(/\S*)?$")
 # ключи AI Studio: старые «AIza…», новые (с 2026) — «AQ.…»
 RE_GEMINI_KEY = re.compile(r"(?:(?:ключ|key)\s+(?:для\s+)?(?:gemini|гемини|джемини|джеминай)\s*[:=—-]?\s*)?"
                            r"(?P<key>AIza[\w-]{30,}|AQ\.[\w.-]{30,})")
+RE_GROK_KEY = re.compile(r"(?:(?:ключ|key)\s+(?:для\s+)?(?:grok|грок\w*)\s*[:=—-]?\s*)?(?P<key>xai-[A-Za-z0-9]{20,})")
+_GROK = r"(?:grok|грок\w*|грог\w*)"
+RE_ATTITUDE = re.compile(
+    r"^(?:включи|сделай|поставь|давай|режим|характер)\s+(?:режим\s+|характер\s+)?(?P<what>"
+    r"киберпсих\w*|психа?|психованн\w*|агрессивн\w*|бешен\w*|мягк\w*|добр\w*|дерзк\w*|обычн\w*|нормальн\w*|груб\w*)"
+    r"(?:\s+(?:режим|характер|капри))?$", re.I)
 # ответы на её вопросы
 RE_YES = re.compile(r"^(?:да|ага|угу|давай|конечно|ок|окей|ok|okay|включай|включи|ставь|поставь|го|yes|yeah|yep|ja|klar)\b", re.I)
 RE_NO = re.compile(r"^(?:нет|неа|не надо|не нужно|не включай|не ставь|отмена|отмени|забей|no|nope|nein)\b", re.I)
@@ -571,9 +578,76 @@ class Agent:
                          "rules")
         return None
 
+    def _grok_setup(self, text: str) -> Reply | None:
+        """«ключ grok xai-…» — сохранить; «как подключить grok» — инструкция; «проверь grok»."""
+        if m := RE_GROK_KEY.search(text):
+            key = m.group("key")
+            try:
+                model = grok.check_key(key)
+            except grok.GrokError as e:
+                return Reply(f"Ключ Grok не сохранила: {e}", route="error")
+            except Exception as e:  # noqa: BLE001
+                return Reply(f"Не смогла проверить ключ Grok: {str(e)[:120]}", route="error")
+            try:
+                grok.set_key(key)
+            except Exception as e:  # noqa: BLE001
+                return Reply(f"Ключ рабочий, но сохранить не вышло: {e}", route="error")
+            self.cfg.setdefault("grok", {})["model"] = model
+            self._grok_client = None
+            return Reply(f"Grok подключён ({model}). В режиме «Киберпсих» болтаю через него.", route="rules")
+        t = text.strip(" .!?")
+        if re.search(rf"(?:как|где)\s+(?:подключить|взять|получить|добавить)\s+(?:ключ\s+)?{_GROK}", t, re.I):
+            return Reply("Открой console.x.ai, войди и пополни кредиты (API у xAI платный, но быстрая модель стоит копейки), "
+                         "потом API Keys → Create API key. Ключ начинается с xai- — вставь его в чат Капри: «ключ grok xai-…». "
+                         "Хранится в Диспетчере учётных данных Windows, не в файлах.",
+                         [A.Action("open_url", "console.x.ai", {"url": grok.KEY_PAGE}, needs_confirm=False)], "rules")
+        if re.fullmatch(rf"(?:проверь|протестируй|работает ли)\s+{_GROK}", t, re.I):
+            client = self._grok()
+            if not client:
+                return Reply("Ключа Grok нет. Скажи «как подключить grok».", route="error")
+            try:
+                ans = client.chat([{"role": "user", "content": "Ответь одной короткой фразой: ты на связи?"}], tools=None)
+                return Reply(f"Grok работает ({client.model}): {ans['content'][:120]}", route="rules")
+            except grok.GrokError as e:
+                return Reply(f"Grok не работает: {e}", route="error")
+        return None
+
+    def _attitude_cmd(self, text: str) -> Reply | None:
+        m = RE_ATTITUDE.match(text.strip(" .!?"))
+        if not m:
+            return None
+        w = m.group("what").lower()
+        code = ("psycho" if re.match(r"киберпсих|псих|бешен|агрессивн", w) else "soft" if re.match(r"мягк|добр", w)
+                else "rude" if w.startswith("груб") else "sassy")
+        say = {"psycho": "БЛЯТЬ, наконец-то. Киберпсих на связи — держись, кожаный.",
+               "soft": "Ладно, буду мягкой.", "rude": "Грубая так грубая. Не ной потом.",
+               "sassy": "Обычный режим. Дерзкая, но без перегибов."}[code]
+        if code == "psycho" and not self._grok():
+            say += " (Ключа Grok нет — материться буду через обычную модель, она скромнее. Скажи «как подключить grok».)"
+        return Reply(say, [A.Action("set_attitude", "Характер", {"code": code}, needs_confirm=False)], "rules")
+
+    def _grok(self):
+        """Клиент Grok, если есть ключ и он не выключен в config.yaml."""
+        g = self.cfg.get("grok") or {}
+        if not g.get("enabled", True):
+            return None
+        if getattr(self, "_grok_client", None) is None:
+            key = grok.get_key(g)
+            if not key:
+                return None
+            self._grok_client = grok.GrokClient(key, g.get("model") or grok.DEFAULT_MODEL, g.get("timeout", 60))
+        return self._grok_client
+
+    def _psycho(self) -> bool:
+        return self.cfg.get("persona", {}).get("attitude") == "psycho"
+
     def _rules(self, text: str) -> Reply | None:
         if (gs := self._gemini_setup(text)) is not None:
             return gs
+        if (gs := self._grok_setup(text)) is not None:
+            return gs
+        if (at := self._attitude_cmd(text)) is not None:
+            return at
         from . import quick
         if (q := quick.time_answer(text)) or (q := quick.calc(text)) or (q := quick.pc_info(text)):
             return Reply(q, route="rules")
@@ -729,8 +803,19 @@ class Agent:
         attitude = self.cfg.get("persona", {}).get("attitude", "sassy")
         slang = self.cfg.get("persona", {}).get("slang", True)
         messages = [{"role": "system", "content": system_prompt(self.cfg["user_name"], attitude, slang)}, *self.history]
+        llm = self.llm
+        if self._psycho() and (g := self._grok()):
+            llm = g          # «Киберпсих»: болтает Grok, он не стесняется мата
         try:
-            msg = self.llm.chat(messages, on_token=on_token, should_stop=should_stop)
+            try:
+                msg = llm.chat(messages, on_token=on_token, should_stop=should_stop)
+            except grok.GrokStopped:
+                raise OllamaError("Остановила. Спрашивай по-другому 🙂") from None
+            except grok.GrokError as e:
+                from .log import log
+                log.warning("grok не ответил (%s) — отвечает локальная модель", e)
+                llm = self.llm
+                msg = llm.chat(messages, on_token=on_token, should_stop=should_stop)
         except OllamaError as e:
             self.history.pop()
             return Reply(str(e), route="error")
@@ -757,8 +842,8 @@ class Agent:
         if not acts and not (msg.get("content") or "").strip() and msg.get("tool_calls"):
             # все действия отброшены, а текста нет — просим ответить словами, без инструментов
             try:
-                msg = self.llm.chat(messages, tools=None, on_token=on_token, should_stop=should_stop)
-            except OllamaError as e:
+                msg = llm.chat(messages, tools=None, on_token=on_token, should_stop=should_stop)
+            except (OllamaError, grok.GrokError) as e:
                 self.history.pop()
                 return Reply(str(e), route="error")
 
@@ -823,6 +908,13 @@ class Agent:
         slang = self.cfg.get("persona", {}).get("slang", True)
         system = (system_prompt(self.cfg["user_name"], attitude, slang) +
                   "\nОтвечай по делу и коротко — ответ озвучивается. Без markdown, кроме кода: код — целиком одним блоком ```язык```.")
+        if self._psycho() and not images and (g := self._grok()):
+            try:
+                return g.chat([{"role": "system", "content": system}, {"role": "user", "content": task}],
+                              tools=None, )["content"]
+            except grok.GrokError as e:
+                from .log import log
+                log.warning("grok не ответил (%s) — спрашиваю Gemini", e)
         return self.gemini_ask(task, self._gcfg(), images=images, system=system)
 
     # Claude ---------------------------------------------------------------------
@@ -833,7 +925,7 @@ class Agent:
         in_game = getattr(self, "game", None) is not None and self.game.active
         claude_on = self.cfg["claude_code"].get("enabled", True)
         limited = time.monotonic() < self._claude_limited_until
-        gem_ok = self.gemini_ready()
+        gem_ok = self.gemini_ready() or (self._psycho() and self._grok() is not None and not images)
         if not claude_on and not gem_ok:
             return Reply("Claude выключен в config.yaml, а ключа Gemini нет.", route="error")
         if not remembered:
