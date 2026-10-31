@@ -40,10 +40,32 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hidden,
-    excludes=["tkinter", "matplotlib", "IPython", "pytest", "torch", "tensorflow",
+    excludes=["tkinter", "matplotlib", "IPython", "pytest", "torch", "tensorflow", "hf_xet", "scipy", "pandas",
               "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.Qt3DCore", "PySide6.QtQuick3D"],
     noarchive=False,
 )
+
+
+# --- поменьше установщик: выкидываем то, что Капри не использует -------------------------------------------
+GOOGLE_DOCS = ("gmail.v1.json", "calendar.v3.json", "tasks.v1.json")   # описания API: почта, календарь, задачи
+ESPEAK_LANGS = ("ru_dict", "en_dict", "de_dict", "he_dict")            # словари офлайн-голоса: только наши языки
+
+
+def _drop(name: str) -> bool:
+    n = name.replace("\\", "/").lower()
+    if "googleapiclient/discovery_cache/documents/" in n:
+        return n.rsplit("/", 1)[-1] not in GOOGLE_DOCS                    # было 100+ МБ описаний всех API Google
+    if "/espeak-ng-data/" in n and n.endswith("_dict"):
+        return n.rsplit("/", 1)[-1] not in ESPEAK_LANGS
+    if n.endswith(("nakdimon.onnx", "/tashkeel/model.onnx")):            # огласовка иврита/арабского для piper
+        return not os.environ.get("CAPRI_KEEP_HEBREW")
+    base = n.rsplit("/", 1)[-1]
+    return base in ("opengl32sw.dll",) or base.startswith(("qt6pdf", "qt6quick", "qt6qml", "qt6virtualkeyboard",
+                                                           "qt6designer", "qt6webengine", "qt6charts", "qt63d"))
+
+
+a.binaries = [x for x in a.binaries if not _drop(x[0])]
+a.datas = [x for x in a.datas if not _drop(x[0])]
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
