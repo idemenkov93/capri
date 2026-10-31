@@ -12,7 +12,8 @@ from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from . import actions as A
 from .agent import Agent, Reply
-from .config import expand, load_config
+from . import skins
+from .config import FROZEN, RESOURCE_ROOT, expand, load_config
 from .i18n import t
 from .state import State
 from .ui.avatar import Avatar
@@ -73,9 +74,12 @@ class CapriApp:
         threading.Thread(target=refresh_apps, daemon=True).start()
 
         av = self.cfg["avatar"]
-        custom = self._avatar_source(av, "desktop")
-        hud_source = self._avatar_source(av, "hud")
+        skin = self.prefs.get("skin")
+        custom = self._avatar_source(av, "desktop", skin)
+        hud_source = self._avatar_source(av, "hud", skin)
         mode = av.get("desktop_mode", "auto")   # auto | sprite | holo | star
+        if skin == skins.STAR:
+            mode = "star"
         holo = mode == "holo" or (mode == "auto" and not custom and bool(hud_source))
         if holo:
             custom = hud_source                  # нет прозрачных спрайтов — гуляет голограммой с клипами
@@ -136,6 +140,7 @@ class CapriApp:
         self._fg_timer = QTimer(interval=1000, timeout=control.remember_foreground)
         self._fg_timer.start()
 
+        self._update_uplink_label()
         # грузим модель в видеокарту сразу, пока пользователь ещё ничего не написал
         self.set_status("LOADING")
         self.warmup = Warmup(self.agent)
@@ -143,13 +148,16 @@ class CapriApp:
         self.warmup.start()
 
     @staticmethod
-    def _avatar_source(av: dict, where: str) -> str:
+    def _avatar_source(av: dict, where: str, skin: str | None = None) -> str:
         """Откуда брать анимации.
 
+        Выбранный в меню скин (папка в skins/) — главнее всего.
         assets/custom/desktop/ — для Капри на рабочем столе (лучше GIF с прозрачным фоном),
         assets/custom/hud/     — для экрана в окне «Personal Link» (подойдут кадры из видео с фоном).
-        Если папки нет — берём assets/custom целиком. Путь из config.yaml имеет приоритет.
+        Если папки нет — берём assets/custom целиком. Путь из config.yaml имеет приоритет над assets/custom.
         """
+        if (chosen := skins.source(skin, where)) is not None:
+            return chosen
         key = "desktop_images" if where == "desktop" else "hud_images"
         if av.get(key):
             return str(expand(av[key]))
@@ -403,6 +411,29 @@ class CapriApp:
         dm = menu.addMenu(t("dance", L))
         dm.addAction(self._check(dm, t("dance_on", L), self.prefs.get("dance", True), self.toggle_dance))
         dm.addAction(self._check(dm, t("dance_any", L), self.prefs.get("dance_any", False), self.toggle_dance_any))
+        bm = menu.addMenu(t("brain", L))
+        bg = QActionGroup(bm)
+        want = self.cfg.get("brain", {}).get("provider", "claude")
+        for code in ("claude", "gemini", "ollama"):
+            act = QAction(t(f"brain_{code}", L), bm, checkable=True, checked=(code == want))
+            act.triggered.connect(lambda _=False, c=code: self.set_brain(c))
+            bg.addAction(act)
+            bm.addAction(act)
+        now = self.agent.provider()
+        if now != want:
+            bm.addSeparator()
+            bm.addAction(t("brain_now", L).format(t(f"brain_{now}", L))).setEnabled(False)
+        sm = menu.addMenu(t("skin", L))
+        sg = QActionGroup(sm)
+        current_skin = self.prefs.get("skin") or ""
+        for code, label in [("", t("skin_default", L))] + [(n, n) for n in skins.list_skins()] + [(skins.STAR, t("skin_star", L))]:
+            act = QAction(label, sm, checkable=True, checked=(code == current_skin))
+            act.triggered.connect(lambda _=False, c=code: self.set_skin(c))
+            sg.addAction(act)
+            sm.addAction(act)
+        sm.addSeparator()
+        sm.addAction(t("skin_folder", L), lambda: self._open_folder(skins.skins_dir()))
+        sm.addAction(t("anim_folder", L), lambda: self._open_folder(skins.custom_dir()))
         menu.addAction(t("hide", L) if self.avatar.isVisible() else t("show", L), self.toggle_avatar)
 
         lm = menu.addMenu(t("language", L))
@@ -413,8 +444,83 @@ class CapriApp:
             lg.addAction(act)
             lm.addAction(act)
         menu.addSeparator()
+        menu.addAction(t("setup", L), self.open_setup)
+        if FROZEN:
+            menu.addAction(t("updates", L), self.check_updates)
+        menu.addAction(t("restart", L), self.restart)
         menu.addAction(t("quit", L), self.qt.quit)
         return menu
+
+    def set_brain(self, code: str):
+        """Сменить умного помощника сразу, без перезапуска (и записать в config.yaml)."""
+        self.cfg.setdefault("brain", {})["provider"] = code
+        try:
+            from .setup_config import apply
+            from .ui.setup_wizard import config_path
+            path = config_path()
+            if path.exists():
+                path.write_text(apply(path.read_text(encoding="utf-8"), {("brain", "provider"): code}), encoding="utf-8")
+        except OSError:
+            pass
+        self._update_uplink_label()
+        now = self.agent.provider()
+        if now != code:
+            self.chat.add_system(t("brain_missing", self.lang).format(t(f"brain_{code}", self.lang), t(f"brain_{now}", self.lang)))
+
+    def _update_uplink_label(self):
+        try:
+            from .ui import hud
+            hud.STATE_LABEL["CLAUDE"] = "UPLINK // " + {"claude": "CLAUDE", "gemini": "GEMINI"}.get(self.agent.provider(), "VISION")
+        except Exception:  # noqa: BLE001
+            pass
+
+    # внешность, мастер настройки, перезапуск -----------------------------------
+    def set_skin(self, code: str):
+        if code == (self.prefs.get("skin") or ""):
+            return
+        self.prefs.set("skin", code)
+        if self._confirm(t("restart_ask", self.lang)):
+            self.restart()
+
+    @staticmethod
+    def _open_folder(path):
+        import os
+        path.mkdir(parents=True, exist_ok=True)
+        if sys.platform == "win32":
+            os.startfile(str(path))  # noqa: S606
+
+    def open_setup(self):
+        from .ui.setup_wizard import run_wizard
+        if run_wizard(first_run=False) and self._confirm(t("restart_ask", self.lang)):
+            self.restart()
+
+    def check_updates(self):
+        from . import updates
+        info = updates.latest()
+        if info is None:
+            QMessageBox.information(None, "Capri", t("upd_fail", self.lang))
+        elif updates.newer(info["version"]):
+            if self._confirm(t("upd_new", self.lang).format(v=info["version"])):
+                __import__("webbrowser").open(info["url"])
+        else:
+            QMessageBox.information(None, "Capri", t("upd_none", self.lang))
+
+    def restart(self):
+        """Новая Капри дождётся, пока эта закроется (--wait-pid), и запустится с новыми настройками."""
+        import os
+        import subprocess
+        cmd = [sys.executable] if FROZEN else [sys.executable, "-m", "capri"]
+        cmd.append(f"--wait-pid={os.getpid()}")
+        try:
+            subprocess.Popen(cmd, cwd=None if FROZEN else str(RESOURCE_ROOT), close_fds=True)
+        except OSError:
+            return
+        self.qt.quit()
+
+    def _confirm(self, text: str) -> bool:
+        box = QMessageBox(QMessageBox.Question, "Capri", text, QMessageBox.Yes | QMessageBox.No)
+        box.setWindowFlag(Qt.WindowStaysOnTopHint)
+        return box.exec() == QMessageBox.Yes
 
     @staticmethod
     def _check(parent, label: str, checked: bool, slot) -> QAction:
@@ -702,7 +808,8 @@ class CapriApp:
     def on_status(self, status: str):
         self.set_status(status)
         if status == "CLAUDE":
-            self.chat.add_system("Передаю задачу Claude… это может занять минуту.")
+            who = {"claude": "Claude", "gemini": "Gemini"}.get(self.agent.provider(), "локальной модели со зрением")
+            self.chat.add_system(f"Передаю задачу {who}… это может занять минуту.")
 
     def on_reply(self, reply: Reply):
         from .log import log
@@ -930,14 +1037,44 @@ def _kill_stale(log) -> None:
             pass
 
 
+def _wait_pid(pid: int, timeout: float = 20.0) -> None:
+    """Перезапуск: ждём, пока старая Капри закроется (иначе новая решит, что Капри уже запущена)."""
+    if sys.platform == "win32":
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x00100000, False, pid)        # SYNCHRONIZE
+        if h:
+            k32.WaitForSingleObject(h, int(timeout * 1000))
+            k32.CloseHandle(h)
+        return
+    import os
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < timeout:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return
+        time.sleep(0.2)
+
+
 def main() -> int:
     import os
 
     from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
+    args = sys.argv[1:]
+    if any(a.startswith("--check") for a in args):           # сборка: проверить, что всё упаковалось
+        from .selfcheck import run
+        return run(next((a.split("=", 1)[1] for a in args if a.startswith("--check=")), None))
+    if any(a == "--selftest" for a in args):
+        from .selftest import main as selftest
+        return selftest() or 0
+    if wait := next((a.split("=", 1)[1] for a in args if a.startswith("--wait-pid=")), None):
+        _wait_pid(int(wait))
+
     from .log import log, setup
     setup()
-    log.info("=== Капри запускается ===")
+    log.info("=== Капри запускается (%s) ===", "Capri.exe" if FROZEN else "из исходников")
 
     # Только одна Капри: если она уже запущена — показываем её чат и выходим.
     # Живая Капри отвечает «ok»; если ответа нет — это зависший процесс: завершаем его и запускаемся сами.
@@ -953,6 +1090,16 @@ def main() -> int:
         _kill_stale(log)
         time.sleep(1.0)
 
+    qt_app = QApplication.instance() or QApplication(sys.argv)   # держим ссылку, иначе Qt удалит приложение
+    qt_app.setApplicationName("Capri")
+    try:
+        skins.first_run_copy()
+    except OSError:
+        log.exception("не удалось скопировать анимации")
+    from .ui.setup_wizard import needs_setup, run_wizard
+    if "--setup" in args or needs_setup():
+        log.info("мастер настройки")
+        run_wizard(first_run=True)
     try:
         app = CapriApp()
     except Exception:

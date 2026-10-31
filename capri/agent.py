@@ -5,6 +5,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from . import actions as A
@@ -21,11 +22,15 @@ CODE_EXT = {"powershell": ".ps1", "ps1": ".ps1", "pwsh": ".ps1", "ps": ".ps1", "
             "sql": ".sql", "yaml": ".yaml", "yml": ".yaml", "json": ".json", "javascript": ".js", "js": ".js"}
 
 
+class BrainError(RuntimeError):
+    pass
+
+
 @dataclass
 class Reply:
     text: str
     actions: list[A.Action] = field(default_factory=list)
-    route: str = "local"   # rules | local | claude | error
+    route: str = "local"   # rules | local | claude | gemini | error
     ask: bool = False      # Капри задала вопрос — после ответа слушать без «Капри»
 
 
@@ -152,7 +157,7 @@ def _human(minutes: int) -> str:
 class Agent:
     def __init__(self, config: dict, llm: OllamaClient | None = None,
                  claude: Callable[[str, dict], str] = claude_code.ask, system=None, apps=None,
-                 gemini_ask: Callable[..., str] | None = None):
+                 gemini_ask: Callable[..., str] | None = None, gemini: Callable | None = None):
         self.cfg = config
         if apps is None:
             from .applist import AppIndex
@@ -170,8 +175,9 @@ class Agent:
         o = config["ollama"]
         self.llm = llm or OllamaClient(o["url"], o["model"], o["timeout"], o.get("think"), o.get("options"))
         self.claude = claude
-        self.gemini_ask = gemini_ask or gemini.ask
-        self._claude_limited_until = 0.0     # лимит Claude кончился — до этого времени сразу идём в Gemini
+        from .llm import gemini as gmod
+        self.gemini_ask = gemini_ask or gemini or gmod.ask      # в тестах — заглушка
+        self._claude_limited_until = 0.0     # лимит Claude кончился — до этого времени Claude не трогаем
         self.history: list[dict] = []
         self.game = None      # GameMode из app.py: идёт ли игра, строгий ли режим, данные CS2
         self.pending: dict | None = None   # Капри спросила и ждёт ответ: {"kind": "timer" | "confirm", "at": …}
@@ -218,7 +224,7 @@ class Agent:
             return self._ask_claude(text, on_status)
         if g:
             # локальная модель выгружена из видеокарты ради игры — спрашиваем Claude (он в облаке)
-            if self.cfg["claude_code"].get("enabled", True) or self.gemini_ready():
+            if self._order():
                 return self._ask_claude(f"{g.context()} Вопрос: «{text}». Ответь коротко, 1–3 предложения, для озвучки, без markdown.",
                                         on_status, label=text)
             if g.strict:
@@ -528,28 +534,26 @@ class Agent:
         return None
 
     def _vision_click(self, what: str, on_status) -> Reply:
-        """Кнопки нет в «дереве» окна (игры, видео, свои интерфейсы) — Claude смотрит на скриншот и говорит, куда нажать."""
+        """Кнопки нет в «дереве» окна (игры, видео, свои интерфейсы) — умный помощник смотрит на скриншот
+        (Claude, Gemini или локальная модель со зрением) и говорит, куда нажать."""
         from . import control, screen
-        from .config import expand
-        if not self.cfg["claude_code"].get("enabled", True):
-            return Reply(f"Не нашла в окне «{what}». (Посмотреть на экран могу через Claude — он выключен в config.yaml.)", route="error")
         on_status("CLAUDE")
         try:
-            path, scale, x0, y0, w, h = screen.screenshot_for_locate(expand(self.cfg["claude_code"].get("workdir", "workspace")))
-            answer = self.claude(screen.locate_prompt(what, path, w, h), self.cfg["claude_code"])
-        except claude_code.ClaudeError as e:
-            return Reply(str(e), route="error")
+            path, scale, x0, y0, w, h = screen.screenshot_for_locate(self._workdir())
+            answer, route = self._brain(screen.locate_prompt(what, w, h), [self._workdir() / path], persona=False)
+        except BrainError as e:
+            return Reply(f"Не нашла в окне «{what}», а посмотреть на экран не вышло: {e}", route="error")
         except Exception as e:  # noqa: BLE001
             return Reply(f"Не смогла посмотреть на экран: {e}", route="error")
         pt = screen.parse_point(answer)
         if not pt:
-            return Reply(f"Посмотрела — не вижу на экране «{what}».", route="claude")
+            return Reply(f"Посмотрела — не вижу на экране «{what}».", route=route)
         if control.RISKY.search(what):
             x, y = screen.to_screen(pt, scale, x0, y0)
             act = A.Action("click_at", f"Нажать «{what}»", {"x": x, "y": y}, needs_confirm=True)
-            return Reply(f"Нашла «{what}». Нажать?", [act], "claude")
+            return Reply(f"Нашла «{what}». Нажать?", [act], route)
         control.click(at=screen.to_screen(pt, scale, x0, y0))
-        return Reply(f"Нажала «{what}» (посмотрела на экран).", route="claude")
+        return Reply(f"Нажала «{what}» (посмотрела на экран).", route=route)
 
     def _weather(self, text: str) -> Reply:
         from . import weather
@@ -560,22 +564,19 @@ class Agent:
             return Reply(f"Погоду узнать не вышло: {e}", route="error")
 
     def _screen(self, text: str, on_status) -> Reply:
-        """Снимок экрана → Claude смотрит и отвечает (локальная модель картинки не видит)."""
+        """Снимок экрана → умный помощник смотрит и отвечает (обычная локальная модель картинки не видит)."""
         from . import screen
-        from .config import expand
         on_status("CLAUDE")
         try:
             in_game = bool(self.game is not None and self.game.active)
-            workdir = expand(self.cfg["claude_code"].get("workdir", "workspace"))
-            paths, title = screen.capture(workdir, in_game=True) if in_game else screen.capture(workdir)
+            paths, title = screen.capture(self._workdir(), in_game=True) if in_game else screen.capture(self._workdir())
         except Exception as e:  # noqa: BLE001
             return Reply(f"Не смогла сделать снимок экрана: {e}", route="error")
-        import os
-        abs_paths = [os.path.join(str(workdir), p) for p in paths]
         where = f" Активное окно: «{title}»." if title else ""
         g_task = (f"Пользователь спрашивает про то, что у него на экране (скриншоты приложены): «{text}».{where} "
                   "Если там ошибка — что она значит и как исправить. Если игра — подскажи по ситуации. 2–5 предложений.")
-        return self._ask_claude(screen.prompt(text, paths, title), on_status, label=text, gemini_task=g_task, images=abs_paths)
+        return self._ask_claude(screen.prompt(text, title), on_status, label=text, gemini_task=g_task,
+                                images=[self._workdir() / p for p in paths])
 
     # быстрые правила --------------------------------------------------------
     def _games(self, text: str) -> Reply | None:
@@ -810,9 +811,11 @@ class Agent:
         return Reply(" ".join(parts), acts, "rules")
 
     # локальная модель -------------------------------------------------------
-    def _local(self, text: str, on_status, on_token=None, should_stop=None) -> Reply:
+    def _local(self, text: str, on_status, on_token=None, should_stop=None, escalate: bool = True,
+               remembered: bool = False) -> Reply:
         on_status("THINKING")
-        self._remember("user", text)
+        if not remembered:
+            self._remember("user", text)
         attitude = self.cfg.get("persona", {}).get("attitude", "sassy")
         slang = self.cfg.get("persona", {}).get("slang", True)
         messages = [{"role": "system", "content": system_prompt(self.cfg["user_name"], attitude, slang)}, *self.history]
@@ -834,7 +837,9 @@ class Agent:
                 except json.JSONDecodeError:
                     args = {}
             if name == "ask_claude":
-                return self._ask_claude(args.get("task") or text, on_status, remembered=True)
+                if escalate and self.provider() != "ollama":
+                    return self._ask_claude(args.get("task") or text, on_status, remembered=True)
+                continue                       # отдать некому — модель отвечает сама
             if not self._tool_makes_sense(name, args, text):
                 continue                       # модель «додумала» действие, о котором не просили
             act = self._tool_to_action(name, args)
@@ -897,14 +902,20 @@ class Agent:
             return None
         return None
 
-    # Claude ---------------------------------------------------------------------
-    # Gemini ---------------------------------------------------------------------
+    # умный помощник: Claude / Gemini / локальная модель ---------------------------
+    def _workdir(self):
+        from .config import expand
+        return expand(self.cfg["claude_code"].get("workdir", "workspace"))
+
     def _gcfg(self) -> dict:
-        return self.cfg.get("gemini") or {}
+        """Настройки Gemini: раздел gemini, а то, что выбрал мастер настройки (brain.gemini), — поверх."""
+        return {**(self.cfg.get("gemini") or {}), **((self.cfg.get("brain") or {}).get("gemini") or {})}
 
     def gemini_ready(self) -> bool:
         g = self._gcfg()
-        return bool(g.get("enabled", True)) and bool(gemini.get_key(g) if self.gemini_ask is gemini.ask else True)
+        return bool(g.get("enabled", True)) and (self.gemini_ask is not gemini.ask or bool(gemini.get_key(g)))
+
+    _gemini_ready = gemini_ready
 
     def _ask_gemini(self, task: str, images: list | None = None) -> str:
         attitude = self.cfg.get("persona", {}).get("attitude", "sassy")
@@ -913,59 +924,152 @@ class Agent:
                   "\nОтвечай по делу и коротко — ответ озвучивается. Без markdown, кроме кода: код — целиком одним блоком ```язык```.")
         return self.gemini_ask(task, self._gcfg(), images=images, system=system)
 
-    # Claude ---------------------------------------------------------------------
+    def _claude_ready(self) -> bool:
+        c = self.cfg["claude_code"]
+        if not c.get("enabled", True):
+            return False
+        return self.claude is not claude_code.ask or bool(claude_code.find_claude(c.get("command", "claude")))
+
+    def provider(self) -> str:
+        """Кто решает сложное: выбранный в мастере, а если его нет (не установлен, нет ключа) — следующий."""
+        return self._order(for_game=False)[0] if self._order(for_game=False) else "ollama"
+
+    def _order(self, for_game: bool = True) -> list[str]:
+        """Порядок, в котором спрашиваем помощников.
+        Выбор из мастера → кто реально доступен → лимит Claude → игра (Gemini первым, в CS2 без Claude и без локальной)."""
+        want = self.cfg.get("brain", {}).get("provider", "claude")
+        base = {"claude": ["claude", "gemini", "ollama"], "gemini": ["gemini", "claude", "ollama"]}.get(want, ["ollama"])
+        order = [p for p in base if p == "ollama" or (p == "claude" and self._claude_ready())
+                 or (p == "gemini" and self.gemini_ready())]
+        if time.monotonic() < self._claude_limited_until and "claude" in order:
+            order.remove("claude")
+        g = self.game if for_game else None
+        if g is not None and getattr(g, "active", False):
+            if "gemini" in order and self._gcfg().get("in_games", True):
+                order.remove("gemini")
+                order.insert(0, "gemini")              # в игре — быстрый HTTP-запрос, без процессов и окон
+            if getattr(g, "strict", False):
+                # CS2: Claude — это минуты и нагрузка на процессор, локальная модель — видеокарта
+                # есть Gemini — только он; нет — Claude (между раундами), но не локальная
+                order = ["gemini"] if "gemini" in order else [p for p in order if p == "claude"]
+        return order
+
+    def _style_prefix(self) -> str:
+        att = self.cfg["claude_code"].get("attitude")
+        return (claude_code.PREFIX + (claude_code.SLANG if self.cfg["claude_code"].get("slang", True) else "")
+                + {"rude": claude_code.RUDE, "psycho": claude_code.PSYCHO}.get(att, ""))
+
+    def _claude_prompt(self, task: str, images: list | None) -> str:
+        if not images:
+            return task
+        wd = self._workdir()
+        rel = ", ".join(Path(i).relative_to(wd).as_posix() if Path(i).is_relative_to(wd) else Path(i).as_posix()
+                        for i in images)
+        return task + f"\nСкриншоты лежат в текущей папке: {rel}. Открой их инструментом Read и посмотри внимательно."
+
+    def _brain(self, task: str, images: list | None = None, persona: bool = True) -> tuple[str, str]:
+        """Задать вопрос умному помощнику (для «посмотри и нажми»). → (ответ, route). Ошибки — BrainError."""
+        errors = []
+        for p in self._order():
+            if p == "claude":
+                try:
+                    return self.claude(self._claude_prompt(task, images), self.cfg["claude_code"]), "claude"
+                except claude_code.ClaudeLimit as e:
+                    self._claude_limited_until = time.monotonic() + 30 * 60
+                    errors.append(str(e))
+                except claude_code.ClaudeError as e:
+                    errors.append(str(e))
+            elif p == "gemini":
+                try:
+                    return self.gemini_ask(task, self._gcfg(), images=images,
+                                           system=self._style_prefix() if persona else ""), "gemini"
+                except gemini.GeminiError as e:
+                    errors.append(f"Gemini: {e}")
+            elif images:
+                vm = self.cfg.get("brain", {}).get("vision_model")
+                if not vm:
+                    errors.append("смотреть на экран умеет Claude, Gemini или локальная модель со зрением — "
+                                  "выбери что-то из этого в «⚙ Мастер настройки»")
+                    continue
+                try:
+                    return self.llm.ask_images((self._style_prefix() if persona else "") + task, images, vm), "local"
+                except OllamaError as e:
+                    errors.append(str(e))
+            else:
+                raise BrainError("local")
+        raise BrainError(errors[-1] if errors else "умный помощник недоступен")
+
     def _ask_claude(self, task: str, on_status, remembered: bool = False, label: str | None = None,
                     gemini_task: str | None = None, images: list | None = None) -> Reply:
-        """Умный помощник. Claude, а Gemini — в играх (быстро, без окон и процессов) и когда лимит Claude кончился."""
-        g = self._gcfg()
-        in_game = self.game is not None and self.game.active
-        claude_on = self.cfg["claude_code"].get("enabled", True)
-        limited = time.monotonic() < self._claude_limited_until
-        gem_ok = self.gemini_ready()
-        if not claude_on and not gem_ok:
-            return Reply("Claude выключен в config.yaml, а ключа Gemini нет.", route="error")
+        """Умный помощник: выбранный в мастере; в играх — Gemini; кончился лимит Claude — следующий по списку."""
+        order = self._order()
+        want = self.cfg.get("brain", {}).get("provider", "claude")
+        if not order:
+            return Reply("Пока идёт игра, спросить некого: Claude и локальную модель не запускаю, а Gemini не подключён. "
+                         "Скажи «как подключить gemini».", route="error")
+        if order[0] == "ollama" and not images:
+            # нет ни Claude, ни Gemini — отвечает локальная модель (попроще, но честно)
+            r = self._local(label or task, on_status, escalate=False, remembered=remembered)
+            if r.route == "local" and want != "ollama":
+                r.text += "\n\n(Отвечаю сама — Claude/Gemini не подключены, поэтому попроще.)"
+            return r
+        on_status("CLAUDE")
         if not remembered:
             self._remember("user", label or task)
-        note = ""
-        answer = None
-        if gem_ok and ((in_game and g.get("in_games", True)) or limited or not claude_on):
-            on_status("CLAUDE")
-            try:
-                answer = self._ask_gemini(gemini_task or task, images)
-            except gemini.GeminiError as e:
-                from .log import log
-                log.warning("gemini не ответил (%s) — спрашиваю Claude", e)
-                if not claude_on or limited or (in_game and self.game.strict):
-                    # в CS2 Claude не запускаем: это минуты ожидания и нагрузка на процессор посреди матча
-                    return Reply(f"Gemini не ответил: {e}", route="error")
-        if answer is None:
-            on_status("CLAUDE")
-            try:
-                answer = self.claude(task, self.cfg["claude_code"])
-            except claude_code.ClaudeLimit as e:
-                self._claude_limited_until = time.monotonic() + 30 * 60
-                if not (gem_ok and g.get("when_claude_limit", True)):
-                    return Reply(str(e) + " (Добавь бесплатный ключ Gemini — скажи «как подключить gemini».)", route="error")
+        from .log import log
+        errors: list[str] = []
+        why = ""
+        answer = route = None
+        for p in order:
+            if p == "claude":
                 try:
-                    answer = self._ask_gemini(gemini_task or task, images)
-                    note = "Лимит Claude кончился — ответил Gemini. "
-                except gemini.GeminiError as ge:
-                    return Reply(f"{e} А Gemini: {ge}", route="error")
-            except claude_code.ClaudeError as e:
-                if gem_ok:
-                    try:
-                        answer = self._ask_gemini(gemini_task or task, images)
-                        note = "Claude не ответил — ответил Gemini. "
-                    except gemini.GeminiError:
-                        return Reply(str(e), route="error")
-                else:
-                    return Reply(str(e), route="error")
-        answer = note + answer
+                    answer, route = self.claude(self._claude_prompt(task, images), self.cfg["claude_code"]), "claude"
+                    break
+                except claude_code.ClaudeLimit as e:
+                    self._claude_limited_until = time.monotonic() + 30 * 60
+                    errors.append(str(e))
+                    why = "Лимит Claude кончился"
+                    if not self._gcfg().get("when_claude_limit", True) and "gemini" in order:
+                        order = [x for x in order if x != "gemini"]
+                except claude_code.ClaudeError as e:
+                    errors.append(str(e))
+                    why = "Claude не ответил"
+            elif p == "gemini":
+                if p not in order:
+                    continue
+                try:
+                    answer, route = self._ask_gemini(gemini_task or task, images), "gemini"
+                    break
+                except gemini.GeminiError as e:
+                    log.warning("gemini не ответил (%s)", e)
+                    errors.append(f"Gemini не ответил: {e}")
+                    why = why or "Gemini не ответил"
+            elif images:
+                vm = self.cfg.get("brain", {}).get("vision_model")
+                if not vm:
+                    errors.append("смотреть на экран умеет Claude, Gemini или локальная модель со зрением — "
+                                  "выбери что-то из этого в «⚙ Мастер настройки»")
+                    continue
+                try:
+                    answer, route = self.llm.ask_images(self._style_prefix() + (gemini_task or task), images, vm), "local"
+                    break
+                except OllamaError as e:
+                    errors.append(str(e))
+            else:
+                r = self._local(label or task, on_status, escalate=False, remembered=True)
+                if r.route == "local":
+                    hint = "" if self.gemini_ready() else " Бесплатный ключ Gemini — скажи «как подключить gemini»."
+                    r.text += f"\n\n({why or 'Помощник не ответил'} — отвечаю сама, попроще.{hint})"
+                return r
+        if answer is None:
+            return Reply(errors[-1] if errors else "Умный помощник недоступен.", route="error")
+        if why:
+            answer = f"{why} — ответил {'Gemini' if route == 'gemini' else 'Claude' if route == 'claude' else 'локальная модель'}. " + answer
         self._remember("assistant", answer)
-        if RE_WANTS_CODE.search(label or task):
-            if saved := self._save_code(answer):
+        if RE_WANTS_CODE.search(label or task) and not images:
+            if saved := self._save_code(answer, route):
                 return saved
-        return Reply(answer, route="claude")
+        return Reply(answer, route=route)
 
     def _help(self, desktop: bool = False) -> Reply:
         """Список команд — в файл и в Блокнот (голосом такое не прочитаешь)."""
@@ -980,7 +1084,7 @@ class Agent:
         return Reply("Умею много: музыка, окна, мониторы, мышь и клавиатура, файлы, Google, погода, экран, скрипты. "
                      f"Полный список открыла в Блокноте — он лежит {'на рабочем столе' if desktop else 'в «Документах»'}.", [act], "rules")
 
-    def _save_code(self, answer: str) -> Reply | None:
+    def _save_code(self, answer: str, route: str = "claude") -> Reply | None:
         """«Напиши скрипт…» — код из ответа кладём в файл и открываем в Блокноте; озвучивается только пояснение."""
         import datetime as dt
 
@@ -1001,7 +1105,7 @@ class Agent:
         text = re.sub(r"\n{3,}", "\n\n", text)
         note = f"Сохранила в «Документы\\Capri скрипты\\{path.name}» и открыла в Блокноте."
         act = A.Action("open_file", f"Открыть {path.name}", {"path": str(path)}, needs_confirm=False)
-        return Reply(f"{text}\n\n{note}" if text else note, [act], "claude")
+        return Reply(f"{text}\n\n{note}" if text else note, [act], route)
 
     def _remember(self, role: str, content: str) -> None:
         self.history.append({"role": role, "content": content})

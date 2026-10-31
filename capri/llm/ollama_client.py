@@ -173,6 +173,24 @@ class OllamaClient:
             ) from e
         return {"content": strip_thinking("".join(content)), "tool_calls": tool_calls}
 
+    def ask_images(self, prompt: str, images: list, model: str) -> str:
+        """Вопрос про картинки локальной модели со зрением (qwen3-vl, gemma3…)."""
+        import base64
+        from pathlib import Path
+        msg = {"role": "user", "content": prompt,
+               "images": [base64.b64encode(Path(i).read_bytes()).decode() for i in images]}
+        payload = {"model": model, "messages": [msg], "stream": False, "keep_alive": "10m",
+                   "think": False, "options": {"num_predict": 700, "num_ctx": 8192}}
+        try:
+            r = httpx.post(f"{self.url}/api/chat", json=payload, timeout=max(self.timeout, 300))
+        except httpx.HTTPError as e:
+            raise OllamaError(f"Ollama не отвечает: {e}") from e
+        if r.status_code == 404:
+            raise OllamaError(f"Нет модели {model} — поставь её в «⚙ Мастер настройки» (или ollama pull {model}).")
+        if r.status_code >= 400:
+            raise OllamaError(f"Ollama: {r.text[:200]}")
+        return strip_thinking(r.json().get("message", {}).get("content", ""))
+
     def unload(self) -> None:
         """Выгрузить модель из видеопамяти (режим ожидания). Следующий вопрос загрузит её снова."""
         try:

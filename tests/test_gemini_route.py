@@ -54,8 +54,12 @@ def test_limit_without_gemini_says_how_to_connect(monkeypatch):
 
     def claude(t, c):
         raise claude_code.ClaudeLimit("лимит")
-    a = Agent(copy.deepcopy(DEFAULTS), llm=object(), claude=claude, system=Sys(), apps=AppIndex(Path("/x")))
-    assert "как подключить gemini" in a.handle("объясни подробно, что такое DNS").text
+    class Local:
+        def chat(self, *a, **k):
+            return {"content": "DNS — телефонная книга интернета.", "tool_calls": []}
+    a = Agent(copy.deepcopy(DEFAULTS), llm=Local(), claude=claude, system=Sys(), apps=AppIndex(Path("/x")))
+    r = a.handle("объясни подробно, что такое DNS")
+    assert r.text.startswith("DNS") and "Лимит Claude кончился" in r.text and "как подключить gemini" in r.text
 
 
 def test_limit_answer_text_is_detected():

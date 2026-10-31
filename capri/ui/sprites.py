@@ -8,6 +8,7 @@
   talk / speak   — говорит
   listen         — слушает
   teleport / tp  — исчезает и появляется
+  dance / танец  — танцует под музыку (несколько файлов — разные танцы, меняются от песни к песне)
 Файлы без ключевых слов становятся дополнительными вариантами idle — Капри их чередует.
 
 Папка с кадрами (0001.png, 0002.png, … — хотя бы 3 штуки) — это одна анимация.
@@ -28,6 +29,7 @@ KEYWORDS = {
     "talk": ("talk", "speak", "say"),
     "listen": ("listen", "hear"),
     "teleport": ("teleport", "tp", "warp", "blink"),
+    "dance": ("danc", "танц", "танец", "twerk", "groove"),
     "idle": ("idle", "stand", "default", "main", "float"),
 }
 EXTS = {".gif", ".png", ".webp"}

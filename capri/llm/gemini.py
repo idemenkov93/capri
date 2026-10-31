@@ -118,7 +118,7 @@ def _error_text(r: httpx.Response) -> str:
 def ask(prompt: str, cfg: dict, images: list[Path] | None = None, system: str = "") -> str:
     key = get_key(cfg)
     if not key:
-        raise GeminiError(f"Нет ключа Gemini. Возьми бесплатный на {KEY_PAGE} и вставь его в чат Капри.")
+        raise GeminiError(f"Нет ключа Gemini. Возьми бесплатный на {KEY_PAGE} и вставь его в чат Капри или в мастере настройки.")
     parts: list[dict] = [{"text": prompt}]
     for img in images or []:
         parts.append({"inline_data": {"mime_type": "image/png", "data": base64.b64encode(Path(img).read_bytes()).decode()}})
@@ -146,7 +146,7 @@ def ask(prompt: str, cfg: dict, images: list[Path] | None = None, system: str = 
     if r.status_code in (401, 403) or (r.status_code == 400 and "API key" in r.text):
         raise GeminiError(f"Gemini не принял ключ: {_error_text(r)}")
     if r.status_code == 404:
-        raise GeminiError(f"Модели Gemini недоступны: {_error_text(r)}")
+        raise GeminiError(f"Модели Gemini недоступны ({_error_text(r) or 'нет такой модели'}) — запусти мастер настройки, он выберет новую.")
     if r.status_code >= 400:
         raise GeminiError(f"Gemini: ошибка {r.status_code}: {_error_text(r)}")
     data = r.json()
