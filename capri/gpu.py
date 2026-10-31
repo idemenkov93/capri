@@ -74,6 +74,23 @@ def read() -> dict | None:
         return {"temp": int(t.value), "load": load}
 
 
+class _Mem(ctypes.Structure):
+    _fields_ = [("total", ctypes.c_ulonglong), ("free", ctypes.c_ulonglong), ("used", ctypes.c_ulonglong)]
+
+
+def memory() -> dict | None:
+    """{'used': МБ, 'total': МБ, 'load': %} или None (не NVIDIA)."""
+    with _lock:
+        if not _init():
+            return None
+        m = _Mem()
+        if _lib.nvmlDeviceGetMemoryInfo(_handle, ctypes.byref(m)) != 0:
+            return None
+        u = _Util()
+        load = u.gpu if _lib.nvmlDeviceGetUtilizationRates(_handle, ctypes.byref(u)) == 0 else None
+        return {"used": int(m.used / 2**20), "total": int(m.total / 2**20), "load": load}
+
+
 class Stats:
     """Копит замеры за игру: максимум и среднее."""
 

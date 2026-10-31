@@ -89,6 +89,9 @@ RE_ASKISH = re.compile(r"\?|^(?:а\s+|и\s+|ну\s+)?(?:как|что|чем|г�
 # ключи AI Studio: старые «AIza…», новые (с 2026) — «AQ.…»
 RE_GEMINI_KEY = re.compile(r"(?:(?:ключ|key)\s+(?:для\s+)?(?:gemini|гемини|джемини|джеминай)\s*[:=—-]?\s*)?"
                            r"(?P<key>AIza[\w-]{30,}|AQ\.[\w.-]{30,})")
+RE_USAGE = re.compile(r"\bсколько\s+(?:ты|капри)\s+(?:ешь|жр[её]шь|потребляешь|занимаешь|берёшь|берешь)|"
+                      r"\b(?:статистик\w*|расход\w*)\s+ресурс\w*|\bсколько\s+ресурсов\s+(?:ты|ешь|жр)", re.I)
+RE_REPORT = re.compile(r"^(?:собери|сделай|создай)\s+отч[её]т(?:\s+(?:для\s+разработчика|для\s+игоря|об?\s+ошибках))?$", re.I)
 RE_ATTITUDE = re.compile(
     r"^(?:включи|сделай|поставь|давай|режим|характер)\s+(?:режим\s+|характер\s+)?(?P<what>"
     r"киберпсих\w*|психа?|психованн\w*|агрессивн\w*|бешен\w*|мягк\w*|добр\w*|дерзк\w*|обычн\w*|нормальн\w*|груб\w*)"
@@ -660,6 +663,14 @@ class Agent:
             return gs
         if (at := self._attitude_cmd(text)) is not None:
             return at
+        t0 = text.strip(" .!?")
+        if RE_USAGE.search(t0):
+            from . import usage
+            from .config import expand
+            return Reply(usage.summary(expand("data/usage.csv")), route="rules")
+        if RE_REPORT.search(t0):
+            return Reply("Собираю отчёт: журнал и расход ресурсов — положу zip на рабочий стол.",
+                         [A.Action("make_report", "Отчёт для разработчика", {}, needs_confirm=False)], "rules")
         if (gr := self._games(text)) is not None:
             return gr
         from . import quick

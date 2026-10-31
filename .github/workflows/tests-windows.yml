@@ -1,9 +1,7 @@
-# Тесты на настоящей Windows для ветки игрового помощника (без сборки exe).
+# Тесты на настоящей Windows без сборки exe — вручную (основная проверка — build-windows.yml).
 name: Tests (Windows)
 
 on:
-  push:
-    branches: [feature/gaming]
   workflow_dispatch:
 
 jobs:

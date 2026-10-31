@@ -1,11 +1,11 @@
 # Сборка Capri.exe и установщика на Windows.
-# Запускается: пуш в ветку feature/installer (проверить сборку), тег v* (выпустить релиз) или вручную.
+# Запускается: пуш в main (тесты + проверить сборку), тег v* (выпустить релиз) или вручную.
 # Публичная сборка — без картинок из assets/custom (их в репозитории нет); внешность — скинами.
 name: Build Windows
 
 on:
   push:
-    branches: [feature/installer]
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-voice.txt -r requirements-system.txt -r requirements-google.txt
+          pip install -r requirements.txt -r requirements-voice.txt -r requirements-system.txt -r requirements-google.txt -r requirements-game.txt
           pip install "pyinstaller>=6.10" pytest
 
       - name: Tests
@@ -50,6 +50,17 @@ jobs:
           $last = Select-String -Path pytest.txt -Pattern '^tests[/\\]' | Select-Object -Last 1
           if ($last) { "::notice title=last test::$($last.Line)" }
           if ($crash) { "::warning title=pytest crash::$((($crash | ForEach-Object { $_.Line.Trim() }) -join ' | '))" }
+          exit $code
+
+      - name: Game assistant smoke check (real Windows APIs)
+        shell: pwsh
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          python -u tests/smoke_windows.py *> smoke.txt
+          $code = $LASTEXITCODE
+          Get-Content smoke.txt
+          "::notice title=smoke::$((Get-Content smoke.txt) -join ' | ')"
           exit $code
 
       - name: Build Capri.exe
@@ -74,6 +85,13 @@ jobs:
           & $iscc /Q "/DAppVersion=$v" packaging\capri.iss
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Get-ChildItem dist\CapriSetup-*.exe | ForEach-Object { "::notice title=installer::{0}  {1:N0} MB" -f $_.Name, ($_.Length / 1MB) }
+          $size = (Get-ChildItem dist\Capri -Recurse | Measure-Object Length -Sum).Sum / 1MB
+          "::notice title=installed size::{0:N0} MB" -f $size
+          # самые большие части сборки — чтобы видеть, что раздувает установщик
+          $big = Get-ChildItem dist\Capri\_internal -Directory | ForEach-Object { [pscustomobject]@{ n = $_.Name; mb = (Get-ChildItem $_.FullName -Recurse | Measure-Object Length -Sum).Sum / 1MB } } | Sort-Object mb -Descending | Select-Object -First 12
+          "::notice title=biggest folders::$((($big | ForEach-Object { '{0} {1:N0}' -f $_.n, $_.mb }) -join ' | '))"
+          $bigf = Get-ChildItem dist\Capri -Recurse -File | Sort-Object Length -Descending | Select-Object -First 12
+          "::notice title=biggest files::$((($bigf | ForEach-Object { '{0} {1:N0}' -f $_.Name, ($_.Length / 1MB) }) -join ' | '))"
 
       - uses: actions/upload-artifact@v4
         with:

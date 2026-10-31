@@ -45,7 +45,7 @@ en.Setup=Capri setup wizard
 de.Setup=Capri-Einrichtung
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"
 Name: "autostart"; Description: "{cm:Autostart}"; Flags: unchecked
 
 [Files]

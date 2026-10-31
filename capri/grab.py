@@ -48,8 +48,6 @@ def dxgi_grab(device: str, region: tuple[int, int, int, int] | None = None, time
     дочерний процесс делает один кадр, сохраняет PNG и завершается, весь мусор уходит вместе с ним."""
     if not dxgi_available():
         return None
-    if getattr(sys, "frozen", False):
-        return _dxgi_grab_here(device, region, timeout)
     import os
     import subprocess
     import tempfile
@@ -58,11 +56,13 @@ def dxgi_grab(device: str, region: tuple[int, int, int, int] | None = None, time
     from PIL import Image
     fd, out = tempfile.mkstemp(suffix=".png", prefix="capri-dxgi-")
     os.close(fd)
-    args = [sys.executable, "-m", "capri.grab", device, out, str(timeout)]
+    # из исходников — «python -m capri.grab», в Capri.exe — сам Capri.exe с ключом --grab (см. packaging/capri_entry.py)
+    frozen = getattr(sys, "frozen", False)
+    args = [sys.executable] + (["--grab"] if frozen else ["-m", "capri.grab"]) + [device, out, str(timeout)]
     if region:
         args += [str(v) for v in region]
     try:
-        r = subprocess.run(args, cwd=str(Path(__file__).resolve().parent.parent), capture_output=True,
+        r = subprocess.run(args, cwd=None if frozen else str(Path(__file__).resolve().parent.parent), capture_output=True,
                            timeout=timeout + 12, creationflags=0x08000000 if sys.platform == "win32" else 0)
         if r.returncode != 0 or not os.path.getsize(out):
             from .log import log
@@ -169,12 +169,17 @@ def grab_all(prefer_dxgi_at: tuple[int, int] | None = None):
     return img
 
 
-if __name__ == "__main__":       # python -m capri.grab <\\.\DISPLAY1> <out.png> <timeout> [l t r b]
+def cli(argv: list[str]) -> None:
+    r"""Дочерний процесс: <\\.\DISPLAY1> <out.png> <timeout> [l t r b] — один кадр в PNG и сразу выход."""
     import os
-    _dev, _out, _to = sys.argv[1], sys.argv[2], float(sys.argv[3])
-    _reg = tuple(int(v) for v in sys.argv[4:8]) if len(sys.argv) >= 8 else None
-    _img = _dxgi_grab_here(_dev, _reg, _to)
-    if _img is not None:
-        _img.save(_out)
+    dev, out, to = argv[0], argv[1], float(argv[2])
+    reg = tuple(int(v) for v in argv[3:7]) if len(argv) >= 7 else None
+    img = _dxgi_grab_here(dev, reg, to)
+    if img is not None:
+        img.save(out)
     sys.stdout.flush()
-    os._exit(0 if _img is not None else 2)     # без уборки COM при выходе — она и падает
+    os._exit(0 if img is not None else 2)     # без уборки COM при выходе — она и падает
+
+
+if __name__ == "__main__":       # python -m capri.grab <\\.\DISPLAY1> <out.png> <timeout> [l t r b]
+    cli(sys.argv[1:])

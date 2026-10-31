@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 from . import actions as A
 from .agent import Agent, Reply
 from . import skins
+from . import __version__
 from .config import FROZEN, RESOURCE_ROOT, expand, load_config
 from .i18n import t
 from .state import State
@@ -146,6 +147,12 @@ class CapriApp:
         self.warmup = Warmup(self.agent)
         self.warmup.finished.connect(lambda: self.set_status("ONLINE"))
         self.warmup.start()
+        # расход ресурсов раз в минуту → data/usage.csv («сколько ты ешь ресурсов», отчёт для разработчика)
+        from . import usage
+        self.usage = usage.Recorder(expand("data/usage.csv"),
+                                    game=lambda: self.game.game.name if self.game.active else "",
+                                    ollama_url=self.cfg["ollama"]["url"])
+        self.usage.start()
 
     @staticmethod
     def _avatar_source(av: dict, where: str, skin: str | None = None) -> str:
@@ -435,6 +442,11 @@ class CapriApp:
         sm.addAction(t("skin_folder", L), lambda: self._open_folder(skins.skins_dir()))
         sm.addAction(t("anim_folder", L), lambda: self._open_folder(skins.custom_dir()))
         menu.addAction(t("hide", L) if self.avatar.isVisible() else t("show", L), self.toggle_avatar)
+        from . import autostart
+        if sys.platform == "win32":
+            menu.addAction(self._check(menu, t("autostart", L), autostart.enabled(), self.toggle_autostart))
+        menu.addAction(t("usage", L), lambda: self.on_message("сколько ты ешь ресурсов"))
+        menu.addAction(t("report", L), self.make_report)
 
         lm = menu.addMenu(t("language", L))
         lg = QActionGroup(lm)
@@ -481,6 +493,31 @@ class CapriApp:
         self.prefs.set("skin", code)
         if self._confirm(t("restart_ask", self.lang)):
             self.restart()
+
+    def toggle_autostart(self):
+        from . import autostart
+        on = not autostart.enabled()
+        try:
+            autostart.set_enabled(on)
+        except OSError as e:
+            self.chat.add_system(f"Не получилось: {e}")
+            return
+        self.chat.add_system(t("autostart_on" if on else "autostart_off", self.lang))
+
+    def make_report(self):
+        """zip с журналом и расходом ресурсов на рабочий стол — друзья присылают его после теста."""
+        from . import files, usage
+        try:
+            path = usage.make_report(expand("data"), files.known_folder("desktop"),
+                                     extra=f"Капри {__version__}, помощник: {self.agent.provider()}, "
+                                           f"модель: {self.cfg['ollama'].get('model')}")
+        except Exception as e:  # noqa: BLE001
+            self.chat.add_system(f"Отчёт не собрался: {e}")
+            return
+        self.chat.add_system(t("report_done", self.lang).format(path.name))
+        if sys.platform == "win32":
+            import subprocess
+            subprocess.Popen(["explorer", "/select,", str(path)])   # noqa: S603,S607
 
     @staticmethod
     def _open_folder(path):
@@ -886,6 +923,9 @@ class CapriApp:
             return
         if act.kind == "game_defer":
             self.game.defer(act.params["text"])
+            return
+        if act.kind == "make_report":
+            self.make_report()
             return
         if act.kind == "set_attitude":
             self.set_attitude(act.params["code"])

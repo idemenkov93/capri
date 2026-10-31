@@ -212,3 +212,10 @@ def test_no_thinking_only_models_in_presets():
     for hw in (LAPTOP, PC_1070, RTX_4090):
         for p in H.presets(hw):
             assert p.model not in ("qwen3:4b", "qwen3:30b"), p.model
+
+
+def test_desktop_icon_on_by_default_and_autostart_offered():
+    iss = (Path(__file__).resolve().parent.parent / "packaging" / "capri.iss").read_text(encoding="utf-8-sig")
+    line = next(x for x in iss.splitlines() if x.startswith('Name: "desktopicon"'))
+    assert "unchecked" not in line
+    assert 'Name: "autostart"' in iss and 'ValueName: "Capri"' in iss
