@@ -171,6 +171,8 @@ class Agent:
             lines = ("Ну? Я слушаю.", "На связи, чумба.", "Говори, чум.", "Слушаю. Что за гиг?", "Я тут. Выкладывай.") if slang \
                 else ("Ну? Я слушаю.", "Слушаю.", "Я тут. Говори.")
             return Reply(random.choice(lines), route="rules")
+        if re.match(r"^(?:а\s+)?(?:что|ты)\s+(?:ты\s+)?(?:сейчас\s+)?вид(?:ишь|но)\b", text, re.I):
+            return self._screen(text, on_status)      # «что видишь на втором экране?» — не перенос окна
         reply = self._rules(text)
         if reply and reply.route == "vision":
             return self._vision_click(reply.text, on_status)
@@ -555,6 +557,12 @@ class Agent:
             self.cfg.setdefault("gemini", {})["model"] = model
             return Reply(f"Gemini подключён ({model}). Теперь в играх и когда кончится лимит Claude отвечаю через него.",
                          route="rules")
+        if re.fullmatch(r"(?:проверь|протестируй|работает ли)\s+(?:gemini|гемини|джемини|джеминай)\??", text.strip(" .!"), re.I):
+            try:
+                ans = self._ask_gemini("Ответь одной короткой фразой: ты на связи?")
+                return Reply(f"Gemini работает ({self._gcfg().get('model', 'flash')}): {ans[:120]}", route="rules")
+            except gemini.GeminiError as e:
+                return Reply(f"Gemini не работает: {e}", route="error")
         if re.search(r"(?:как|где)\s+(?:подключить|взять|получить|добавить)\s+(?:ключ\s+)?(?:gemini|гемини|джемини|джеминай)", text, re.I):
             return Reply("Открой aistudio.google.com/apikey, войди в Google и нажми «Create API key» — это бесплатно. "
                          "Скопируй ключ (начинается с AIza) и вставь его в чат Капри: «ключ gemini AIza…». "
@@ -837,8 +845,10 @@ class Agent:
             try:
                 answer = self._ask_gemini(gemini_task or task, images)
             except gemini.GeminiError as e:
+                from .log import log
+                log.warning("gemini не ответил (%s) — спрашиваю Claude", e)
                 if not claude_on or limited:
-                    return Reply(str(e), route="error")
+                    return Reply(f"Gemini не ответил: {e}", route="error")
         if answer is None:
             on_status("CLAUDE")
             try:

@@ -75,29 +75,50 @@ def pick_model(models: list[str], tier: str) -> str:
 
 
 def check_key(key: str, tier: str) -> str:
-    """Проверить ключ и вернуть модель, которую будем использовать.
-    Новые ключи «AQ.…» у части аккаунтов не пускают в список моделей — тогда пробуем короткий запрос к модели."""
+    """Проверить ключ настоящим коротким запросом (список моделей у новых ключей «AQ.…» иногда открыт,
+    а сам запрос — нет) и вернуть модель, которую будем использовать."""
     try:
-        return pick_model(list_models(key), tier)
-    except GeminiError:
+        model = pick_model(list_models(key), tier)
+    except (GeminiError, httpx.HTTPError):
         model = ALIASES[tier][0]
-        r = httpx.post(f"{API}/models/{model}:generateContent", headers={"x-goog-api-key": key}, timeout=20,
-                       json={"contents": [{"role": "user", "parts": [{"text": "Ответь одним словом: ок"}]}],
-                             "generationConfig": {"maxOutputTokens": 8}})
-        if r.status_code == 200:
-            return model
-        try:
-            msg = r.json().get("error", {}).get("message", "")[:160]
-        except ValueError:
-            msg = r.text[:160]
-        raise GeminiError(f"Google не принял ключ ({r.status_code}): {msg}") from None
+    try:
+        ask("Ответь одним словом: ок", {"api_key": key, "model": model, "max_tokens": 64, "timeout": 20})
+    except GeminiError as e:
+        if "не ответил" in str(e):
+            return model                      # ключ принят, модель просто «подумала» и не уложилась в 64 токена
+        raise GeminiError(str(e).replace("Gemini не принял ключ", "Google не принял ключ")) from None
+    return model
 
 
 # ------------------------------------------------------------------ запрос
+def _post(model: str, key: str, body: dict, timeout: float) -> httpx.Response:
+    """Запрос к модели. Новые ключи «AQ.…» у части аккаунтов не принимаются в заголовке x-goog-api-key —
+    тогда пробуем передать их параметром ?key= и как Bearer."""
+    url = f"{API}/models/{model}:generateContent"
+    ways = [{"headers": {"x-goog-api-key": key}}]
+    if key.startswith("AQ."):
+        ways += [{"params": {"key": key}}, {"headers": {"Authorization": f"Bearer {key}"}}]
+    r = None
+    for way in ways:
+        r = httpx.post(url, json=body, timeout=timeout, **way)
+        if r.status_code not in (400, 401, 403) or (r.status_code == 400 and "API key" not in r.text
+                                                    and "credential" not in r.text.lower()):
+            return r
+    return r
+
+
+def _error_text(r: httpx.Response) -> str:
+    try:
+        e = r.json().get("error", {})
+        return f"{e.get('status', '')} {e.get('message', '')}".strip()[:200]
+    except ValueError:
+        return r.text[:200]
+
+
 def ask(prompt: str, cfg: dict, images: list[Path] | None = None, system: str = "") -> str:
     key = get_key(cfg)
     if not key:
-        raise GeminiError(f"Нет ключа Gemini. Возьми бесплатный на {KEY_PAGE} и впиши его в мастере настройки.")
+        raise GeminiError(f"Нет ключа Gemini. Возьми бесплатный на {KEY_PAGE} и вставь его в чат Капри.")
     parts: list[dict] = [{"text": prompt}]
     for img in images or []:
         parts.append({"inline_data": {"mime_type": "image/png", "data": base64.b64encode(Path(img).read_bytes()).decode()}})
@@ -105,21 +126,29 @@ def ask(prompt: str, cfg: dict, images: list[Path] | None = None, system: str = 
                   "generationConfig": {"maxOutputTokens": cfg.get("max_tokens", 2048)}}
     if system:
         body["system_instruction"] = {"parts": [{"text": system}]}
-    model = cfg.get("model") or ALIASES["free"][0]
-    try:
-        r = httpx.post(f"{API}/models/{model}:generateContent", json=body, headers={"x-goog-api-key": key},
-                       timeout=cfg.get("timeout", 120))
-    except httpx.HTTPError as e:
-        raise GeminiError(f"Gemini не отвечает: {e}") from e
+    first = cfg.get("model") or "gemini-flash-latest"
+    # лимит или модель недоступна — пробуем следующую (у бесплатного ключа у каждой модели свой лимит)
+    models = [first] + [m for m in ("gemini-flash-lite-latest", "gemini-flash-latest") if m != first]
+    last = None
+    for model in models:
+        try:
+            r = _post(model, key, body, cfg.get("timeout", 60))
+        except httpx.HTTPError as e:
+            raise GeminiError(f"Gemini не отвечает: {e}") from e
+        if r.status_code in (429, 404):
+            last = r
+            continue
+        break
+    else:
+        r = last
     if r.status_code == 429:
-        raise GeminiError("Лимит Gemini на сегодня исчерпан (у бесплатного ключа он маленький). "
-                          "Попробуй позже или включи оплату в AI Studio.")
+        raise GeminiError("Лимит Gemini на сегодня исчерпан (у бесплатного ключа он маленький). Попробуй позже.")
     if r.status_code in (401, 403) or (r.status_code == 400 and "API key" in r.text):
-        raise GeminiError("Gemini не принял ключ — проверь его в мастере настройки.")
+        raise GeminiError(f"Gemini не принял ключ: {_error_text(r)}")
     if r.status_code == 404:
-        raise GeminiError(f"Модель {model} больше недоступна — запусти мастер настройки, он выберет новую.")
+        raise GeminiError(f"Модели Gemini недоступны: {_error_text(r)}")
     if r.status_code >= 400:
-        raise GeminiError(f"Gemini: ошибка {r.status_code}: {r.text[:200]}")
+        raise GeminiError(f"Gemini: ошибка {r.status_code}: {_error_text(r)}")
     data = r.json()
     try:
         cand = data["candidates"][0]

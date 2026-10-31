@@ -74,3 +74,22 @@ def test_new_aq_keys_are_accepted(monkeypatch):
     a = agent(lambda t, c: "", None)
     r = a.handle("AQ.Ab8RN6IKTQEnnNn_XBx14MO9TEtT7L9UwYygotOXabcdEzA")
     assert "Gemini подключён" in r.text and saved[0].startswith("AQ.Ab8RN6")
+
+
+def test_weekly_limit_is_a_limit():
+    assert claude_code.RE_LIMIT.search("You've hit your weekly limit · resets Oct 31, 9pm (Europe/Berlin)")
+
+
+def test_check_gemini_command():
+    a = agent(lambda t, c: "", lambda t, cfg, images=None, system="": "На связи.")
+    assert a.handle("проверь gemini").text.startswith("Gemini работает")
+
+
+def test_what_do_you_see_is_a_screen_question(monkeypatch):
+    from capri import screen
+    monkeypatch.setattr(screen, "capture", lambda *a, **k: (["screens/s.png"], "win"))
+    seen = []
+    a = agent(lambda t, c: seen.append(t) or "Вижу браузер.", None)
+    a.gemini_ask = lambda *x, **k: (_ for _ in ()).throw(gemini.GeminiError("нет"))
+    r = a.handle("Что видишь на втором экране?")
+    assert r.text.endswith("Вижу браузер.") and seen
