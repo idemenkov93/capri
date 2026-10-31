@@ -50,12 +50,6 @@ DEFAULTS: dict = {
         "when_claude_limit": True,        # лимит Claude кончился — отвечает Gemini
         "timeout": 60,
     },
-    # Grok (xAI): голос характера «Киберпсих». Ключ «xai-…» с console.x.ai впиши в чат: «ключ grok xai-…».
-    "grok": {
-        "enabled": True,
-        "model": "",          # пусто — сама выберет самую новую быструю модель
-        "timeout": 60,
-    },
     "voice": {
         "enabled": True,
         "hotkey": "Ctrl+Space",
