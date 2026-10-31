@@ -97,3 +97,32 @@ def test_vosk_questions_without_question_mark_pass():
     a = agent(lambda t, c: "C", lambda t, cfg, images=None, system="": "G", Game())
     assert a.handle("играю в каэс что скажешь").text == "G"
     assert a.handle("русские на кэша на той стороне").route == "ignored"
+
+
+def test_weekly_limit_and_strict_game_without_claude():
+    assert claude_code.RE_LIMIT.search("You've hit your weekly limit · resets Oct 31, 9pm (Europe/Berlin)")
+    calls = []
+
+    class Strict(Game):
+        strict = True
+
+    def gem(t, cfg, images=None, system=""):
+        raise gemini.GeminiError("Лимит Gemini на сегодня исчерпан")
+    a = agent(lambda t, c: calls.append("claude") or "C", gem, Strict())
+    r = a.handle("как другом кимон")
+    assert r.route == "error" and "Gemini" in r.text and not calls          # в CS2 Claude не запускаем
+
+
+def test_check_gemini_command():
+    a = agent(lambda t, c: "", lambda t, cfg, images=None, system="": "На связи.")
+    assert a.handle("проверь gemini").text.startswith("Gemini работает")
+
+
+def test_what_do_you_see_is_a_screen_question(monkeypatch):
+    from capri import screen
+    monkeypatch.setattr(screen, "capture", lambda *a, **k: (["screens/s.png"], "win"))
+    seen = []
+    a = agent(lambda t, c: seen.append(t) or "Вижу браузер.", None)
+    a.gemini_ask = lambda *x, **k: (_ for _ in ()).throw(gemini.GeminiError("нет"))
+    r = a.handle("Что видишь на втором экране?")
+    assert r.text.endswith("Вижу браузер.") and seen

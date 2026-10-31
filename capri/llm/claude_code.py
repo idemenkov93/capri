@@ -31,8 +31,9 @@ ANSWER_RULES = ("\n\nПравила ответа: не создавай и не 
                 "что он делает и как запустить.")
 
 
-RE_LIMIT = re.compile(r"rate.?limit|usage limit|limit reached|hit your limit|quota|overloaded|529|credit|out of (?:tokens|usage)", re.I)
-RE_LIMIT_ANSWER = re.compile(r"^(?:you'?ve hit your (?:usage )?limit|claude ai usage limit reached|usage limit reached|"
+RE_LIMIT = re.compile(r"rate.?limit|usage limit|limit reached|hit your (?:\w+ )?limit|weekly limit|quota|overloaded|529|credit|"
+                      r"out of (?:tokens|usage)", re.I)
+RE_LIMIT_ANSWER = re.compile(r"^(?:you'?ve hit your (?:\w+ )?limit|claude ai usage limit reached|usage limit reached|"
                              r"credit balance is too low|5-hour limit reached)", re.I)
 
 

@@ -431,6 +431,13 @@ class SystemControl:
         try:
             return run_async(go, 6.0)
         except MediaTimeout:
+            # служба Windows молчит — название есть в заголовке окна YouTube Music или вкладки YouTube
+            from . import control
+            for h in (control.ytm_window(), control.yt_window()):
+                title = control.window_title(h) if h else ""
+                name = re.sub(r"\s*[-–—|]\s*(?:YouTube Music|YouTube)(?:\s*[-–—]\s*.*)?$", "", title).strip()
+                if name and name.lower() not in ("youtube music", "youtube"):
+                    return {"track": name}
             return {"error": "плеер не ответил"}
 
     def _seek(self, absolute: float | None, delta: float | None) -> dict:

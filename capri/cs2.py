@@ -220,7 +220,7 @@ def econ_tip(money: int | None, team: str, round_no: int, mode: str, losses: int
         if nxt >= full:
             return f"Эко. Проиграем — будет около {nxt}, хватит на полный закуп."
         return "Эко, копим. Максимум пистолет."
-    return f"На полный закуп не хватает, у тебя {money}. Форс или эко — по команде."
+    return f"На фулл не хватает: {money}. Форс или эко."
 
 
 class Tracker:
