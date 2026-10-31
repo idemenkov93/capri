@@ -1,5 +1,6 @@
 # Сборка Capri.exe и установщика на Windows.
-# Запускается: пуш в main (тесты + проверить сборку), тег v* (выпустить релиз) или вручную.
+# Запускается: пуш в main (тесты + проверить сборку), тег v* или опубликованный релиз на GitHub (выложить
+# установщик в этот релиз), или вручную.
 # Публичная сборка — без картинок из assets/custom (их в репозитории нет); внешность — скинами.
 name: Build Windows
 
@@ -7,7 +8,13 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  release:
+    types: [published]
   workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write

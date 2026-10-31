@@ -89,5 +89,6 @@ cd E:\Project\Capri
 ## Как выпустить новую версию
 
 1. Подними `__version__` в `capri/__init__.py`.
-2. `git tag v1.0.1 && git push origin v1.0.1`.
+2. На GitHub: Releases → «Draft a new release» → тег `v1.0.1` (создать на `main`) → «Publish release»
+   (или `git tag v1.0.1 && git push origin v1.0.1`).
 3. GitHub Actions соберёт установщик и выложит его в Releases. Капри у пользователей увидит обновление в меню «⬆ Проверить обновления».
