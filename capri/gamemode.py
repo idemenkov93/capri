@@ -22,6 +22,7 @@ from . import cs2, game, gpu
 
 class GameMode(QObject):
     gsi = Signal(object)          # сообщения CS2 приходят в потоке сервера → обрабатываем в главном
+    say_main = Signal(str)        # фраза без заготовки — озвучить из главного потока
 
     def __init__(self, app):
         super().__init__()
@@ -36,11 +37,15 @@ class GameMode(QObject):
         self._deferred: str | None = None
         self._was: dict = {}
         self.gsi.connect(self._on_gsi)
+        self.say_main.connect(lambda k: self.app.voice and self.app.voice.play_cached(k, cs2.CALLOUTS.get(k, "")))
         self._poll_timer = QTimer(interval=2000, timeout=self._poll)
         self._gpu_timer = QTimer(interval=30_000, timeout=self._gpu_sample)
         if self.cfg.get("enabled", True):
             self._poll_timer.start()
             threading.Thread(target=self._install_cfg, daemon=True).start()   # CS2 прочитает файл при следующем запуске
+            if app.voice:
+                # фразы таймера бомбы — заранее, ещё до игры (и на диск: после перезапуска не нужна сеть)
+                app.voice.precache({**cs2.CALLOUTS, "later": "Отвечу после раунда."})
 
     # ------------------------------------------------------------------ настройки
     def pref(self, key: str, default=True):
@@ -210,14 +215,15 @@ class GameMode(QObject):
         loud = not self.tournament
         if kind == "bomb_planted":
             self._cancel_bomb()
+            from .log import log
+            log.info("cs2: бомба поставлена (раунд %s)", self.tracker.completed + 1)
             if loud and self.pref("cs2_bomb_timer"):
-                self._say("planted")
                 c4 = float(self.cfg.get("c4_time", cs2.C4_TIME))
-                late = float(self.cfg.get("gsi_delay", 0.3))   # сообщение от игры приходит чуть позже установки
-                for key, left in cs2.CALLOUT_AT:
-                    t = QTimer(self, singleShot=True, timeout=lambda k=key: self._say(k))
-                    t.start(max(0, int((c4 - left - late) * 1000)))
-                    self._bomb.append(t)
+                late = float(self.cfg.get("gsi_delay", 0.5))   # сообщение от игры приходит чуть позже установки
+                stop = threading.Event()
+                self._bomb_stop = stop
+                threading.Thread(target=self._bomb_clock, args=(time.monotonic() - late, c4, stop), daemon=True,
+                                 name="c4").start()
         elif kind in ("bomb_defused", "bomb_exploded"):
             self._cancel_bomb()
         elif kind == "round_over":
@@ -236,11 +242,38 @@ class GameMode(QObject):
             self._save_match(data)
             self._break_if_due()
 
+    def _bomb_clock(self, planted_at: float, c4: float, stop) -> None:
+        """Отсчёт в своём потоке с высоким приоритетом: во время CS2 Капри работает с пониженным приоритетом,
+        и обычный таймер Qt под нагрузкой срабатывал с опозданием — «пять секунд» звучало, когда было уже меньше."""
+        from .log import log
+        game.raise_thread_priority()
+        steps = [("planted", c4)] + list(cs2.CALLOUT_AT)
+        for key, left in steps:
+            due = planted_at + c4 - left
+            while not stop.is_set():
+                rest = due - time.monotonic()
+                if rest <= 0:
+                    break
+                stop.wait(min(rest, 0.05))
+            if stop.is_set():
+                return
+            log.info("cs2: «%s» — до взрыва ~%.1f с", key, planted_at + c4 - time.monotonic())
+            self._say(key)
+
     def _say(self, key: str) -> None:
-        if self.app.voice:
-            self.app.voice.play_cached(key, cs2.CALLOUTS.get(key, ""))
+        """Может вызываться из потока таймера: заготовленную фразу играем сразу, иначе — через главный поток."""
+        v = self.app.voice
+        if not v:
+            return
+        if key in (getattr(v, "_cache", None) or {}) or threading.current_thread() is threading.main_thread():
+            v.play_cached(key, cs2.CALLOUTS.get(key, ""))
+        else:
+            self.say_main.emit(key)
 
     def _cancel_bomb(self) -> None:
+        if getattr(self, "_bomb_stop", None) is not None:
+            self._bomb_stop.set()
+            self._bomb_stop = None
         for t in self._bomb:
             t.stop()
         self._bomb.clear()

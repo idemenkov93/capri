@@ -158,6 +158,18 @@ def alive(pid: int) -> bool:
         return True
 
 
+def raise_thread_priority() -> None:
+    """Текущему потоку — высокий приоритет (таймер бомбы должен быть точным, даже когда CS2 грузит процессор)."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        k = ctypes.windll.kernel32
+        k.SetThreadPriority(k.GetCurrentThread(), 15)          # THREAD_PRIORITY_TIME_CRITICAL
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def set_low_priority(low: bool) -> None:
     """Пока идёт CS2, Капри уступает процессор игре."""
     try:

@@ -52,6 +52,7 @@ def cfg_text(token: str, port: int = DEFAULT_PORT) -> str:
 		"player_id"		"1"
 		"player_state"		"1"
 		"player_match_stats"	"1"
+		"player_weapons"	"1"
 	}}
 }}
 '''
@@ -190,11 +191,21 @@ def kills_word(n: int) -> str:
 COMPETITIVE = {"competitive": 12, "premier": 12, "scrimcomp2v2": 8}
 
 
-def econ_tip(money: int | None, team: str, round_no: int, mode: str, losses: int = 0) -> str:
+def knife_only(weapons: list[str] | None) -> bool:
+    """В руках только нож (и зевс) — ножевой раунд FACEIT/турниров, а не пистолетка."""
+    if not weapons:
+        return False
+    return all(re.search(r"knife|bayonet|karambit|dagger|taser|c4", w or "") for w in weapons)
+
+
+def econ_tip(money: int | None, team: str, round_no: int, mode: str, losses: int = 0,
+             weapons: list[str] | None = None) -> str:
     """Совет в начале раунда round_no (с 1). Пусто — когда всё и так ясно (полный закуп)."""
     half = COMPETITIVE.get(mode or "")
     if not half or money is None or round_no < 1:
         return ""
+    if knife_only(weapons) or (round_no in (1, half + 1) and money < 800):
+        return ""                           # ножевой раунд (FACEIT): денег нет, пистолетов нет — молчим
     if round_no in (1, half + 1):
         return "Пистолетка. " + ("Броня или кит — договорись с командой." if team == "CT" else "Броня или граната — одно из двух.")
     if round_no in (half, 2 * half):
@@ -226,6 +237,7 @@ class Tracker:
         self.ct = self.t = 0
         self.ct_losses = self.t_losses = 0
         self.stats: dict = {}
+        self.weapons: list[str] = []
         self.rounds: list[dict] = []
         self.own_round: dict = {}
         self._deaths_before = 0
@@ -272,6 +284,8 @@ class Tracker:
                     self.own_round[k] = max(int(st[k]), int(self.own_round.get(k) or 0))
             if ms:
                 self.stats = ms
+            if isinstance(pl.get("weapons"), dict):
+                self.weapons = [str(w.get("name", "")) for w in pl["weapons"].values() if isinstance(w, dict)]
 
         phase = rd.get("phase") or ""
         if phase != self.round_phase:
@@ -280,7 +294,8 @@ class Tracker:
                 self.own_round = {}
                 self._deaths_before = int(self.stats.get("deaths") or 0)
                 losses = self.ct_losses if self.team == "CT" else self.t_losses
-                tip = "" if mph == "warmup" else econ_tip(self.money, self.team, self.completed + 1, self.mode, losses)
+                tip = "" if mph == "warmup" else econ_tip(self.money, self.team, self.completed + 1, self.mode, losses,
+                                                         self.weapons)
                 ev.append(("freezetime", {"round": self.completed + 1, "money": self.money, "team": self.team, "tip": tip}))
             elif phase == "live":
                 ev.append(("live", {}))

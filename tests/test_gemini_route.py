@@ -91,3 +91,9 @@ def test_new_aq_keys_are_accepted(monkeypatch):
     a = agent(lambda t, c: "", None)
     r = a.handle("AQ.Ab8RN6IKTQEnnNn_XBx14MO9TEtT7L9UwYygotOXabcdEzA")
     assert "Gemini подключён" in r.text and saved[0].startswith("AQ.Ab8RN6")
+
+
+def test_vosk_questions_without_question_mark_pass():
+    a = agent(lambda t, c: "C", lambda t, cfg, images=None, system="": "G", Game())
+    assert a.handle("играю в каэс что скажешь").text == "G"
+    assert a.handle("русские на кэша на той стороне").route == "ignored"

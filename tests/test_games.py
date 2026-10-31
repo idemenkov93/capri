@@ -329,15 +329,19 @@ def test_bomb_timer_and_tips():
     cs2.CALLOUT_AT = (("t20", 0.4), ("t10", 0.2))
     try:
         gm.on_event("bomb_planted", {})
-        assert app.voice.cached == ["planted"] and len(gm._bomb) == 2
-        end = time.time() + 2
+        end = time.time() + 3
         while len(app.voice.cached) < 3 and time.time() < end:
             q.processEvents()
             time.sleep(0.02)
-        assert app.voice.cached == ["planted", "t20", "t10"]
+        assert app.voice.cached == ["planted", "t20", "t10"]       # по порядку, из своего потока
+        app.voice.cached.clear()
         gm.on_event("bomb_planted", {})
         gm.on_event("bomb_defused", {})                    # обезвредили — дальше не считаем
-        assert not gm._bomb
+        end = time.time() + 1
+        while time.time() < end:
+            q.processEvents()
+            time.sleep(0.02)
+        assert app.voice.cached in ([], ["planted"]) and gm._bomb_stop is None
     finally:
         cs2.CALLOUT_AT = old
     gm.on_event("freezetime", {"tip": "Эко, копим."})
@@ -450,3 +454,51 @@ def test_new_request_replaces_a_stuck_one(monkeypatch):
     stuck.wait(5000)
     QApplication.processEvents()
     assert [r.text for r in replies] == ["ок: громкость 80"]      # ответ брошенного запроса не показываем
+
+
+def test_no_pistol_tip_on_knife_round():
+    assert cs2.econ_tip(0, "CT", 1, "competitive") == ""                                   # FACEIT: ножевой, денег нет
+    assert cs2.econ_tip(800, "T", 1, "competitive", weapons=["weapon_knife_t"]) == ""     # только нож
+    assert cs2.econ_tip(800, "T", 1, "competitive", weapons=["weapon_knife_t", "weapon_glock"]).startswith("Пистолетка")
+    tr = cs2.Tracker()
+    p = payload("freezetime", money=800)
+    p["player"]["weapons"] = {"weapon_0": {"name": "weapon_knife"}}
+    assert dict(tr.update(p))["freezetime"]["tip"] == ""
+
+
+def test_callouts_are_recorded_once_and_kept_on_disk(tmp_path, monkeypatch):
+    import numpy as np
+    qt()
+    from PySide6.QtCore import QObject
+
+    from capri.voice import controller as ctl
+    monkeypatch.setattr(ctl, "expand", lambda p: tmp_path / p)
+    calls = []
+
+    class Edge:
+        voices = {"ru": "x"}
+
+        def _synth(self, text, voice):
+            calls.append(text)
+            if len(calls) == 2:
+                raise RuntimeError("Edge: слишком часто")        # второй запрос подряд Edge отклонил
+            return np.zeros(100, np.int16), 24000
+
+    def make():
+        vc = ctl.VoiceController.__new__(ctl.VoiceController)
+        QObject.__init__(vc)
+        vc.edge, vc.piper, vc._cache = Edge(), None, {}
+        vc.tune = lambda: {"voices": {"ru": "x"}}
+        vc._run = lambda fn, ok=None, on_fail=None: fn()
+        KEEP.append(vc)
+        return vc
+    monkeypatch.setattr(ctl.time if hasattr(ctl, "time") else __import__("time"), "sleep", lambda s: None)
+    import time as _time
+    monkeypatch.setattr(_time, "sleep", lambda s: None)
+    vc = make()
+    vc.precache(dict(cs2.CALLOUTS))
+    assert set(vc._cache) == set(cs2.CALLOUTS) and len(calls) == len(cs2.CALLOUTS) + 1     # повтор после отказа
+    calls.clear()
+    vc2 = make()                                                                          # «после перезапуска»
+    vc2.precache(dict(cs2.CALLOUTS))
+    assert set(vc2._cache) == set(cs2.CALLOUTS) and calls == []                           # всё с диска, без сети

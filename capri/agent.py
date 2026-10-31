@@ -77,7 +77,10 @@ RE_DOMAIN = re.compile(r"^[\w-]+(\.[\w-]+)+(/\S*)?$")
 # в игре в микрофон попадает разговор с друзьями: к умному помощнику — только то, что похоже на вопрос или просьбу
 RE_ASKISH = re.compile(r"\?|^(?:а\s+|и\s+|ну\s+)?(?:как|что|чем|где|когда|почему|зачем|сколько|какой|какая|какое|какие|каким|кто|куда|"
                        r"откуда|можно ли|есть ли|стоит ли|подскажи|посоветуй|объясни|расскажи|скажи|помоги|найди|дай|напомни|"
-                       r"переведи|сравни|what|how|why|where|which|who|when|can|should|is there|tell|explain|wie|was|warum|wo)(?=\s+\S)", re.I)
+                       r"переведи|сравни|what|how|why|where|which|who|when|can|should|is there|tell|explain|wie|was|warum|wo)(?=\s+\S)|"
+                       # в CS2 фразу распознаёт vosk — без «?»: ловим вопросы и в середине фразы
+                       r"\b(?:что скажешь|как думаешь|что думаешь|подскажи|посоветуй|сколько|почему|зачем|что делать|как лучше|"
+                       r"что у меня на экране|что на экране|посмотри)\b", re.I)
 # ключи AI Studio: старые «AIza…», новые (с 2026) — «AQ.…»
 RE_GEMINI_KEY = re.compile(r"(?:(?:ключ|key)\s+(?:для\s+)?(?:gemini|гемини|джемини|джеминай)\s*[:=—-]?\s*)?"
                            r"(?P<key>AIza[\w-]{30,}|AQ\.[\w.-]{30,})")
@@ -900,6 +903,8 @@ class Agent:
             try:
                 answer = self._ask_gemini(gemini_task or task, images)
             except gemini.GeminiError as e:
+                from .log import log
+                log.warning("gemini не ответил (%s) — спрашиваю Claude", e)
                 if not claude_on or limited:
                     return Reply(str(e), route="error")
         if answer is None:
