@@ -58,7 +58,11 @@ def source_in(base: Path, where: str) -> str:
 def source(skin: str | None, where: str) -> str | None:
     """Путь для выбранного скина; None — скин не выбран/пропал (тогда берём assets/custom, как раньше)."""
     if not skin:
-        return None
+        # скин не выбран и своих анимаций нет — берём первый скин из skins/ (положил папку — она и включилась)
+        found = list_skins() if not has_images(custom_dir()) else []
+        if not found:
+            return None
+        skin = found[0]
     if skin == STAR:
         return ""
     base = skins_dir() / skin

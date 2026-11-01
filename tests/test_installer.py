@@ -137,7 +137,9 @@ def test_skins(tmp_path, monkeypatch):
     assert skins.source("neo", "desktop").endswith("desktop") and skins.source("neo", "hud").endswith("hud")
     assert skins.source("flat", "hud").endswith("flat")
     assert skins.source(skins.STAR, "desktop") == ""
-    assert skins.source("пропал", "desktop") is None and skins.source("", "desktop") is None
+    assert skins.source("пропал", "desktop") is None
+    monkeypatch.setattr(skins, "custom_dir", lambda: tmp_path / "custom")     # своих анимаций нет
+    assert skins.source("", "desktop").endswith("flat")                       # → первый скин из skins/
 
 
 def test_app_prefers_chosen_skin(tmp_path, monkeypatch):
@@ -219,3 +221,15 @@ def test_desktop_icon_on_by_default_and_autostart_offered():
     line = next(x for x in iss.splitlines() if x.startswith('Name: "desktopicon"'))
     assert "unchecked" not in line
     assert 'Name: "autostart"' in iss and 'ValueName: "Capri"' in iss
+
+
+def test_skin_folder_is_used_when_nothing_is_chosen(tmp_path, monkeypatch):
+    from capri import skins
+    monkeypatch.setattr(skins, "skins_dir", lambda: tmp_path / "skins")
+    monkeypatch.setattr(skins, "custom_dir", lambda: tmp_path / "custom")
+    assert skins.source(None, "desktop") is None
+    d = tmp_path / "skins" / "Капри" / "desktop"
+    d.mkdir(parents=True)
+    (d / "idle.png").write_bytes(b"x")
+    assert skins.source(None, "desktop") == str(d)
+    assert skins.source(None, "hud") == ""          # hud нет — для HUD картинок нет
