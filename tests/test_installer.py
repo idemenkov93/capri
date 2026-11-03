@@ -233,3 +233,56 @@ def test_skin_folder_is_used_when_nothing_is_chosen(tmp_path, monkeypatch):
     (d / "idle.png").write_bytes(b"x")
     assert skins.source(None, "desktop") == str(d)
     assert skins.source(None, "hud") == ""          # hud нет — для HUD картинок нет
+
+
+def test_update_download_and_silent_install(tmp_path, monkeypatch):
+    from capri import updates
+
+    class Resp:
+        status_code = 200
+        headers = {"content-length": "6"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def raise_for_status(self):
+            pass
+
+        def iter_bytes(self, n):
+            return iter([b"abc", b"def"])
+
+    seen = {}
+    monkeypatch.setattr(updates.httpx, "stream", lambda m, url, **k: seen.update(url=url) or Resp())
+    url = "https://github.com/idemenkov93/capri/releases/download/v1.0.2/CapriSetup-1.0.2.exe"
+    pcts = []
+    out = updates.download({"asset": url, "size": 6}, pcts.append, tmp_path)
+    assert out.name == "CapriSetup-1.0.2.exe" and out.read_bytes() == b"abcdef" and pcts[-1] == 100
+    import pytest
+    with pytest.raises(RuntimeError):
+        updates.download({"asset": url, "size": 99}, None, tmp_path)          # недокачанный файл не запускаем
+    with pytest.raises(RuntimeError):
+        updates.download({"asset": "https://evil.example/x.exe"}, None, tmp_path)
+    runs = []
+    monkeypatch.setattr(updates.subprocess, "Popen", lambda args, **k: runs.append(args))
+    updates.install(out)
+    assert runs[0][0] == str(out) and "/VERYSILENT" in runs[0]
+    iss = (Path(__file__).resolve().parent.parent / "packaging" / "capri.iss").read_text(encoding="utf-8-sig")
+    assert "Check: WizardSilent" in iss                                    # после тихой установки Капри запускается сама
+
+
+def test_latest_picks_public_installer(monkeypatch):
+    from capri import updates
+
+    class R:
+        status_code = 200
+
+        def json(self):
+            return {"tag_name": "v1.0.2", "html_url": "u", "assets": [
+                {"name": "CapriSetup-1.0.2-personal.exe", "browser_download_url": "p", "size": 1},
+                {"name": "CapriSetup-1.0.2.exe", "browser_download_url": "pub", "size": 5}]}
+    monkeypatch.setattr(updates.httpx, "get", lambda *a, **k: R())
+    assert updates.latest() == {"version": "1.0.2", "url": "u", "asset": "pub", "size": 5}
+    assert updates.newer("1.0.2", "1.0.1") and not updates.newer("1.0.1", "1.0.1")

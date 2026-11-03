@@ -668,6 +668,8 @@ class Agent:
             from . import usage
             from .config import expand
             return Reply(usage.summary(expand("data/usage.csv")), route="rules")
+        if re.fullmatch(r"(?:обнови(?:сь)?|обновить)\s+(?:капри|себя|программу)|обновись|(?:проверь|есть ли)\s+обновлени[ея]", t0, re.I):
+            return Reply("Проверяю обновления.", [A.Action("check_updates", "Обновления", {}, needs_confirm=False)], "rules")
         if RE_REPORT.search(t0):
             return Reply("Собираю отчёт: журнал и расход ресурсов — положу zip на рабочий стол.",
                          [A.Action("make_report", "Отчёт для разработчика", {}, needs_confirm=False)], "rules")

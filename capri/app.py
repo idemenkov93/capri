@@ -43,6 +43,34 @@ class Worker(QThread):
         self.done.emit(reply)
 
 
+class UpdateCheck(QThread):
+    found = Signal(str)
+
+    def run(self):
+        from . import updates
+        info = updates.latest()
+        if info and updates.newer(info["version"]):
+            self.found.emit(info["version"])
+
+
+class UpdateDownload(QThread):
+    """Скачивание установщика новой версии в фоне (100 МБ — не морозим окно)."""
+    progress = Signal(int)
+    ready = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, info: dict):
+        super().__init__()
+        self.info = info
+
+    def run(self):
+        from . import updates
+        try:
+            self.ready.emit(str(updates.download(self.info, self.progress.emit)))
+        except Exception as e:  # noqa: BLE001 — сеть, диск, неполный файл
+            self.failed.emit(str(e)[:200])
+
+
 class Warmup(QThread):
     def __init__(self, agent: Agent):
         super().__init__()
@@ -153,6 +181,11 @@ class CapriApp:
                                     game=lambda: self.game.game.name if self.game.active else "",
                                     ollama_url=self.cfg["ollama"]["url"])
         self.usage.start()
+        if FROZEN:
+            # через минуту после запуска — тихо узнать, нет ли новой версии (строчка в чате, без окон)
+            self._upd_check = UpdateCheck()
+            self._upd_check.found.connect(lambda v: self.chat.add_system(t("upd_avail", self.lang).format(v=v)))
+            QTimer.singleShot(60_000, self._upd_check.start)
 
     @staticmethod
     def _avatar_source(av: dict, where: str, skin: str | None = None) -> str:
@@ -531,16 +564,51 @@ class CapriApp:
         if run_wizard(first_run=False) and self._confirm(t("restart_ask", self.lang)):
             self.restart()
 
-    def check_updates(self):
+    def check_updates(self, quiet: bool = False):
+        """Есть новая версия → скачать установщик, поставить тихо, Капри перезапустится сама.
+        quiet — фоновая проверка при запуске: только строчка в чате, без окон."""
         from . import updates
         info = updates.latest()
+        if quiet:
+            if info and updates.newer(info["version"]):
+                self.chat.add_system(t("upd_avail", self.lang).format(v=info["version"]))
+            return
         if info is None:
             QMessageBox.information(None, "Capri", t("upd_fail", self.lang))
-        elif updates.newer(info["version"]):
+        elif not updates.newer(info["version"]):
+            QMessageBox.information(None, "Capri", t("upd_none", self.lang))
+        elif not FROZEN or not info.get("asset"):
+            # из исходников обновляются через git pull; без установщика в релизе — открываем страницу
             if self._confirm(t("upd_new", self.lang).format(v=info["version"])):
                 __import__("webbrowser").open(info["url"])
-        else:
-            QMessageBox.information(None, "Capri", t("upd_none", self.lang))
+        elif self._confirm(t("upd_install", self.lang).format(v=info["version"], cur=__version__)):
+            self._start_update(info)
+
+    def _start_update(self, info: dict):
+        if getattr(self, "_updater", None) and self._updater.isRunning():
+            return
+        self.chat.show()
+        self.chat.add_system(t("upd_progress", self.lang).format(v=info["version"], p=0))
+        self._updater = UpdateDownload(info)
+        self._updater.progress.connect(lambda p: p % 25 == 0 and 0 < p < 100 and self.chat.add_system(
+            t("upd_progress", self.lang).format(v=info["version"], p=p)))
+        self._updater.failed.connect(lambda e: self.chat.add_system(t("upd_err", self.lang).format(e=e)))
+        self._updater.ready.connect(lambda path: self._install_update(path, info["version"]))
+        self._updater.start()
+
+    def _install_update(self, path: str, version: str):
+        from pathlib import Path
+
+        from . import updates
+        from .log import log
+        log.info("обновление: ставлю %s из %s", version, path)
+        self.chat.add_system(t("upd_go", self.lang).format(v=version))
+        try:
+            updates.install(Path(path))
+        except OSError as e:
+            self.chat.add_system(t("upd_err", self.lang).format(e=e))
+            return
+        QTimer.singleShot(800, self.qt.quit)        # освобождаем файлы программы — установщик заменит их
 
     def restart(self):
         """Новая Капри дождётся, пока эта закроется (--wait-pid), и запустится с новыми настройками."""
@@ -923,6 +991,9 @@ class CapriApp:
             return
         if act.kind == "game_defer":
             self.game.defer(act.params["text"])
+            return
+        if act.kind == "check_updates":
+            self.check_updates()
             return
         if act.kind == "make_report":
             self.make_report()

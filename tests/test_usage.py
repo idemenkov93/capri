@@ -60,3 +60,9 @@ def test_voice_commands(monkeypatch, tmp_path):
     assert "Пока нечего" in a.handle("статистика ресурсов").text
     r = a.handle("собери отчёт")
     assert r.actions[0].kind == "make_report"
+
+
+def test_update_voice_command():
+    a = Agent(copy.deepcopy(DEFAULTS), llm=object(), claude=lambda t, c: "", system=Sys(), apps=AppIndex(Path("/x")))
+    for phrase in ("обнови капри", "обновись", "проверь обновления"):
+        assert a.handle(phrase).actions[0].kind == "check_updates", phrase

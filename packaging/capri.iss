@@ -66,6 +66,8 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\Capri.exe"; Description: "{cm:LaunchProgram,Capri}"; Flags: nowait postinstall skipifsilent
+; обновление из Капри (тихая установка) — запускаем новую версию сами
+Filename: "{app}\Capri.exe"; Flags: nowait; Check: WizardSilent
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/IM Capri.exe /F"; Flags: runhidden; RunOnceId: "KillCapri"
