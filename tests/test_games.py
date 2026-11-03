@@ -502,3 +502,39 @@ def test_callouts_are_recorded_once_and_kept_on_disk(tmp_path, monkeypatch):
     vc2 = make()                                                                          # «после перезапуска»
     vc2.precache(dict(cs2.CALLOUTS))
     assert set(vc2._cache) == set(cs2.CALLOUTS) and calls == []                           # всё с диска, без сети
+
+
+def test_econ_counts_the_rifle_you_kept():
+    ak = ["weapon_knife_t", "weapon_glock", "weapon_ak47"]
+    # калаш с прошлого раунда и 2600 — броня и гранаты есть на что, не «не хватает на фулл»
+    assert cs2.econ_tip(2600, "T", 5, "competitive", weapons=ak) == ""
+    assert cs2.econ_tip(300, "T", 5, "competitive", weapons=ak, armor=100, helmet=True) == ""
+    assert cs2.econ_tip(500, "T", 5, "competitive", weapons=ak).startswith("Калаш есть, на полную броню не хватает")
+    assert cs2.econ_tip(2600, "T", 5, "competitive", weapons=["weapon_knife_t", "weapon_glock"]).startswith("На фулл не хватает")
+    tr = cs2.Tracker()
+    p = payload("freezetime", money=2600, team="T", rnd=4)
+    p["player"]["weapons"] = {"weapon_0": {"name": "weapon_knife_t"}, "weapon_1": {"name": "weapon_m4a1_silencer"}}
+    assert dict(tr.update(p))["freezetime"]["tip"] == ""
+
+
+def test_no_round_tip_after_the_match_is_over():
+    tr = cs2.Tracker()
+    tr.update(payload("live", rnd=20, ct=12, t=8))
+    tr.update(payload("over", rnd=20, ct=13, t=8, win="CT"))
+    ev = dict(tr.update(payload("freezetime", money=2000, rnd=21, ct=13, t=8, map_phase="gameover")))
+    assert "match_over" in ev and ev["freezetime"]["tip"] == ""     # раньше звучали совет и итог одновременно
+
+
+def test_soft_game_moves_whisper_to_cpu():
+    from capri.voice.stt import Transcriber
+    t = Transcriber("small", ["ru"], "/x", device="auto")
+    c = t.cpu_copy(threads=3)
+    assert c.device_pref == "cpu" and c.threads == 3 and c.model_size == "small" and c._model is None
+
+
+def test_switch_to_app_window():
+    from capri import commands as C
+    c = C.match("переключись на хром")
+    assert c.op == "window" and c.text == "restore" and c.keys == ["хром"]
+    assert C.match("переключись на другое окно").op == "keys"
+    assert C.match("переключи на следующий трек").op == "next"

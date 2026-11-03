@@ -24,6 +24,9 @@ TICKS = 10_000_000  # время в Windows — в тиках по 100 нс
 VK_MEDIA = {"toggle": 0xB3, "next": 0xB0, "previous": 0xB1}
 
 
+_MEDIA_SLOW_UNTIL = 0.0       # до этого времени медиа-служба Windows считается зависшей (см. SystemControl._media)
+
+
 class MediaTimeout(RuntimeError):
     thread = None
 
@@ -316,12 +319,22 @@ class SystemControl:
                 await asyncio.sleep(0.8)  # плееру нужно время, чтобы сменить трек
                 return {"track": await self._describe(s)}
             return {}
+        global _MEDIA_SLOW_UNTIL
+        skip = time.monotonic() < _MEDIA_SLOW_UNTIL
         try:
+            if skip:
+                # служба медиа недавно зависла — не ждём её снова 6–7 секунд, сразу жмём кнопку в окне плеера
+                err = MediaTimeout("служба медиа недавно не отвечала")
+                err.thread = None
+                raise err
             return run_async(go, 5.0)
         except MediaTimeout as e:
-            if e.thread is not None:
+            if getattr(e, "thread", None) is not None:
                 e.thread.join(1.5)                           # служба часто отвечает чуть позже — дадим ей шанс
-            log.warning("плеер не ответил на «%s» (команда ушла: %s)", action, sent["v"])
+            if not skip and not sent["v"]:
+                _MEDIA_SLOW_UNTIL = time.monotonic() + 600   # 10 минут не трогаем зависшую службу
+            log.warning("плеер не ответил на «%s» (команда ушла: %s)%s", action, sent["v"],
+                        " — служба медиа недавно зависала, сразу кнопка" if skip else "")
             if sent["v"]:
                 return {}                                    # трек уже переключился — просто не узнали название
             # медиа-служба Windows не отвечает — жмём настоящую кнопку в окне YouTube Music, потом его горячую клавишу

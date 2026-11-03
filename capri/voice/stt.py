@@ -107,7 +107,15 @@ class Transcriber:
         self.preferred = preferred
         self.languages = languages or ["ru", "de", "en", "he"]
         self.download_root = download_root
+        self.threads: int | None = None      # потоки процессора; None — все (в игре оставляем часть игре)
         self._model = None
+
+    def cpu_copy(self, threads: int = 4) -> "Transcriber":
+        """Та же модель, но на процессоре — для игр: видеокарта занята игрой, и Whisper на ней ждал своей очереди
+        по 5–15 секунд (в Cyberpunk «Капри» подтверждалась ~7 с, команда распознавалась ~12 с)."""
+        t = Transcriber(self.model_size, self.languages, self.download_root, self.preferred, device="cpu")
+        t.threads = threads
+        return t
 
     def _load(self):
         import threading
@@ -134,7 +142,8 @@ class Transcriber:
             import os
             # int8 на процессоре — быстро и мало памяти; модель скачается один раз
             self._model = WhisperModel(self.model_size, device="cpu", compute_type="int8",
-                                       cpu_threads=max(4, (os.cpu_count() or 4)), download_root=self.download_root)
+                                       cpu_threads=self.threads or max(4, (os.cpu_count() or 4)),
+                                       download_root=self.download_root)
             self.device = "cpu"
         return self._model
 

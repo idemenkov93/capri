@@ -463,6 +463,11 @@ def match(text: str) -> Command | None:
         down = m.group(1) in ("убавь", "уменьши", "опусти")
         n = level(m.group(2)) if m.group(2) else None
         return Command("volume_change", (-1 if down else 1) * (n or 10))
+    # --- «переключись на хром», «перейди в телеграм» — показать окно программы
+    if m := re.fullmatch(r"(?:переключись|переключи|перейди|переключиться)\s+(?:на|в|во)\s+"
+                         r"(?!друг\w*|следующ\w*|предыдущ\w*|окно|вкладк\w*|трек\w*|песн\w*|англ\w*|русск\w*|немец\w*)(.+)", t):
+        name = re.sub(r"(?:ютуб|youtube|ютьюб)[\s-]*(?:m\w*sic|м\w{0,3}з\w*к\w*)", "youtube music", m.group(1))
+        return Command("window", text="restore", keys=[re.sub(r"^ютуб\w*$", "youtube", name)])
     # --- окна по имени программы: «разверни хром», «сверни телеграм», «закрой YouTube»
     if m := re.fullmatch(r"(сверни|разверни|закрой|верни|покажи)\s+(?!окно|все|вкладк|программу|эту|это|меню|рабоч)(.+)", t):
         action = {"сверни": "minimize", "разверни": "maximize", "закрой": "close", "верни": "restore", "покажи": "restore"}[m.group(1)]

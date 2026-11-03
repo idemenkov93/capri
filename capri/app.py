@@ -250,7 +250,7 @@ class CapriApp:
             log.info("wake пропущен: уже слушаю")
             return
         audio = getattr(self.wake, "last_audio", None)
-        stt = self.voice.stt
+        stt = getattr(self.voice, "stt_override", None) or self.voice.stt     # в игре — Whisper на процессоре
         # вторая проверка: Whisper слушает 3 секунды до «Капри». Пишем звук сразу (чтобы не потерять начало команды),
         # а «дзынь» — когда Whisper подтвердил имя. Не подтвердил — молча перестаём слушать.
         # в обычных играх Whisper в видеокарте остаётся — проверяем имя и там (друзья в Discord);

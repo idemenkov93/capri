@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 
@@ -126,6 +127,13 @@ class GameMode(QObject):
                 a.voice.stt_override = stt
                 threading.Thread(target=self._safe(stt.warmup), daemon=True).start()
             game.set_low_priority(True)
+        elif a.voice and hasattr(a.voice.stt, "cpu_copy") and self.cfg.get("whisper_on_cpu", True):
+            # обычная игра: Whisper — на процессор. На видеокарте он стоял в очереди за игрой (секунды на каждую фразу),
+            # а видеопамять пусть тоже достанется игре
+            stt = a.voice.stt.cpu_copy(threads=max(2, min(4, (os.cpu_count() or 4) // 2)))
+            a.voice.stt.unload()
+            a.voice.stt_override = stt
+            threading.Thread(target=self._safe(stt.warmup), daemon=True).start()
         if g.is_cs2:
             self._start_cs2(g)
         mode = ("строгий режим: я спряталась, видеокарта и процессор — игре. Зови «Капри» для команд."

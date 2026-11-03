@@ -198,8 +198,21 @@ def knife_only(weapons: list[str] | None) -> bool:
     return all(re.search(r"knife|bayonet|karambit|dagger|taser|c4", w or "") for w in weapons)
 
 
+RIFLES = r"ak47|m4a1|m4a1_silencer|famas|galilar|aug|sg556|awp|ssg08|scar20|g3sg1"
+
+
+def has_rifle(weapons: list[str] | None) -> str:
+    """Винтовка (или снайперка) уже в руках — с прошлого раунда или подобрал. → её короткое имя или ''."""
+    for w in weapons or []:
+        m = re.search(rf"(?:weapon_)?({RIFLES})\b", w or "")
+        if m:
+            return {"ak47": "калаш", "m4a1": "эмка", "m4a1_silencer": "эмка", "awp": "авп", "ssg08": "скаут",
+                    "famas": "фамас", "galilar": "галиль", "aug": "ауг", "sg556": "крига"}.get(m.group(1), "ствол")
+    return ""
+
+
 def econ_tip(money: int | None, team: str, round_no: int, mode: str, losses: int = 0,
-             weapons: list[str] | None = None) -> str:
+             weapons: list[str] | None = None, armor: int = 0, helmet: bool = False) -> str:
     """Совет в начале раунда round_no (с 1). Пусто — когда всё и так ясно (полный закуп)."""
     half = COMPETITIVE.get(mode or "")
     if not half or money is None or round_no < 1:
@@ -212,6 +225,12 @@ def econ_tip(money: int | None, team: str, round_no: int, mode: str, losses: int
         return "Последний раунд половины — деньги сгорят, трать всё."
     if round_no > 2 * half:
         return ""                           # овертайм: там своя экономика
+    if gun := has_rifle(weapons):
+        # ствол остался с прошлого раунда — фулбай это броня (и гранаты), а не винтовка заново
+        need = 0 if armor >= 70 and helmet else 350 if armor >= 70 else 1000
+        if money >= need:
+            return ""
+        return f"{gun.capitalize()} есть, на полную броню не хватает — бери что можешь."
     full = 4300 if team == "T" else 5000
     if money >= full:
         return ""
@@ -238,6 +257,7 @@ class Tracker:
         self.ct_losses = self.t_losses = 0
         self.stats: dict = {}
         self.weapons: list[str] = []
+        self.armor, self.helmet = 0, False
         self.rounds: list[dict] = []
         self.own_round: dict = {}
         self._deaths_before = 0
@@ -279,6 +299,8 @@ class Tracker:
             self.team = pl.get("team") or self.team
             if st.get("money") is not None:
                 self.money = int(st["money"])
+            self.armor = int(st.get("armor") or 0)
+            self.helmet = bool(st.get("helmet"))
             for k in ("round_kills", "round_killhs", "round_totaldmg"):
                 if st.get(k) is not None:
                     self.own_round[k] = max(int(st[k]), int(self.own_round.get(k) or 0))
@@ -294,8 +316,9 @@ class Tracker:
                 self.own_round = {}
                 self._deaths_before = int(self.stats.get("deaths") or 0)
                 losses = self.ct_losses if self.team == "CT" else self.t_losses
-                tip = "" if mph == "warmup" else econ_tip(self.money, self.team, self.completed + 1, self.mode, losses,
-                                                         self.weapons)
+                # разминка и конец матча (после финального раунда игра ещё раз шлёт «закупку») — без советов
+                tip = "" if mph in ("warmup", "gameover") or self.finished else econ_tip(
+                    self.money, self.team, self.completed + 1, self.mode, losses, self.weapons, self.armor, self.helmet)
                 ev.append(("freezetime", {"round": self.completed + 1, "money": self.money, "team": self.team, "tip": tip}))
             elif phase == "live":
                 ev.append(("live", {}))
