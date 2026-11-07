@@ -137,7 +137,7 @@ class EdgeSpeaker:
         import edge_tts
 
         from .fx import apply
-        comm = edge_tts.Communicate(text, voice, rate=self.rate, pitch=self.pitch, connect_timeout=5, receive_timeout=20)
+        comm = edge_tts.Communicate(text, voice, rate=self.rate, pitch=self.pitch, connect_timeout=5, receive_timeout=8)
         mp3 = b"".join(c["data"] for c in comm.stream_sync() if c.get("type") == "audio")
         audio, sr = decode_mp3(mp3)
         return apply(audio, sr, self.fx), sr
@@ -153,7 +153,7 @@ class EdgeSpeaker:
         try:
             nxt = ex.submit(self._synth, parts[0], voice)
             for i in range(len(parts)):
-                audio, sr = nxt.result(timeout=25)     # сеть подвисла — не ждём вечно, FallbackSpeaker возьмёт Piper
+                audio, sr = nxt.result(timeout=8)      # сеть подвисла — не ждём вечно, FallbackSpeaker возьмёт Piper
                 if i + 1 < len(parts):
                     nxt = ex.submit(self._synth, parts[i + 1], voice)
                 if self._stopped:

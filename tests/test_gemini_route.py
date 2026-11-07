@@ -26,6 +26,7 @@ class Game:
 def agent(claude, gem, game=None):
     a = Agent(copy.deepcopy(DEFAULTS), llm=object(), claude=claude, system=Sys(), apps=AppIndex(Path("/x")), gemini_ask=gem)
     a.game = game
+    a.cfg["games"]["questions"] = True          # эти тесты — про вопросы в игре (по умолчанию теперь выключены)
     return a
 
 
@@ -130,3 +131,12 @@ def test_what_do_you_see_is_a_screen_question(monkeypatch):
     a.gemini_ask = lambda *x, **k: (_ for _ in ()).throw(gemini.GeminiError("нет"))
     r = a.handle("Что видишь на втором экране?")
     assert r.text.endswith("Вижу браузер.") and seen
+
+
+def test_lite_game_mode_only_commands():
+    asked = []
+    a = agent(lambda t, c: asked.append("claude") or "C", lambda *x, **k: asked.append("gemini") or "G", Game())
+    a.cfg["games"]["questions"] = False                                    # по умолчанию
+    r = a.handle("как построить базу быстрее?")
+    assert r.text.startswith("В игре я только для команд") and not asked
+    assert a.handle("Капец, уронка.").route == "ignored"                    # болтовня с друзьями — молча

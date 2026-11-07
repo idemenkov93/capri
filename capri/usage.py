@@ -60,6 +60,7 @@ class _Pdh:
         return int(total / 2**20)
 
 
+_ME = None          # psutil.Process() Капри — один на всё время (иначе cpu_percent всегда 0)
 _pdh: _Pdh | None = None
 _pdh_failed = False
 
@@ -100,7 +101,11 @@ def ollama_models(url: str = "http://127.0.0.1:11434") -> tuple[int, str]:
 # ------------------------------------------------------------------ запись
 def sample(game: str = "", ollama_url: str = "http://127.0.0.1:11434") -> dict:
     import psutil
-    me = psutil.Process()
+    global _ME
+    if _ME is None:
+        _ME = psutil.Process()
+        _ME.cpu_percent(None)          # первый замер всегда 0 — дальше считается от прошлого вызова
+    me = _ME                           # один и тот же объект: новый Process() каждый раз давал 0% процессора
     ram = me.memory_info().rss
     cpu = me.cpu_percent(None)
     for ch in me.children(recursive=True):          # дочерние процессы Капри (снимок игры, Claude)
@@ -145,7 +150,9 @@ class Recorder(threading.Thread):
     def run(self):
         try:
             import psutil
-            psutil.Process().cpu_percent(None)          # первый замер процессора всегда 0 — прогреваем
+            global _ME
+            _ME = psutil.Process()
+            _ME.cpu_percent(None)                       # первый замер процессора всегда 0 — прогреваем
             psutil.cpu_percent(None)
         except Exception:  # noqa: BLE001
             return

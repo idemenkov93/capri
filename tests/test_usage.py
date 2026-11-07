@@ -66,3 +66,11 @@ def test_update_voice_command():
     a = Agent(copy.deepcopy(DEFAULTS), llm=object(), claude=lambda t, c: "", system=Sys(), apps=AppIndex(Path("/x")))
     for phrase in ("обнови капри", "обновись", "проверь обновления"):
         assert a.handle(phrase).actions[0].kind == "check_updates", phrase
+
+
+def test_cpu_is_measured_between_samples():
+    usage.sample("", "http://127.0.0.1:9")
+    x = 0
+    for i in range(3_000_000):
+        x += i * i
+    assert usage.sample("", "http://127.0.0.1:9")["capri_cpu"] > 0

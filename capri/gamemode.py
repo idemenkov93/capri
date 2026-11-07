@@ -134,10 +134,12 @@ class GameMode(QObject):
             a.voice.stt.unload()
             a.voice.stt_override = stt
             threading.Thread(target=self._safe(stt.warmup), daemon=True).start()
-        if g.is_cs2:
+        if a.voice:
+            a.voice.offline = True           # голос — офлайн (Piper): сеть в игре подвисала и фраза шла по 30 с
+        if g.is_cs2 and self.cfg.get("cs2_assistant", False):
             self._start_cs2(g)
-        mode = ("строгий режим: я спряталась, видеокарта и процессор — игре. Зови «Капри» для команд."
-                if g.mode == "strict" else "я спряталась и освободила видеокарту. Зови «Капри», если что.")
+        mode = ("лёгкий режим: я спряталась и ушла из видеокарты. «Привет, Капри» — громкость, музыка, окна."
+                if g.mode == "strict" else "я спряталась и освободила видеокарту. Зови «Привет, Капри», если что.")
         a.chat.add_system(f"🎮 {g.name} — {mode}")
 
     def leave(self, g: game.GameInfo, quiet: bool = False) -> None:
@@ -154,6 +156,7 @@ class GameMode(QObject):
         self.watcher.current = None
         if a.voice:
             a.voice.stt_override = None
+            a.voice.offline = False
         a._apply_wake_mode()
         a.avatar._tick.start()
         if self._was.get("avatar", True):

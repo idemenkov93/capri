@@ -213,6 +213,9 @@ class Agent:
                 and not weather.is_weather_question(text):
             # «Капец, уронка.», «Я не буду видеть фильмы» — это ты говоришь с друзьями, а не мне
             return Reply("", route="ignored")
+        if g and not self.cfg.get("games", {}).get("questions", False) and not weather.is_weather_question(text):
+            # лёгкий режим: видеокарта, процессор и сеть — игре; Claude, Gemini и скриншоты — после игры
+            return Reply("В игре я только для команд: громкость, музыка, окна. Вопросы — после игры.", route="rules")
         if g and g.busy_round() and not screen.is_screen_question(text):
             # посреди раунда CS2 не думаем: Claude и модель — после раунда (команды выше уже выполнились)
             return Reply("Отвечу после раунда.", [A.Action("game_defer", "Ответить после раунда", {"text": text},

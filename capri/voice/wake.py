@@ -1,8 +1,8 @@
 """«Привет, Капри» — офлайн-распознавание фразы пробуждения через vosk (маленькая русская модель).
 
 Слушает микрофон в своём потоке и испускает woke, когда слышит:
-«привет капри», «эй капри», «окей капри», «hey capri», «hallo capri»… (vosk иногда пишет «кэпри», «капли»),
-а в коротком режиме (по умолчанию) — просто «Капри».
+«привет капри», «hey capri», «hallo capri» (vosk иногда пишет «кэпри», «капли»),
+а в коротком режиме (выключен по умолчанию: ложно срабатывал) — просто «Капри».
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 
 WAKE_RX = re.compile(
-    r"(привет|прив|эй|окей|ок|хей|hey|hi|hallo|okay)\s*,?\s*(капри|кэпри|кепри|капре|каприз|капр|кап ри|кабри|капли|capri)",
+    r"(привет|hey|hallo|hello)\s*,?\s*(капри|кэпри|кепри|капре|каприо|капр|кап ри|кабри|капли|capri)",
     re.I,
 )
 # короткий режим: просто «Капри» отдельным словом (без «капли», «каприз» — их vosk слышит в обычной речи)
@@ -23,7 +23,9 @@ SHORT_RX = re.compile(r"(?<![а-яa-z])(капри|кэпри|кепри|capri)(
 MODEL_NAME = "vosk-model-small-ru-0.22"
 
 
-KEYWORDS = ["капри", "привет капри", "эй капри", "окей капри", "привет"]
+# «эй/окей капри» убраны: по журналу 36 из 37 таких срабатываний были ложными (ключевой распознаватель «натягивает»
+# любой шум на короткий словарь), а «привет капри» почти всегда настоящее
+KEYWORDS = ["капри", "привет капри", "привет"]
 
 
 def keyword_hit(words: list[dict], short: bool, min_conf: float = 0.8) -> bool:
@@ -31,7 +33,7 @@ def keyword_hit(words: list[dict], short: bool, min_conf: float = 0.8) -> bool:
     for i, w in enumerate(words):
         if w.get("word") == "капри" and w.get("conf", 0) >= min_conf:
             prev = words[i - 1]["word"] if i else ""
-            if short or prev in ("привет", "эй", "окей"):
+            if short or prev == "привет":
                 return True
     return False
 

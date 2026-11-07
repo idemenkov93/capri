@@ -266,7 +266,7 @@ class CapriApp:
         if not ok:
             self.chat.add_system(t("wake_missing", self.lang))
             return
-        self.wake = WakeListener(models, self.prefs.get("input_device"), short=self.prefs.get("wake_short", True))
+        self.wake = WakeListener(models, self.prefs.get("input_device"), short=self.prefs.get("wake_short", False))
         self._apply_wake_mode()
         self.wake.woke.connect(self.on_wake)
         self.wake.failed.connect(lambda e: self.chat.add_system(f"«Привет, Капри»: {e}"))
@@ -412,7 +412,7 @@ class CapriApp:
             if len(choices) == 1:
                 mic.addAction(t("mic_none", L)).setEnabled(False)
             menu.addAction(self._check(menu, t("wake", L), self.prefs.get("wake_word", True), self.toggle_wake))
-            menu.addAction(self._check(menu, t("wake_short", L), self.prefs.get("wake_short", True), self.toggle_wake_short))
+            menu.addAction(self._check(menu, t("wake_short", L), self.prefs.get("wake_short", False), self.toggle_wake_short))
             menu.addAction(self._check(menu, t("strict_video", L), self.prefs.get("strict_during_video", False), self.toggle_strict_video))
             menu.addAction(self._check(menu, t("speak_on", L), self.cfg["voice"]["speak"], self.toggle_speak))
             menu.addAction(self._check(menu, t("speak_typed", L), self.prefs.get("speak_typed", True),
@@ -441,12 +441,17 @@ class CapriApp:
         if self.prefs.get("break_every"):
             scm.addAction(t("breaks_off", L), lambda: self.set_break_reminder(0))
         gm2 = menu.addMenu(t("games", L))
-        for key, label, default in (("game_assist", "game_assist", True), ("cs2_bomb_timer", "bomb_timer", True),
-                                    ("cs2_econ", "econ_tips", True), ("cs2_tournament", "tournament", False)):
+        cs2_on = self.cfg.get("games", {}).get("cs2_assistant", False)
+        toggles = [("game_assist", "game_assist", True)]
+        if cs2_on:      # таймер бомбы и экономика — только если включены в config.yaml (games.cs2_assistant)
+            toggles += [("cs2_bomb_timer", "bomb_timer", True), ("cs2_econ", "econ_tips", True),
+                        ("cs2_tournament", "tournament", False)]
+        for key, label, default in toggles:
             gm2.addAction(self._check(gm2, t(label, L), self.prefs.get(key, default),
                                       lambda k=key, d=default: self.chat.add_system(self.game.set_pref(k, not self.prefs.get(k, d)))))
-        gm2.addSeparator()
-        gm2.addAction(t("game_stats", L), lambda: self.on_message("как я сыграл"))
+        if cs2_on:
+            gm2.addSeparator()
+            gm2.addAction(t("game_stats", L), lambda: self.on_message("как я сыграл"))
         menu.addAction(self._check(menu, t("wander", L), self.avatar.wander, self.toggle_wander))
         dm = menu.addMenu(t("dance", L))
         dm.addAction(self._check(dm, t("dance_on", L), self.prefs.get("dance", True), self.toggle_dance))
@@ -697,7 +702,7 @@ class CapriApp:
         self._apply_wake_mode()
 
     def toggle_wake_short(self):
-        on = not self.prefs.get("wake_short", True)
+        on = not self.prefs.get("wake_short", False)
         self.prefs.set("wake_short", on)
         self._apply_wake_mode()
 
@@ -727,7 +732,7 @@ class CapriApp:
             return
         talking = getattr(self, "talking_media", False)
         strict_video = self.prefs.get("strict_during_video", False)
-        self.wake.short = self.prefs.get("wake_short", True) and not (talking and strict_video)
+        self.wake.short = self.prefs.get("wake_short", False) and not (talking and strict_video)
         self.wake.strict = talking
 
     def stop_dancing(self):

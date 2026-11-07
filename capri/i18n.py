@@ -60,7 +60,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "show": {"ru": "👀 Показать", "en": "👀 Show"},
     "voice_lab": {"ru": "🎛 Голос Капри…", "en": "🎛 Capri's voice…"},
     "games": {"ru": "🎮 Игры", "en": "🎮 Games"},
-    "game_assist": {"ru": "Игровой помощник (сама замечу игру)", "en": "Game assistant (auto-detect games)"},
+    "game_assist": {"ru": "Лёгкий режим в играх (сама замечу игру и уйду из видеокарты)", "en": "Light mode in games (auto-detect, free the GPU)"},
     "bomb_timer": {"ru": "CS2: таймер бомбы голосом", "en": "CS2: spoken bomb timer"},
     "econ_tips": {"ru": "CS2: подсказки по экономике", "en": "CS2: economy tips"},
     "tournament": {"ru": "CS2: турнирный режим (молчать)", "en": "CS2: tournament mode (silent)"},
@@ -80,7 +80,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "quit": {"ru": "⏻ Выход", "en": "⏻ Quit"},
     # сообщения
     "mic_set": {"ru": "Микрофон: {name}", "en": "Microphone: {name}"},
-    "wake_on": {"ru": "Скажи «Капри» (или «Привет, Капри») — и говори команду.", "en": "Say “Capri” (or “Hey Capri”), then your command."},
+    "wake_on": {"ru": "Скажи «Привет, Капри» — и говори команду.", "en": "Say “Hey Capri”, then your command."},
     "wake_off": {"ru": "Больше не слушаю «Привет, Капри».", "en": "Not listening for the wake phrase anymore."},
     "wake_missing": {"ru": "Для «Привет, Капри» нужна модель vosk — перезапусти run_capri.bat, он её скачает.",
                      "en": "The wake phrase needs the vosk model — restart run_capri.bat to download it."},

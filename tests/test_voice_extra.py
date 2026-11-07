@@ -6,9 +6,10 @@ from capri.voice.wake import is_wake
 
 
 def test_wake_phrases():
-    for s in ["привет капри", "Привет, Капри!", "ну привет кэпри", "эй капри", "hey capri", "привет капли"]:
+    for s in ["привет капри", "Привет, Капри!", "ну привет кэпри", "hey capri", "привет капли"]:
         assert is_wake(s), s
-    for s in ["привет", "капри", "брюки капри", "привет как дела", ""]:
+    # «эй/окей капри» по журналу почти всегда ложные — больше не будят
+    for s in ["привет", "капри", "брюки капри", "привет как дела", "эй капри", "окей капри", ""]:
         assert not is_wake(s), s
 
 
@@ -65,3 +66,20 @@ def test_strict_keyword_confidence_during_video():
     assert keyword_hit(words, short=True)                       # обычно — хватает
     assert not keyword_hit(words, short=True, min_conf=0.93)    # во время видео — нужно увереннее
     assert keyword_hit([{"word": "капри", "conf": 0.97}], short=True, min_conf=0.93)
+
+
+def test_keyword_hit_only_after_privet():
+    from capri.voice.wake import keyword_hit
+    w = lambda *ws: [{"word": x, "conf": 0.99} for x in ws]
+    assert keyword_hit(w("привет", "капри"), short=False)
+    assert not keyword_hit(w("капри"), short=False)
+    assert not keyword_hit(w("эй", "капри"), short=False)
+
+
+def test_short_wake_turned_off_once(tmp_path):
+    p = tmp_path / "state.json"
+    p.write_text(json.dumps({"wake_short": True}), encoding="utf-8")
+    s = State(p)
+    assert s.get("wake_short") is False
+    s.set("wake_short", True)                       # сам включил обратно — больше не трогаем
+    assert State(p).get("wake_short") is True

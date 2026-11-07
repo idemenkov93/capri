@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-DEFAULT_STATE = {"language": "ru", "input_device": None, "wake_word": True, "wake_short": True, "wander": True, "speak": None, "speak_typed": True,
+DEFAULT_STATE = {"language": "ru", "input_device": None, "wake_word": True, "wake_short": False, "wander": True, "speak": None, "speak_typed": True,
                  "attitude": "sassy", "dance": True, "dance_any": False, "voice_tune": None}
 
 
@@ -17,6 +17,10 @@ class State:
             self.data.update(json.loads(self.path.read_text(encoding="utf-8")))
         except (OSError, ValueError):
             pass
+        if not self.data.get("wake_v2"):
+            # 1.0.2: просто «Капри» ложно срабатывало десятки раз в день — теперь только «Привет, Капри»
+            self.data["wake_short"] = False
+            self.data["wake_v2"] = True
 
     def get(self, key, default=None):
         v = self.data.get(key, default)

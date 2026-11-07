@@ -52,6 +52,7 @@ class VoiceController(QObject):
         if importlib.util.find_spec("piper") is not None:
             piper = Speaker(v["piper_voices"], expand(v["models_dir"]) / "piper")
         self.piper, self.edge = piper, None
+        self.offline = False         # в игре: говорим локальным Piper, без сети (быстро и без зависаний)
         self.speaker = piper
         if v.get("tts_engine", "edge") == "edge" and importlib.util.find_spec("edge_tts") is not None:
             self.edge = EdgeSpeaker(dict(v["edge_voices"]), v.get("edge_rate", "+0%"), v.get("edge_pitch", "+0Hz"))
@@ -325,9 +326,10 @@ class VoiceController(QObject):
 
         def say():
             from ..log import log
-            log.debug("tts: говорю %d символов [%s]", len(clean), lang)
-            if self.speaker:
-                self.speaker.say(clean, lang)
+            sp = self.piper if (self.offline and self.piper) else self.speaker
+            log.debug("tts: говорю %d символов [%s]%s", len(clean), lang, " офлайн" if sp is self.piper else "")
+            if sp:
+                sp.say(clean, lang)
             else:
                 from .tts import windows_say
                 windows_say(clean, lang)

@@ -27,8 +27,9 @@ STEAM = r"D:\SteamLibrary\steamapps\common"
     (r"E:\Games\Witcher 3\bin\x64\witcher3.exe", "Ведьмак 3", "soft"),
 ])
 def test_games_are_recognised(path, name, mode):
-    g = game.classify(path)
+    g = game.classify(path, {"strict": ["cs2.exe"]})        # старая настройка: строгий только CS2
     assert g and (g.name, g.mode) == (name, mode)
+    assert game.classify(path).mode == "strict"                  # теперь по умолчанию — лёгкий режим для всех игр
 
 
 @pytest.mark.parametrize("path", [
@@ -214,6 +215,7 @@ def agent(g, claude=lambda t, c: "ответ"):
 
 def test_live_round_waits_but_commands_work():
     a = agent(FakeGame(live=True))
+    a.cfg["games"]["questions"] = True
     r = a.handle("Капри, громкость 30")
     assert r.route == "rules" and a.system.ran == ["volume_set"]           # команды — сразу
     r = a.handle("кто сделал лучший раунд в истории мейджоров")
@@ -224,6 +226,7 @@ def test_live_round_waits_but_commands_work():
 def test_between_rounds_questions_go_to_claude_with_context():
     seen = []
     a = agent(FakeGame(live=False), claude=lambda t, c: seen.append(t) or "Бери AWP.")
+    a.cfg["games"]["questions"] = True                 # помощник с вопросами — только если включить в config.yaml
     assert a.handle("что лучше купить на эко?").text == "Бери AWP." and "Counter-Strike 2" in seen[0]
     a.cfg["claude_code"]["enabled"] = False
     assert "локальную модель не включаю" in a.handle("расскажи анекдот").text

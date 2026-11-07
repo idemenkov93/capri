@@ -103,7 +103,7 @@ def classify(path: str, cfg: dict | None = None) -> GameInfo | None:
     ignore = [str(x).lower() for x in cfg.get("ignore") or []]
     if exe in ignore:
         return None
-    strict = [str(x).lower() for x in cfg.get("strict") or ["cs2.exe"]]
+    strict = [str(x).lower() for x in cfg.get("strict") or ["*"]]
     extra = [str(x).lower() for x in cfg.get("extra") or []]
     if exe in KNOWN:
         name, mode = KNOWN[exe]
@@ -116,7 +116,7 @@ def classify(path: str, cfg: dict | None = None) -> GameInfo | None:
         if any(w in exe for w in NOT_GAMES) or not exe.endswith(".exe"):
             return None
         name, mode = _pretty(exe, path), "soft"
-    if exe in strict:
+    if exe in strict or "*" in strict:
         mode = "strict"
     return GameInfo(exe=exe, name=name, mode=mode, path=path)
 
