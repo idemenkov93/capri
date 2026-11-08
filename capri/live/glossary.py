@@ -43,8 +43,9 @@ def _decode(raw: bytes) -> str:
     return raw.decode("latin-1")
 
 
-def read_csv(p: Path) -> list[dict]:
-    """CSV с «;» или «,»; с заголовком (Deutsch/Русский/Заметка/Тема) или без — тогда колонки по порядку."""
+def read_csv(p: Path, need_header: bool = False) -> list[dict]:
+    """CSV с «;» или «,»; с заголовком (Deutsch/Русский/Заметка/Тема) или без — тогда колонки по порядку.
+    need_header — для файлов, найденных в папках сами: без заголовка «Deutsch…Русский» это не словарь."""
     text = _decode(Path(p).read_bytes())
     sample = text[:4000]
     delim = ";" if sample.count(";") >= sample.count(",") else ","
@@ -57,6 +58,8 @@ def read_csv(p: Path) -> list[dict]:
         return next((i for i, h in enumerate(head) if any(n in h for n in names)), None)
     i_de = col("deutsch", "german", "begriff", "термин")
     has_head = i_de is not None
+    if need_header and (not has_head or col("русск", "russ", "перевод") is None):
+        return []
     i_de = i_de if has_head else 0
     i_ru = col("русск", "russ", "перевод") if has_head else 1
     i_ru = 1 if i_ru is None else i_ru
@@ -117,11 +120,26 @@ def _rows(text: str) -> dict[str, tuple[str, str]]:
 
 # ---------- всё вместе ----------
 
+def extra_dirs(root: Path) -> list[Path]:
+    """Где ещё ищем бестиарий сами (CSV с заголовком Deutsch;Русский): Документы\\Capri, папка уроков,
+    папка Капри и её data — «положил файл рядом» тоже работает."""
+    from ..config import PROJECT_ROOT
+    out = []
+    for d in (root, root.parent, PROJECT_ROOT, PROJECT_ROOT / "data"):
+        try:
+            if d.exists() and d.resolve() not in [x.resolve() for x in out] and d.resolve() != csv_dir().resolve():
+                out.append(d)
+        except OSError:
+            pass
+    return out
+
+
 def _files(root: Path) -> list[Path]:
     lessons = [p / "конспект.md" for p in N.lessons(root)]
     d = csv_dir()
     csvs = sorted(d.glob("*.csv")) if d.exists() else []
-    csvs += sorted(root.glob("*.csv")) if root.exists() else []
+    for x in extra_dirs(root):
+        csvs += sorted(f for f in x.glob("*.csv") if not f.name.lower().startswith(("usage", "бестиарий 20")))
     return [f for f in lessons + csvs + [path(root), skip_path()] if f.exists()]
 
 
@@ -154,7 +172,7 @@ def entries(root: Path | None = None) -> list[dict]:
     for f in files:                                  # позже в списке — главнее
         try:
             if f.suffix.lower() == ".csv":
-                rows = read_csv(f)
+                rows = read_csv(f, need_header=f.parent.resolve() != csv_dir().resolve())
                 for r in rows:
                     r["source"] = r.get("source") or f.stem
             elif f.name == "конспект.md":

@@ -42,7 +42,8 @@ RE_PREPARE = re.compile(r"^(?:подготовь\s+(?:меня\s+)?к\s+(?:ур�
                         r"что\s+(?:будет|ждёт|ждет)\s+на\s+уроке)(?:\s+(?:сегодня|завтра))?$", re.I)
 RE_PHRASES = re.compile(r"^(?:фразы|покажи\s+фразы|полезные\s+фразы)(?:\s+(?:для|на)\s+урок\w*)?$", re.I)
 RE_IMPORT_GLOSSARY = re.compile(r"^(?:импортируй|загрузи|добавь|подключи)\s+(?:мой\s+|свой\s+)?(?:бестиари\w*|бистиари\w*|"
-                                r"словар\w*(?:\s+курса)?|глоссари\w*|термин\w*)$", re.I)
+                                r"словар\w*(?:\s+курса)?|глоссари\w*|термин\w*)(?:\s+(?:из\s+)?[«\"']?(?P<path>[A-Za-z]:\\[^«»\"']+?)[»\"']?)?$", re.I)
+RE_ASR = re.compile(r"^(?:распознавание\s+|субтитры\s+)(?P<v>быстрее|побыстрее|точнее|самые\s+точные|авто(?:матически)?)$", re.I)
 RE_IMPORT_REFRESH = re.compile(r"^обнови\s+материал\w*$", re.I)
 RE_EXPLAIN = re.compile(r"^объясни\s+(?:мне\s+)?(?:по\s+(?:моим\s+)?урокам|из\s+(?:моих\s+)?уроков)\s+(?P<t>.{2,60})$|"
                         r"^объясни\s+(?P<t2>.{2,60}?)\s+по\s+(?:моим\s+)?урокам$", re.I)
@@ -69,6 +70,10 @@ def route(text: str):
 
     def act(say, **p):
         return Reply(say, [A.Action("live", "Субтитры", p, needs_confirm=False)], "rules")
+    if m := RE_ASR.match(t):
+        v = m.group("v").lower()
+        value = ("base" if "быстр" in v else "large-v3-turbo" if "самые" in v else "small" if "точн" in v else "auto")
+        return act("Готово.", do="asr_model", value=value)
     if RE_STOP.match(t):
         return act("Выключаю субтитры.", do="stop")
     if m := RE_START.match(t):
@@ -109,8 +114,10 @@ def route(text: str):
         return act("Готовлю к уроку.", do="prepare")
     if RE_PHRASES.match(t):
         return act("Фразы — в окне.", do="phrases")
-    if RE_IMPORT_GLOSSARY.match(t):
-        return act("Выбери файл словаря.", do="import_glossary")
+    if m := RE_IMPORT_GLOSSARY.match(t):
+        if m.group("path"):
+            return act("Импортирую.", do="import_glossary", path=m.group("path").strip())
+        return act("Импортирую словарь: скопированный в Проводнике CSV — или выбери файл в окошке.", do="import_glossary")
     if RE_IMPORT_REFRESH.match(t):
         return act("Обновляю материалы.", do="import_refresh")
     if RE_IMPORT_FOLDER.match(t):

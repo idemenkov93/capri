@@ -57,7 +57,8 @@ PROVIDERS: dict[str, Provider] = {
         vision=("google/gemma", "qwen/qwen2.5-vl", "meta-llama/llama-4", "mistralai/mistral-small"),
         free_only=True,
         words=r"open\s*router|опен\s*роутер|опенроутер|deep\s*seek|дип\s*сик|дипсик|дипсику|дипсика",
-        how="Открой openrouter.ai/keys, войди и нажми «Create Key» — бесплатно, карту не добавляй. Скопируй ключ "
+        how="Открой openrouter.ai/keys, войди и нажми «Create Key» — бесплатно, карту не добавляй. Поле «Credit limit» "
+            "оставь пустым: оно не обязательное, платить ничего не нужно. Скопируй ключ "
             "(начинается с sk-or-) и вставь в чат Капри: «ключ openrouter sk-or-…». Капри берёт только бесплатные "
             "модели (DeepSeek, Qwen, Llama — какие сейчас бесплатны). Лимит без пополнения — около 50 запросов в день.",
         note="OpenRouter — бесплатные модели (DeepSeek и др.)",

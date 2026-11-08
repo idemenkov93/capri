@@ -92,6 +92,19 @@ def strip_thinking(text: str) -> str:
     return text.replace("<think>", "").strip()
 
 
+def not_running_text() -> str:
+    """Ollama не отвечает: не установлена — предложить поставить; установлена — запустить."""
+    try:
+        from ..installer import ollama_exe
+        installed = bool(ollama_exe())
+    except Exception:  # noqa: BLE001
+        installed = True
+    if not installed:
+        return ("Локальной модели нет: Ollama не установлена. Скажи «установи ollama» — скачаю и поставлю сама "
+                "(~1 ГБ + модель). Или подключи бесплатный Groq: «как подключить groq».")
+    return "Ollama установлена, но не запущена. Скажи «запусти ollama» — или открой её из меню «Пуск»."
+
+
 class OllamaError(RuntimeError):
     pass
 
@@ -165,11 +178,11 @@ class OllamaClient:
                     if chunk.get("done"):
                         break
         except httpx.ConnectError as e:
-            raise OllamaError("Ollama не отвечает. Запусти её (ollama serve) и проверь адрес в config.yaml.") from e
+            raise OllamaError(not_running_text()) from e
         except httpx.TimeoutException as e:
             raise OllamaError(
-                f"Модель молчала больше {self.timeout:g} сек. Проверь в терминале «ollama ps»: "
-                "если в колонке PROCESSOR стоит CPU — возьми модель полегче (например qwen3:1.7b)."
+                f"Локальная модель думала больше {self.timeout:g} с — на этом компьютере она работает на процессоре "
+                "и медленная. Подключи бесплатный Groq («как подключить groq») — отвечать будет он, за пару секунд."
             ) from e
         return {"content": strip_thinking("".join(content)), "tool_calls": tool_calls}
 

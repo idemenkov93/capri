@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QDialog, QFrame, QHBoxLa
                                QWidget)
 
 from .. import hardware, installer
-from ..llm import gemini
+from ..llm import cloud, gemini
 from ..config import DEFAULTS, FROZEN, PROJECT_ROOT, expand, load_config, resource
 from ..setup_config import REMOVE, apply
 
@@ -94,6 +94,19 @@ class Detect(QThread):
         except Exception:  # noqa: BLE001
             hw = hardware.Hardware()
         self.done.emit(hw)
+
+
+def save_cloud_key(code: str, key: str, progress=lambda t, f=None: None) -> str:
+    """Проверить и сохранить ключ Groq / OpenRouter. Не принят ключ — ошибка; сервис занят или нет сети — сохраняем."""
+    progress(f"Проверяю ключ {cloud.PROVIDERS[code].title}…", None)
+    try:
+        model = cloud.check_key(code, key)
+    except cloud.CloudError as e:
+        if "не принял ключ" in str(e):
+            raise
+        model = ""
+    cloud.set_key(code, key)
+    return model
 
 
 class Install(QThread):
@@ -268,6 +281,33 @@ class SetupWizard(QDialog):
         gl.addWidget(self.gem_status)
         lay.addWidget(self.gem_box)
         self.gem_model = ""
+
+        # ещё бесплатные облачные — можно несколько сразу; Капри спрашивает их по очереди
+        self.cloud_box = QFrame()
+        self.cloud_box.setObjectName("card")
+        cl = QVBoxLayout(self.cloud_box)
+        hint = QLabel("Ещё бесплатные помощники — <b>можно несколько</b>, по желанию. Отвечают за 1–3 секунды "
+                      "и переводят субтитры урока; если один занят — Капри спросит следующий. Без карты и оплаты.")
+        hint.setWordWrap(True)
+        hint.setTextFormat(Qt.RichText)
+        cl.addWidget(hint)
+        self.cloud_keys: dict[str, QLineEdit] = {}
+        for code in cloud.ORDER:
+            pr = cloud.PROVIDERS[code]
+            row = QHBoxLayout()
+            name = QLabel(pr.title)
+            name.setMinimumWidth(90)
+            ed = QLineEdit(cloud.get_key(code) or "")
+            ed.setEchoMode(QLineEdit.Password)
+            ed.setPlaceholderText(f"ключ {pr.prefix}…  (пусто — без него)")
+            get = QPushButton("Получить ключ")
+            get.clicked.connect(lambda _=False, u=pr.key_page: __import__("webbrowser").open(u))
+            row.addWidget(name)
+            row.addWidget(ed, 1)
+            row.addWidget(get)
+            cl.addLayout(row)
+            self.cloud_keys[code] = ed
+        lay.addWidget(self.cloud_box)
 
         self.cb_vision = QCheckBox()
         lay.addWidget(self.cb_vision)
@@ -461,6 +501,10 @@ class SetupWizard(QDialog):
             steps.append((f"Модель со зрением {vm}", lambda pr: installer.pull_model(self.url, vm, pr)))
         if not self.cb_claude.isHidden() and self.cb_claude.isEnabled() and self.cb_claude.isChecked():
             steps.append(("Claude Code", installer.install_claude))
+        for code, ed in getattr(self, "cloud_keys", {}).items():
+            key = ed.text().strip()
+            if key and key != (cloud.get_key(code) or ""):
+                steps.append((f"Ключ {cloud.PROVIDERS[code].title}", lambda pr, c=code, k=key: save_cloud_key(c, k, pr)))
         return steps
 
     def _start_install(self):

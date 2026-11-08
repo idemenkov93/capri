@@ -96,16 +96,21 @@ class LiveController(QObject):
         want = self.prefs()["model"]
         gpu = gpu_available()
         name = want if want != "auto" else ("large-v3-turbo" if gpu else v.get("whisper_model", "small"))
-        if want == "auto" and not gpu and name in ("small", "medium") and (os.cpu_count() or 4) <= 4:
-            name = "base"            # слабый ноутбук: small не успевает за речью — base в 2–3 раза быстрее
+        cores = os.cpu_count() or 4
+        if want == "auto" and not gpu and name in ("small", "medium") and cores <= 8:
+            name = "base"            # ноутбук без видеокарты: small не успевает за речью — base в 2–3 раза быстрее
         voice = getattr(self.app, "voice", None)
-        if voice is not None and getattr(voice.stt, "model_size", "") == name:
+        if gpu and voice is not None and getattr(voice.stt, "model_size", "") == name:
             return voice.stt._load()
         if self._model is None or self._model_name != name:
             self.sig_status.emit("Первый запуск: скачиваю модель распознавания (~1,6 ГБ), дальше — сразу…"
                                  if name == "large-v3-turbo" else "Загружаю распознавание…")
             t = Transcriber(name, v.get("languages"), root, preferred="de", device="auto" if gpu else "cpu")
+            if not gpu:
+                t.threads = max(2, cores // 2)      # половину процессора — видео, браузеру и Teams, иначе всё тормозит
             self._model, self._model_name = t._load(), name
+            from ..log import log
+            log.info(f"live: распознавание {name} на {'видеокарте' if gpu else f'процессоре, потоков {t.threads}'}")
         return self._model
 
     # ------------------------------------------------------------------ старт / стоп
@@ -401,6 +406,18 @@ class LiveController(QObject):
         self._jobs = [j for j in self._jobs if j.isRunning()] + [job]
         job.start()
 
+    @staticmethod
+    def _clipboard_file(exts: tuple) -> str:
+        """Файл, скопированный в Проводнике (Ctrl+C), — путь; иначе ''."""
+        from PySide6.QtGui import QGuiApplication
+        md = QGuiApplication.clipboard().mimeData()
+        if md is not None and md.hasUrls():
+            for u in md.urls():
+                f = u.toLocalFile()
+                if f and f.lower().endswith(exts):
+                    return f
+        return ""
+
     def review_terms(self, folder: Path | None = None) -> str:
         """Новые термины урока → галочки → бестиарий (data\\glossary\\Из уроков.csv)."""
         from . import glossary
@@ -490,6 +507,14 @@ class LiveController(QObject):
 
     # ------------------------------------------------------------------ команды из agent (действие «live»)
     def handle(self, p: dict) -> str:
+        try:
+            return self._handle(p)
+        except Exception as e:  # noqa: BLE001 — команда не должна молча «зависать»
+            from ..log import log
+            log.exception(f"live {p.get('do')}: {e}")
+            return f"Не получилось ({p.get('do')}): {str(e)[:160]}"
+
+    def _handle(self, p: dict) -> str:
         do = p.get("do")
         if do == "start":
             return self.start(p.get("lang"))
@@ -530,6 +555,13 @@ class LiveController(QObject):
             if self.session:
                 self.session.s.signals = bool(p["on"])
             return "Сигналы включены." if p["on"] else "Сигналы выключила — субтитры работают тихо."
+        if do == "asr_model":
+            self.set_pref(model=p["value"])
+            self._model = None
+            what = {"base": "быстрее (base) — для ноутбука", "small": "точнее (small) — нужен хороший процессор",
+                    "large-v3-turbo": "самое точное (large-v3-turbo) — для видеокарты", "auto": "сама выбираю по компьютеру"}
+            return f"Распознавание субтитров: {what.get(p['value'], p['value'])}." + \
+                (" Сработает со следующего включения субтитров." if self.running else "")
         if do == "review_terms":
             return self.review_terms()
         if do == "export_glossary":
@@ -600,12 +632,20 @@ class LiveController(QObject):
                 return f"«{term}» было на {len(hits)} уроках, последний — {hits[0][0].name[:10]}: {hits[0][1]}."
             return f"«{term}» есть в материалах: {mats[0][1]}."
         if do == "import_glossary":
-            from PySide6.QtWidgets import QFileDialog
             from . import glossary
-            f = p.get("path") or QFileDialog.getOpenFileName(
-                None, "Бестиарий / словарь курса", "", "Словарь (*.csv *.md *.txt);;Все файлы (*)")[0]
+            f = p.get("path") or self._clipboard_file((".csv", ".md", ".txt"))
             if not f:
-                return ""
+                from PySide6.QtCore import Qt
+                from PySide6.QtWidgets import QFileDialog
+                dlg = QFileDialog(None, "Выбери бестиарий / словарь курса (CSV)", str(Path.home() / "Downloads"),
+                                  "Словарь (*.csv *.md *.txt);;Все файлы (*)")
+                dlg.setFileMode(QFileDialog.ExistingFile)
+                dlg.setWindowFlag(Qt.WindowStaysOnTopHint, True)    # не прятаться за чатом и окнами
+                dlg.raise_()
+                dlg.activateWindow()
+                if not dlg.exec() or not dlg.selectedFiles():
+                    return "Ок, без словаря. Можно и так: скопируй CSV в Проводнике (Ctrl+C) и скажи «импортируй бестиарий»."
+                f = dlg.selectedFiles()[0]
             try:
                 n = glossary.import_file(Path(f))
             except Exception as e:  # noqa: BLE001

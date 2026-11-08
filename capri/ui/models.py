@@ -50,7 +50,12 @@ class ModelPull(QThread):
                 self._last = step
                 self.progress.emit(text)
         try:
-            installer.pull_model(self.url, self.name, pr)
+            if not installer.ollama_running(self.url):
+                # Ollama нет или не запущена — сначала она (раньше тут было «нет интернета»)
+                self.progress.emit("Ставлю и запускаю Ollama…" if not installer.ollama_exe() else "Запускаю Ollama…")
+                installer.install_ollama(self.url, lambda t, f=None: pr(t, f))
+            if self.name:
+                installer.pull_model(self.url, self.name, pr)
             self.done.emit(self.name, "")
         except Exception as e:  # noqa: BLE001
             self.done.emit(self.name, str(e)[:200])

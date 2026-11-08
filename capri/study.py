@@ -306,7 +306,11 @@ def glossary_reply(Reply, term: str, strict: bool = True):
     exact = [e for e in hits if t in [v.lower() for v in glossary.variants(e["de"])] + [e["de"].lower(), e["ru"].lower()]]
     show = exact or ([] if strict else hits)
     if not show:
-        return None
+        if strict:
+            return None                                   # «что такое …» без словаря — ответит мозг
+        n = glossary.count()
+        return Reply(f"В бестиарии «{term}» нет." + (f" В словаре {n} терминов." if n else
+                     " Словарь пуст: скопируй CSV в Проводнике и скажи «импортируй бестиарий»."), route="rules")
     e = show[0]
     text = "\n\n".join(glossary.line(x) for x in show[:3])
     text += f"\n\n_Из словаря курса. Подробнее — «объясни по урокам {e['de']}»._"

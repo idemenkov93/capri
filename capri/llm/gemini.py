@@ -84,9 +84,11 @@ def check_key(key: str, tier: str) -> str:
     try:
         ask("Ответь одним словом: ок", {"api_key": key, "model": model, "max_tokens": 64, "timeout": 20})
     except GeminiError as e:
-        if "не ответил" in str(e):
-            return model                      # ключ принят, модель просто «подумала» и не уложилась в 64 токена
-        raise GeminiError(str(e).replace("Gemini не принял ключ", "Google не принял ключ")) from None
+        msg = str(e)
+        if "не принял ключ" in msg or "API key" in msg or "API_KEY" in msg:
+            raise GeminiError(msg.replace("Gemini не принял ключ", "Google не принял ключ")) from None
+        # «не отвечает», 503 «high demand», лимит — это Google занят, а не плохой ключ: сохраняем
+        return model
     return model
 
 

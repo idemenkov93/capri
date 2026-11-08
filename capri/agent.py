@@ -257,7 +257,22 @@ class Agent:
             if g.strict:
                 return Reply("Пока идёт игра, локальную модель не включаю — она займёт видеокарту. Спроси после матча "
                              "или подключи Gemini: скажи «как подключить gemini».", route="rules")
+        if not self._local_fast():
+            # ноутбук без видеокарты: локальная модель думает 30–120 с — бесплатный облачный по HTTP отвечает за 1–3 с
+            http = [p for p in self._order(for_game=False) if p not in ("claude", "ollama")]
+            if http:
+                return self._ask_claude(text, on_status, order=http + ["ollama"])
         return self._local(text, on_status, on_token, should_stop)
+
+    def _local_fast(self) -> bool:
+        """Локальная модель быстрая — есть видеокарта (≥ 6 ГБ). Без неё обычные вопросы — облаку по HTTP."""
+        if self.cfg.get("brain", {}).get("provider") == "ollama":
+            return True                                  # выбрал «только локально» — так и делаем
+        try:
+            from .mentor import has_gpu
+            return has_gpu()
+        except Exception:  # noqa: BLE001
+            return True
 
     def _google(self, text: str) -> Reply | None:
         """Почта / календарь / задачи. None — фраза не про Google.
@@ -725,6 +740,10 @@ class Agent:
         if re.fullmatch(r"(?:настрой\w*\s+|покажи\s+|открой\s+|поменяй\s+|измени\s+)?(?:горяч\w+\s+клавиш\w*|хоткеи?|"
                         r"хоткейс\w*|hotkeys?|сочетани\w+\s+клавиш)(?:\s+капри)?", t):
             return act("hotkeys", "Открываю таблицу горячих клавиш.")
+        if re.fullmatch(r"(?:установи|поставь|скачай)\s+(?:ollama|олламу?|оламу?|локальную\s+модель)", t):
+            return act("ollama", "Ставлю Ollama и локальную модель — прогресс будет в чате.")
+        if re.fullmatch(r"(?:запусти|включи)\s+(?:ollama|олламу?|оламу?)", t):
+            return act("ollama", "Запускаю Ollama.")
         if re.search(r"^переведи\s+(?:то,?\s+что\s+в\s+)?буфер\w*", t):
             return act("clip_translate", "Перевожу буфер.", lang=lang)
         if re.search(r"^(?:что|че|чё)\s+(?:у\s+меня\s+)?в\s+буфере|^объясни\s+(?:что\s+в\s+)?буфер\w*|"
@@ -1225,10 +1244,11 @@ class Agent:
         return self._llm_text
 
     def _ask_claude(self, task: str, on_status, remembered: bool = False, label: str | None = None,
-                    gemini_task: str | None = None, images: list | None = None, force: str | None = None) -> Reply:
+                    gemini_task: str | None = None, images: list | None = None, force: str | None = None,
+                    order: list | None = None) -> Reply:
         """Умный помощник: выбранный в мастере; в играх — Gemini; кончился лимит Claude — следующий по списку.
-        force — «мозг» выбран в чате: спрашиваем только его."""
-        order = self._order()
+        force — «мозг» выбран в чате: спрашиваем только его; order — свой порядок (ноутбук: сначала HTTP)."""
+        order = list(order) if order else self._order()
         if force in ("claude", "gemini", *cloud.ORDER):
             if not self.ready(force):
                 how = ("Claude не установлен или выключен — «⚙ Мастер настройки»." if force == "claude"

@@ -632,11 +632,12 @@ class CapriApp:
             self.chat.add_system("Уже качаю модель — дождись.")
             return
         self.chat.show()
-        self.chat.add_system(f"⬇ Качаю {name}…")
+        self.chat.add_system(f"⬇ Качаю {name}…" if name else "⬇ Проверяю Ollama…")
         self._pull = ModelPull(self.cfg["ollama"]["url"], name)
         self._pull.progress.connect(self.chat.add_system)
-        self._pull.done.connect(lambda n, err: self.chat.add_system(f"Не скачалась {n}: {err}") if err else (
-            self.chat.add_system(f"✓ {n} скачана."), then and self.set_model(*then)))
+        self._pull.done.connect(lambda n, err: self.chat.add_system(f"Не получилось{' скачать ' + n if n else ''}: {err}")
+                                if err else (self.chat.add_system(f"✓ {n} скачана." if n else "✓ Ollama работает."),
+                                             then and self.set_model(*then)))
         self._pull.start()
 
     def delete_model(self, name: str):
@@ -1722,6 +1723,13 @@ class CapriApp:
             return
         if act.kind == "hotkeys":
             self.open_hotkeys()
+            return
+        if act.kind == "ollama":
+            # «установи / запусти ollama»: ставит Ollama, если её нет, запускает и докачивает модель из настроек
+            from . import installer
+            o = self.cfg["ollama"]
+            need = "" if installer.has_model(o["url"], o.get("model", "")) else o.get("model", "")
+            self.pull_model(need)
             return
         if act.kind == "mentor":
             self.run_mentor(act.params)
