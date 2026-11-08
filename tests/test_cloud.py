@@ -69,8 +69,8 @@ def test_openrouter_refuses_paid_model_from_config(monkeypatch):
 
 
 def test_groq_prefers_big_model():
-    models = [{"id": "llama-3.1-8b-instant"}, {"id": "llama-3.3-70b-versatile"}, {"id": "whisper-large-v3"}]
-    assert cloud.pick_model("groq", models) == "llama-3.3-70b-versatile"
+    models = [{"id": "openai/gpt-oss-20b"}, {"id": "openai/gpt-oss-120b"}, {"id": "whisper-large-v3"}]
+    assert cloud.pick_model("groq", models) == "openai/gpt-oss-120b"
 
 
 def test_ask_sends_openai_format_and_strips_thinking(monkeypatch):

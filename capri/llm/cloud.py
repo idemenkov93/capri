@@ -42,9 +42,9 @@ class Provider:
 PROVIDERS: dict[str, Provider] = {
     "groq": Provider(
         "groq", "Groq", "https://api.groq.com/openai/v1", "https://console.groq.com/keys", "gsk_", "GROQ_API_KEY",
-        ("openai/gpt-oss-120b", "llama-3.3-70b-versatile", "moonshotai/kimi-k2", "qwen/qwen3-32b",
-         "openai/gpt-oss-20b", "llama-3.1-8b-instant"),
-        vision=("meta-llama/llama-4-scout", "meta-llama/llama-4-maverick"),
+        # Llama 3.x, Qwen3-32B, Llama 4 Groq сняла летом 2026 — остались GPT-OSS и новые Qwen
+        ("openai/gpt-oss-120b", "qwen/qwen3.8", "qwen/qwen3.6", "openai/gpt-oss-20b", "moonshotai/kimi-k2"),
+        vision=("meta-llama/llama-4-scout", "qwen/qwen3.8", "qwen/qwen3.6"),
         words=r"groq|грок|грог|гроку|грока",
         how="Открой console.groq.com/keys, войди (Google или почта) и нажми «Create API Key» — бесплатно и без карты. "
             "Скопируй ключ (начинается с gsk_) и вставь его в чат Капри: «ключ groq gsk_…».",
@@ -233,6 +233,8 @@ def ask(code: str, prompt: str, cfg: dict, images: list[Path] | None = None, sys
                                                  base64.b64encode(Path(i).read_bytes()).decode()}} for i in images]
     messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": content}]
     body = {"model": model, "messages": messages, "max_tokens": cfg.get("max_tokens", 2048)}
+    if code == "groq" and model.startswith("openai/gpt-oss"):
+        body["reasoning_effort"] = cfg.get("reasoning_effort", "low")     # думает меньше — отвечает быстрее
     try:
         r = httpx.post(f"{p.base}/chat/completions", json=body, headers=_headers(p, key), timeout=cfg.get("timeout", 60))
     except httpx.HTTPError as e:

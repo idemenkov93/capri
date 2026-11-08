@@ -2,6 +2,8 @@
 плюс пара предыдущих фраз как контекст — чтобы «er» и «das» переводились правильно.
 
 Кто переводит (auto): Groq → Gemini → OpenRouter → локальная модель. Claude не берём — он через программу, медленно.
+У Groq бесплатный лимит — на каждую модель свой: кончился у большой (GPT-OSS 120B) — берём GPT-OSS 20B,
+потом Qwen, потом остальных. Длинный учебный день так и проходит бесплатно.
 В облако уходит только текст фраз, звук остаётся на компьютере.
 """
 from __future__ import annotations
@@ -14,6 +16,7 @@ LANG_NAME = {"ru": "русский", "de": "немецкий", "en": "англи
 PROMPT = """Ты синхронный переводчик субтитров урока / разговора. Переведи фразы на {target} язык.
 Пиши просто и понятно, как живую речь. Термины IT (Active Directory, DNS, Server, PowerShell…) оставляй как есть.
 Если фраза оборвана — переведи как есть, не додумывай. Ничего не объясняй.
+Обращение сохраняй (Sie — «вы», du — «ты»); числа, имена, команды и пути — без изменений.
 {context}Фразы:
 {lines}
 Ответ — только JSON-массив строк той же длины ({n}), без markdown."""
@@ -61,31 +64,52 @@ class Translator:
             return [self.prefer] + [p for p in cloud if p != self.prefer] + ["local"]
         return cloud + ["local"]
 
+    GROQ_MODELS = ("openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b")
+
+    def steps(self) -> list[tuple[str, str]]:
+        """(кто, модель) по порядку; у Groq — две модели с отдельными лимитами."""
+        out = []
+        for p in self.order():
+            if p == "groq" and not self.agent._ccfg("groq").get("model"):
+                out += [("groq", m) for m in self.GROQ_MODELS]
+            else:
+                out.append((p, ""))
+        return out
+
     def translate(self, lines: list[str], context: list[str]) -> list[str]:
         import time
         prompt = build_prompt(lines, context, self.target)
         errors = []
-        for p in self.order():
-            if self._broken.get(p, 0) > time.monotonic():
+        for p, model in self.steps():
+            key = f"{p}:{model}"
+            if self._broken.get(key, 0) > time.monotonic():
                 continue
+            t0 = time.monotonic()
             try:
-                raw = self._ask(p, prompt)
+                raw = self._ask(p, prompt, model)
                 out = parse(raw, len(lines))
-                self.last_used = p
+                self.last_used = f"{p} {model}".strip()
+                self.last_ms = (time.monotonic() - t0) * 1000
                 return out
             except Exception as e:  # noqa: BLE001 — лимит, нет сети: следующий
                 errors.append(f"{p}: {str(e)[:80]}")
                 if p != "local":
-                    self._broken[p] = time.monotonic() + 60
+                    # лимит на сегодня — не дёргаем 10 минут; разовый сбой — минуту
+                    msg = str(e)
+                    self._broken[key] = time.monotonic() + (3600 if "недоступна" in msg else
+                                                            600 if "лимит" in msg or "429" in msg else 60)
         raise RuntimeError("; ".join(errors) or "переводчик недоступен")
 
-    def _ask(self, p: str, prompt: str) -> str:
+    last_ms = 0.0
+
+    def _ask(self, p: str, prompt: str, model: str = "") -> str:
         a = self.agent
         if p == "gemini":
             return a.gemini_ask(prompt, {**a._gcfg(), "model": a._gcfg().get("fast_model") or "gemini-flash-lite-latest",
                                          "max_tokens": 1024, "timeout": 20}, images=None, system="")
         if p in ("groq", "openrouter"):
-            return a.cloud_ask(p, prompt, {**a._ccfg(p), "max_tokens": 1024, "timeout": 20}, images=None, system="")
+            cfg = {**a._ccfg(p), "max_tokens": 1024, "timeout": 12, **({"model": model} if model else {})}
+            return a.cloud_ask(p, prompt, cfg, images=None, system="")
         from ..llm.ollama_client import strip_thinking
         msg = a._text_llm().chat([{"role": "user", "content": prompt + " /no_think"}], tools=None)
         return strip_thinking(msg.get("content", ""))

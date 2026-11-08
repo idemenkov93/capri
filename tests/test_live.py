@@ -112,7 +112,21 @@ def test_translator_falls_back_and_remembers():
     assert tr.order() == ["groq", "openrouter", "local"]
     assert tr.translate(["a", "b"], []) == ["перевод 1", "перевод 2"] and tr.last_used == "openrouter"
     tr.translate(["c"], [])
-    assert a.asked == ["groq", "openrouter", "openrouter"]           # Groq минуту не трогаем
+    assert a.asked == ["groq", "groq", "groq", "openrouter", "openrouter"]   # обе модели Groq пробовали, потом не трогаем
+
+
+def test_groq_big_model_limit_switches_to_fast_model():
+    class A(FakeAgent):
+        def cloud_ask(self, p, prompt, cfg, images=None, system=""):
+            self.asked.append(cfg.get("model"))
+            if cfg.get("model") == "openai/gpt-oss-120b":
+                raise RuntimeError("лимит Groq пока исчерпан")
+            return '["ok"]'
+    a = A(ready=("groq",))
+    tr = T.Translator(a, "ru")
+    assert tr.translate(["x"], []) == ["ok"] and tr.last_used == "groq openai/gpt-oss-20b"
+    tr.translate(["y"], [])
+    assert a.asked == ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "openai/gpt-oss-20b"]
 
 
 # ------------------------------------------------------------------ вся сессия с заглушкой Whisper

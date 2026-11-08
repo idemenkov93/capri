@@ -1137,7 +1137,7 @@ class CapriApp:
                 self.chat.add_system(t("upd_avail", self.lang).format(v=info["version"]))
             return
         if info is None:
-            QMessageBox.information(None, "Capri", t("upd_fail", self.lang))
+            QMessageBox.information(None, "Capri", t("upd_fail", self.lang).format(e=updates.last_error or "?"))
         elif not updates.newer(info["version"]):
             QMessageBox.information(None, "Capri", t("upd_none", self.lang))
         elif not FROZEN or not info.get("asset"):
@@ -1827,6 +1827,11 @@ def _wait_pid(pid: int, timeout: float = 20.0) -> None:
 
 def main() -> int:
     import os
+    try:                    # HTTPS через хранилище сертификатов Windows (антивирус / корпоративный прокси с проверкой HTTPS)
+        import truststore
+        truststore.inject_into_ssl()
+    except Exception:  # noqa: BLE001
+        pass
 
     from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
@@ -1842,7 +1847,7 @@ def main() -> int:
 
     from .log import log, setup
     setup()
-    log.info("=== Капри запускается (%s) ===", "Capri.exe" if FROZEN else "из исходников")
+    log.info("=== Капри %s запускается (%s) ===", __version__, "Capri.exe" if FROZEN else "из исходников")
 
     # Только одна Капри: если она уже запущена — показываем её чат и выходим.
     # Живая Капри отвечает «ok»; если ответа нет — это зависший процесс: завершаем его и запускаемся сами.

@@ -26,19 +26,69 @@ def _v(text: str) -> tuple[int, ...]:
     return tuple(int(x) for x in re.findall(r"\d+", text)[:3])
 
 
+UA = {"User-Agent": "Capri-updater", "Accept": "application/vnd.github+json"}
+last_error = ""          # почему не получилось — показываем человеку, а не «нет интернета?»
+
+
+def _why(e: Exception | None = None, status: int = 0) -> str:
+    if status == 403 or status == 429:
+        return "GitHub временно ограничил проверки с твоего адреса (лимит 60 в час) — попробую обходной путь"
+    if status:
+        return f"GitHub ответил {status}"
+    s = f"{type(e).__name__}: {e}" if e else ""
+    if "CERTIFICATE" in s.upper() or "SSL" in s.upper():
+        return "не доверяю сертификату GitHub — обычно это антивирус или прокси, который проверяет HTTPS"
+    if "ConnectTimeout" in s or "ReadTimeout" in s:
+        return "GitHub не ответил за 10 секунд"
+    if "getaddrinfo" in s or "Name or service" in s or "11001" in s:
+        return "не нахожу github.com (DNS) — проверь интернет или VPN"
+    if "ProxyError" in s or "407" in s:
+        return "мешает прокси"
+    return s[:160] or "неизвестная ошибка"
+
+
 def latest() -> dict | None:
-    """{'version', 'url' (страница релиза), 'asset' (ссылка на установщик или ''), 'size'} или None (нет сети)."""
+    """{'version', 'url', 'asset', 'size'} или None (тогда причина — в updates.last_error).
+
+    1) API GitHub (точный размер файла); 2) если API не пустил (лимит 60 запросов в час на адрес) —
+    страница github.com/…/releases/latest: она перенаправляет на последнюю версию, а ссылку на установщик
+    собираем по имени (CapriSetup-<версия>.exe)."""
+    global last_error
+    last_error = ""
     try:
-        r = httpx.get(f"https://api.github.com/repos/{REPO}/releases/latest", timeout=10,
-                      headers={"Accept": "application/vnd.github+json"})
-        if r.status_code != 200:
-            return None
-        d = r.json()
-        asset = next((a for a in d.get("assets") or [] if ASSET.match(a.get("name", ""))), None) or {}
-        return {"version": d.get("tag_name", "").lstrip("v"), "url": d.get("html_url", ""),
-                "asset": asset.get("browser_download_url", ""), "size": int(asset.get("size") or 0)}
-    except (httpx.HTTPError, ValueError):
-        return None
+        r = httpx.get(f"https://api.github.com/repos/{REPO}/releases/latest", timeout=10, headers=UA)
+        if r.status_code == 200:
+            d = r.json()
+            asset = next((a for a in d.get("assets") or [] if ASSET.match(a.get("name", ""))), None) or {}
+            return {"version": d.get("tag_name", "").lstrip("v"), "url": d.get("html_url", ""),
+                    "asset": asset.get("browser_download_url", ""), "size": int(asset.get("size") or 0)}
+        last_error = _why(status=r.status_code)
+    except (httpx.HTTPError, ValueError) as e:
+        last_error = _why(e)
+    try:                                                      # обходной путь без API
+        r = httpx.get(f"https://github.com/{REPO}/releases/latest", timeout=10, follow_redirects=False,
+                      headers={"User-Agent": "Capri-updater"})
+        loc = r.headers.get("location", "")
+        m = re.search(r"/releases/tag/v?([\d.]+)$", loc)
+        if r.status_code in (301, 302) and m:
+            v = m.group(1)
+            asset = f"https://github.com/{REPO}/releases/download/v{v}/CapriSetup-{v}.exe"
+            size = 0
+            try:
+                h = httpx.head(asset, timeout=10, follow_redirects=True, headers={"User-Agent": "Capri-updater"})
+                size = int(h.headers.get("content-length") or 0) if h.status_code == 200 else 0
+                if h.status_code == 404:
+                    asset = ""
+            except httpx.HTTPError:
+                pass
+            last_error = ""
+            return {"version": v, "url": f"https://github.com/{REPO}/releases/tag/v{v}", "asset": asset, "size": size}
+        last_error = last_error or _why(status=r.status_code)
+    except httpx.HTTPError as e:
+        last_error = _why(e) if not last_error or "лимит" in last_error else last_error
+    from .log import log
+    log.warning("обновления: %s", last_error)
+    return None
 
 
 def newer(version: str, current: str = __version__) -> bool:

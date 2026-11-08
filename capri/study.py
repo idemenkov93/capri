@@ -96,6 +96,21 @@ WORDS = [  # слово дня: немецкий IT-термин, перевод
 ]
 
 
+def fast_ask(agent, prompt: str) -> str:
+    """Быстрый ответ (подсказка на уроке, язык, тренажёр): сначала облачные по HTTP (Groq, Gemini, OpenRouter) —
+    1–3 секунды, а не Claude через программу (10–20 с). Никого нет — обычный порядок (ask_text)."""
+    for p in ("groq", "gemini", "openrouter"):
+        try:
+            if not agent.ready(p):
+                continue
+            if p == "gemini":
+                return agent.gemini_ask(prompt, {**agent._gcfg(), "timeout": 20}, images=None, system="")
+            return agent.cloud_ask(p, prompt, {**agent._ccfg(p), "timeout": 20}, images=None, system="")
+        except Exception:  # noqa: BLE001 — лимит / нет сети: следующий
+            continue
+    return agent.ask_text(prompt)
+
+
 def word_of_day(day: dt.date | None = None) -> tuple[str, str, str]:
     day = day or dt.date.today()
     return WORDS[day.toordinal() % len(WORDS)]
@@ -336,7 +351,7 @@ def route(agent, text: str):
 
 
 def start_training(agent, Reply, kind: str, topic: str, n: int):
-    tr = Trainer(agent.ask_text, kind, topic, n, prefs=getattr(agent, "prefs", None))
+    tr = Trainer(lambda prompt: fast_ask(agent, prompt), kind, topic, n, prefs=getattr(agent, "prefs", None))
     try:
         text = tr.start()
     except Exception as e:  # noqa: BLE001
@@ -431,7 +446,7 @@ def _parse_date(s: str) -> dt.date | None:
 
 def _popup(agent, Reply, title: str, prompt: str, copy_first: bool = False, say: str = ""):
     try:
-        ans = agent.ask_text(prompt).strip()
+        ans = fast_ask(agent, prompt).strip()
     except Exception as e:  # noqa: BLE001
         return Reply(f"Не получилось: {str(e)[:150]}", route="error")
     right = re.search(r"\*\*Правильно:\*\*\s*(.+)", ans)

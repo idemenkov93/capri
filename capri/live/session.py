@@ -283,7 +283,7 @@ class LiveSession:
             if line is None:
                 break
             batch = [line]
-            t_end = time.monotonic() + 0.4                     # подождать соседние фразы — переведём пачкой
+            t_end = time.monotonic() + 0.15                    # чуть подождать соседние фразы — переведём пачкой
             while len(batch) < 4 and time.monotonic() < t_end:
                 try:
                     nxt = self.tr_q.get(timeout=max(0.0, t_end - time.monotonic()))

@@ -316,3 +316,31 @@ def test_models_menu_labels():
     assert "голос и текст ✓" in models.label("qwen3:8b", h)
     assert "📝 только текст" in models.label("qwen3:14b", h)
     assert "не потянет" in models.label("qwen3:32b", h)
+
+
+def test_latest_falls_back_when_api_limited(monkeypatch):
+    """API GitHub ответил 403 (лимит 60 запросов в час) — узнаём версию по перенаправлению страницы релиза."""
+    import httpx
+
+    from capri import updates
+
+    def get(url, **k):
+        if "api.github.com" in url:
+            return httpx.Response(403)
+        return httpx.Response(302, headers={"location": "https://github.com/idemenkov93/capri/releases/tag/v1.9.0"})
+    monkeypatch.setattr(updates.httpx, "get", get)
+    monkeypatch.setattr(updates.httpx, "head", lambda *a, **k: httpx.Response(200, headers={"content-length": "123"}))
+    info = updates.latest()
+    assert info == {"version": "1.9.0", "url": "https://github.com/idemenkov93/capri/releases/tag/v1.9.0",
+                    "asset": "https://github.com/idemenkov93/capri/releases/download/v1.9.0/CapriSetup-1.9.0.exe", "size": 123}
+
+
+def test_latest_explains_the_real_reason(monkeypatch):
+    import httpx
+
+    from capri import updates
+
+    def boom(url, **k):
+        raise httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed")
+    monkeypatch.setattr(updates.httpx, "get", boom)
+    assert updates.latest() is None and "антивирус" in updates.last_error
