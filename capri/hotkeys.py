@@ -31,10 +31,12 @@ class HotkeyPoller(QObject):
     translate = Signal()            # нажали сочетание «перевести выделенное»
     dictate = Signal(bool)          # True — начали держать сочетание диктовки, False — отпустили
     dictate_cancel = Signal()       # это было Ctrl+Win+стрелка и т.п. — записанное выбросить
+    chat = Signal()                 # открыть / спрятать чат (без персонажа на экране это главный вход)
 
-    def __init__(self, translate_keys: str = "Ctrl+Shift+T", dictate_keys: str = "Ctrl+Win"):
+    def __init__(self, translate_keys: str = "Ctrl+Shift+T", dictate_keys: str = "Ctrl+Win",
+                 chat_keys: str = "Ctrl+Shift+Space"):
         super().__init__()
-        self.tr_keys, self.dict_keys = parse(translate_keys), parse(dictate_keys)
+        self.tr_keys, self.dict_keys, self.chat_keys = parse(translate_keys), parse(dictate_keys), parse(chat_keys)
         self._stop = False
         self._thread = None
 
@@ -60,7 +62,7 @@ class HotkeyPoller(QObject):
             return bool(vks) and all(get(v) & 0x8000 or (v == 0x5B and get(0x5C) & 0x8000) for v in vks)
 
         import time
-        tr_was = False
+        tr_was = chat_was = False
         held_since = 0.0            # когда зажали сочетание диктовки
         recording = cancelled = False
         others = (0x25, 0x26, 0x27, 0x28, 0x44, 0x73, 0x09)   # стрелки, D, F4, Tab — это Ctrl+Win+… Windows, не диктовка
@@ -69,6 +71,10 @@ class HotkeyPoller(QObject):
             if tr and not tr_was:
                 self.translate.emit()
             tr_was = tr
+            ch = down(self.chat_keys)
+            if ch and not chat_was:
+                self.chat.emit()
+            chat_was = ch
             dk = down(self.dict_keys) and not (get(0x10) & 0x8000) and not (get(0x12) & 0x8000)
             now = time.monotonic()
             if dk:

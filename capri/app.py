@@ -143,7 +143,13 @@ class CapriApp:
         self.chat.stop_requested.connect(self.stop_current)
 
         self.avatar.place_on_ground()
-        self.avatar.show()
+        # вид: «glow» — свечение по краю экрана (без персонажа, по умолчанию), «capri» — Капри на экране
+        from .ui.glow import EdgeGlow
+        self.glow = EdgeGlow()
+        self._idle_hidden = False
+        self.show_avatar()
+        self._idle_timer = QTimer(interval=3000, timeout=self._idle_check)
+        self._idle_timer.start()
         for name, sprites in (("рабочий стол", self.avatar.sprites), ("экран HUD", getattr(getattr(self.chat, "view", None), "sprites", None))):
             if sprites:
                 kinds = ", ".join(f"{k}×{n}" for k, n in sprites.kinds().items())
@@ -185,7 +191,9 @@ class CapriApp:
         self.text = TextOps(self)
         hk = self.cfg.get("hotkeys") or {}
         from .hotkeys import HotkeyPoller
-        self.hotkeys = HotkeyPoller(hk.get("translate", "Ctrl+Shift+T"), hk.get("dictate", "Ctrl+Win"))
+        self.hotkeys = HotkeyPoller(hk.get("translate", "Ctrl+Shift+T"), hk.get("dictate", "Ctrl+Win"),
+                                    hk.get("chat", "Ctrl+Shift+Space"))
+        self.hotkeys.chat.connect(self.open_or_hide_chat)
         self.hotkeys.translate.connect(self.text.translate_selection)
         self.hotkeys.dictate.connect(self.text.dictate)
         self.hotkeys.dictate_cancel.connect(self.text.dictate_cancel)
@@ -262,7 +270,7 @@ class CapriApp:
             self.chat.speak_toggled.connect(self.toggle_speak)
             self.chat.set_speak_icon(v["speak"])
         if hasattr(self.chat, "set_level"):
-            self._level_timer = QTimer(interval=50, timeout=lambda: self.chat.set_level(getattr(self.voice.recorder, "level", 0.0)))
+            self._level_timer = QTimer(interval=50, timeout=self._push_level)
             self._level_timer.start()
         self.voice.state.connect(self.on_voice_state)
         self.voice.transcribed.connect(self.on_transcribed)
@@ -361,13 +369,13 @@ class CapriApp:
         if self.worker and self.worker.isRunning():
             self.stop_current()          # позвали, пока думала, — бросаем старое и слушаем новое
         if not self.avatar.isVisible() and not self.in_game:   # в игре не выскакиваем поверх неё
-            self.avatar.show()
+            self.show_avatar()
         self.voice.chime()
 
     def call_capri(self):
         """Позвать: показаться, открыть окно и сразу слушать."""
         if not self.avatar.isVisible():
-            self.avatar.show()
+            self.show_avatar()
         if not self.chat.isVisible():
             self.toggle_chat()
         if self.voice and not self.voice.recording:
@@ -505,6 +513,17 @@ class CapriApp:
         tm.addAction(f"Перевод выделенного: {hk.get('translate', 'Ctrl+Shift+T')}").setEnabled(False)
         tm.addAction(f"Диктовка: держи {hk.get('dictate', 'Ctrl+Win')}").setEnabled(False)
         sm = menu.addMenu(t("skin", L))
+        lg = QActionGroup(sm)
+        for code, label in (("glow", "✨ Свечение по краю экрана (без персонажа)"), ("capri", "🧍 Капри на экране")):
+            act = QAction(label, sm, checkable=True, checked=(self.look == code))
+            act.triggered.connect(lambda _=False, c=code: self.set_look(c))
+            lg.addAction(act)
+            sm.addAction(act)
+        if self.look == "capri":
+            sm.addAction(self._check(sm, "🙈 Прятаться, когда меня нет за компьютером (2 мин)",
+                                     self.prefs.get("auto_hide", True),
+                                     lambda: self.prefs.set("auto_hide", not self.prefs.get("auto_hide", True))))
+        sm.addSeparator()
         sg = QActionGroup(sm)
         current_skin = self.prefs.get("skin") or ""
         for code, label in [("", t("skin_default", L))] + [(n, n) for n in skins.list_skins()] + [(skins.STAR, t("skin_star", L))]:
@@ -1061,6 +1080,55 @@ class CapriApp:
     def toggle_avatar(self):
         self.avatar.setVisible(not self.avatar.isVisible())
 
+    # вид: свечение или Капри ----------------------------------------------------
+    @property
+    def look(self) -> str:
+        return self.prefs.get("look", "glow")
+
+    def show_avatar(self):
+        """Показать Капри — только в виде «Капри на экране» и не в игре."""
+        if self.look == "capri" and not self.in_game:
+            self._idle_hidden = False
+            self.avatar.show()
+        elif self.look == "glow":
+            self.avatar.hide()
+
+    def set_look(self, look: str):
+        self.prefs.set("look", look)
+        if look == "glow":
+            self.avatar.hide()
+            self.glow.set_status(getattr(self, "state", "ONLINE"))
+            self.chat.add_system("✨ Вид: свечение по краю экрана. Капри видно, только когда она слушает, думает или "
+                                 "отвечает. Чат — значок в трее или Ctrl+Shift+Space.")
+        else:
+            self.glow.set_status("ONLINE")
+            self.show_avatar()
+            self.chat.add_system("🧍 Вид: Капри на экране.")
+
+    def _push_level(self):
+        level = getattr(self.voice.recorder, "level", 0.0) if self.voice else 0.0
+        self.chat.set_level(level)
+        if getattr(self, "glow", None) is not None:
+            self.glow.set_level(level)
+
+    def _idle_check(self):
+        """Капри на экране: тебя нет за компьютером 2 мин — она прячется; шевельнул мышь — вернулась."""
+        if self.look != "capri" or self.in_game or not self.prefs.get("auto_hide", True):
+            return
+        from . import control
+        try:
+            idle = control.idle_seconds()
+        except Exception:  # noqa: BLE001
+            return
+        busy = getattr(self, "state", "ONLINE") not in ("ONLINE", "LOADING")
+        if not self._idle_hidden and self.avatar.isVisible() and not busy and idle >= self.IDLE_HIDE:
+            self._idle_hidden = True
+            self.avatar.hide()
+        elif self._idle_hidden and (idle < 2 or busy):
+            self.show_avatar()
+
+    IDLE_HIDE = 120
+
     def on_voice_state(self, state: str):
         from .log import log
         log.debug("голос: %s", state)
@@ -1111,6 +1179,12 @@ class CapriApp:
             self.chat.raise_()
             self.chat.activateWindow()
             self.chat.input.setFocus()
+
+    def open_or_hide_chat(self):
+        if self.chat.isVisible() and self.chat.isActiveWindow():
+            self.chat.hide()
+        else:
+            self.open_chat()
 
     def toggle_chat(self):
         self.wake_up()
@@ -1164,6 +1238,8 @@ class CapriApp:
     def set_status(self, status: str):
         self.state = status
         self.avatar.set_status(status)
+        if getattr(self, "glow", None) is not None and self.look == "glow":
+            self.glow.set_status(status)
         if hasattr(self.chat, "set_status"):
             self.chat.set_status(status)
 

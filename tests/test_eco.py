@@ -95,3 +95,48 @@ def test_app_dnd_study_and_menus(monkeypatch, tmp_path):
     assert not app.dnd_active() and app.agent.pending["kind"] == "study_note"
     r = app.agent.handle("настроил DHCP")
     assert r.actions[0].kind == "note"
+
+
+def test_glow_look_and_idle_hide(monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from capri import control
+    app = quiet_app(monkeypatch)
+    monkeypatch.setattr(app.prefs, "path", tmp_path / "state.json")
+    app.warmup.wait(10_000)
+    assert app.look == "glow" and not app.avatar.isVisible()           # по умолчанию — свечение, без персонажа
+    app.set_status("LISTENING")
+    assert app.glow.isVisible() and app.glow.target == 1.0
+    app.set_status("ONLINE")
+    assert app.glow.target == 0.0
+    app.set_look("capri")
+    assert app.avatar.isVisible()
+    monkeypatch.setattr(control, "idle_seconds", lambda: 300)
+    app._idle_check()
+    assert not app.avatar.isVisible() and app._idle_hidden               # тебя нет 5 мин — спряталась
+    monkeypatch.setattr(control, "idle_seconds", lambda: 0.5)
+    app._idle_check()
+    assert app.avatar.isVisible()                                        # шевельнул мышь — вернулась
+    menu = app.build_menu()
+    assert menu is not None
+
+
+def test_glow_paints_and_fades():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from capri.ui.glow import EdgeGlow
+    g = EdgeGlow()
+    KEEP.append(g)
+    g.set_status("THINKING")
+    for _ in range(40):
+        g._step()
+    assert g.alpha > 0.9
+    img = g.grab()
+    assert not img.isNull()
+    g.set_status("ONLINE")
+    for _ in range(80):
+        g._step()
+    assert g.alpha == 0.0 and not g._timer.isActive()
+    g.suspend(True)
+    g.set_status("LISTENING")
+    assert g.target == 0.0                                                # в игре не светится

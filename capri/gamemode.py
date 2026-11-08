@@ -105,6 +105,8 @@ class GameMode(QObject):
         self._was = {"avatar": a.avatar.isVisible(), "chat": a.chat.isVisible(), "dance": a.music is not None}
         # окно поверх игры ломает быстрый вывод кадров (independent flip) — прячемся и не рисуем
         a.avatar.hide()
+        if getattr(a, "glow", None) is not None:
+            a.glow.suspend(True)          # свечение поверх игры тоже отнимает кадры
         a.avatar._tick.stop()
         if getattr(a.avatar, "sprites", None):
             a.avatar.sprites.pause_all()
@@ -159,8 +161,10 @@ class GameMode(QObject):
             a.voice.offline = False
         a._apply_wake_mode()
         a.avatar._tick.start()
+        if getattr(a, "glow", None) is not None:
+            a.glow.suspend(False)
         if self._was.get("avatar", True):
-            a.avatar.show()
+            a.show_avatar() if hasattr(a, "show_avatar") else a.avatar.show()
         if self._was.get("dance") and a.music is None:
             a.start_dancing()
         # модели обратно — ты уже на рабочем столе

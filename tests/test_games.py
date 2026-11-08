@@ -385,10 +385,13 @@ def test_enter_and_leave_with_the_real_app(monkeypatch):
     KEEP.append(app)
     app.warmup.wait(10_000)
     app.game._poll_timer.stop()
+    monkeypatch.setattr(app.prefs, "path", app.prefs.path.parent / "state-test.json")
+    app.prefs.set("look", "capri")                       # вид «Капри на экране» (по умолчанию теперь свечение)
+    app.show_avatar()
     assert app.avatar.isVisible() and not app.in_game
     g = game.GameInfo("cs2.exe", "Counter-Strike 2", "strict", pid=1)
     app.game.enter(g)
-    assert app.in_game and not app.avatar.isVisible() and not app.avatar._tick.isActive()
+    assert app.in_game and not app.avatar.isVisible() and not app.avatar._tick.isActive() and app.glow.suspended
     said = []
     monkeypatch.setattr(app, "timer_fired", lambda text, prefix="": said.append(text))
     app.set_break_reminder(60)

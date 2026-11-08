@@ -63,6 +63,7 @@ DEFAULTS: dict = {
         "enabled": True,
         "translate": "Ctrl+Shift+T",
         "dictate": "Ctrl+Win",
+        "chat": "Ctrl+Shift+Space",   # открыть чат из любой программы
     },
     "games": {
         "enabled": True,       # игровой помощник: сам замечает игру и не мешает ей
