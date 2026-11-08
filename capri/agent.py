@@ -196,6 +196,9 @@ class Agent:
         self.history: list[dict] = []
         self.game = None      # GameMode из app.py: идёт ли игра, строгий ли режим, данные CS2
         self.pending: dict | None = None   # Капри спросила и ждёт ответ: {"kind": "timer" | "confirm", "at": …}
+        self.prefs = None     # data/state.json (app.py) — сводка, тренажёр, слабые темы
+        self.live = None      # субтитры урока (app.py) — для «подскажи ответ»
+        self.trainer = None   # идёт тренировка (study.Trainer)
 
     # публичный вход -------------------------------------------------------
     def handle(self, text: str, on_status: Callable[[str], None] = lambda s: None,
@@ -394,6 +397,9 @@ class Agent:
             return None
         if p["kind"] == "confirm" and RE_YES.match(t):
             return p["do"]()
+        if p["kind"] == "trainer":
+            from . import study
+            return study.answer_training(self, Reply, text)
         if p["kind"] == "study_note":
             # «что выучил?» — любой ответ (кроме «нет») идёт в заметки с пометкой урока
             note = f"📚 Учёба {p.get('minutes', '')} мин: {text.strip()}"
@@ -784,6 +790,9 @@ class Agent:
             return dn
         if (tx := self._text_cmd(text)) is not None:
             return tx
+        from . import study                                  # волна 4: языки, сводка, подсказка, тренажёр
+        if (st := study.route(self, text)) is not None:
+            return st
         from .live.commands import route as live_route       # волна 4: субтитры урока, сигналы, конспекты
         if (lv := live_route(text)) is not None:
             return lv

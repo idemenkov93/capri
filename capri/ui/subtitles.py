@@ -26,6 +26,7 @@ class SubtitleBar(QWidget):
     notes_clicked = Signal()
     geometry_saved = Signal(list)          # [x, y, w, h, шрифт]
     rename_requested = Signal(int)         # клик по имени в записи урока — «как зовут спикера N?»
+    hint_clicked = Signal()                # 💡 — что спросили и как ответить
 
     SHOW = 3                               # сколько последних фраз на экране
 
@@ -55,7 +56,8 @@ class SubtitleBar(QWidget):
         b.addWidget(self.lbl_status, 1)
         self.btn_pause = self._btn("⏸", "Пауза", self._pause)
         for w in (self.btn_pause, self._btn("A−", "Мельче", lambda: self.zoom(-2)), self._btn("A+", "Крупнее", lambda: self.zoom(2)),
-                  self._btn("☰", "Вся запись урока", self.show_history), self._btn("📝", "Конспект (остановит субтитры)",
+                  self._btn("☰", "Вся запись урока", self.show_history),
+                  self._btn("💡", "Что спросили и как ответить (окно, не вслух)", self.hint_clicked.emit), self._btn("📝", "Конспект (остановит субтитры)",
                                                                                  self.notes_clicked.emit),
                   self._btn("✕", "Выключить субтитры", self.stop_clicked.emit)):
             b.addWidget(w)

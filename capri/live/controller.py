@@ -133,6 +133,7 @@ class LiveController(QObject):
             self.bar.pause_toggled.connect(lambda on: self.session and self.session.set_paused(on))
             self.bar.geometry_saved.connect(lambda g: self.set_pref(geometry=g))
             self.bar.rename_requested.connect(self.ask_name)
+            self.bar.hint_clicked.connect(lambda: self.app.on_message("подскажи ответ"))
         self.bar.clear()
         if p.get("geometry"):
             self.bar.place(p["geometry"])
@@ -358,13 +359,89 @@ class LiveController(QObject):
             self.folder, self._last_lines = last, None
             self.make_notes(last)
             return "Конспекта у прошлого урока ещё нет — делаю."
-        if do == "search":
-            hits = N.search(p["term"])
-            if not hits:
-                return f"В записанных уроках «{p['term']}» не нашла."
+        if do in ("search", "explain"):
+            from . import importer
+            term = p["term"]
+            hits = N.search(term)
+            mats = importer.search_materials(term)
+            if not hits and not mats:
+                return f"В уроках и материалах «{term}» не нашла."
             text = "\n\n".join(f"**{f.name[:10]} — {title}**\n" + "\n".join(f"• {h[:160]}" for h in lines)
                                for f, title, lines in hits)
-            first = hits[0][0]
-            self.app.text.popup.show_text(f"🔎 «{p['term']}» в уроках", text, [("📂 Урок", lambda: self._open(first))])
-            return f"«{p['term']}» было на {len(hits)} уроках, последний — {hits[0][0].name[:10]}: {hits[0][1]}."
+            if mats:
+                text += ("\n\n" if text else "") + "**📁 Материалы:**\n\n" + "\n\n".join(
+                    f"**{title}**\n" + "\n".join(f"• {h[:160]}" for h in lines) for f, title, lines in mats)
+            if do == "explain":
+                self.explain(term, text)
+                return f"Объясняю «{term}» по твоим урокам."
+            first = (hits or mats)[0][0]
+            self.app.text.popup.show_text(f"🔎 «{term}» в уроках", text, [
+                ("🧠 Объясни", lambda: self.explain(term, text)),
+                ("📂 Открыть", lambda: self._open(first))])
+            if hits:
+                return f"«{term}» было на {len(hits)} уроках, последний — {hits[0][0].name[:10]}: {hits[0][1]}."
+            return f"«{term}» есть в материалах: {mats[0][1]}."
+        if do == "import_granola":
+            return self._run_import("Granola", lambda progress: importer_granola())
+        if do == "import_folder":
+            from PySide6.QtWidgets import QFileDialog
+            d = p.get("path") or QFileDialog.getExistingDirectory(None, "Папка с материалами курса (PDF, Word, PowerPoint…)")
+            if not d:
+                return ""
+            folders = [f for f in self.app.prefs.get("import_folders") or [] if f != d] + [d]
+            self.app.prefs.set("import_folders", folders)
+            return self._run_import(Path(d).name, lambda progress: _import_folders([d], progress))
+        if do == "import_refresh":
+            folders = self.app.prefs.get("import_folders") or []
+            if not folders:
+                return "Папок с материалами пока нет — скажи «импортируй материалы»."
+            return self._run_import("материалы", lambda progress: _import_folders(folders, progress))
         return ""
+
+    def _run_import(self, what: str, fn) -> str:
+        from ..convertui import Job
+        pop = self.app.text.popup
+        pop.show_busy(f"📥 Импорт: {what}", "Читаю…")
+        job = Job(lambda: fn(lambda f, s: job.progress.emit(f, s)))
+        job.progress.connect(lambda f, s: pop.status.setText(f"{int(f * 100)} % — {s}"))
+        job.done.connect(lambda res, err, secs: pop.show_text("📥 Импорт", err if err else res, copy=False, markdown=False))
+        self._jobs = [j for j in self._jobs if j.isRunning()] + [job]
+        job.start()
+        return f"Импортирую: {what}."
+
+    def explain(self, term: str, found: str):
+        from ..convertui import Job
+        pop = self.app.text.popup
+        pop.show_busy(f"🧠 {term}", "Читаю твои уроки…")
+        prompt = (f"Объясни тему «{term}» по-русски, простыми словами, для ученика курса IT-Support (немецкий B1). "
+                  "Опирайся на фрагменты из его уроков и материалов ниже; немецкие термины оставляй с переводом; "
+                  "в конце — на каком уроке это было и 2 вопроса для самопроверки.\n\n" + found[:12000])
+        job = Job(lambda: self.app.agent.ask_text(prompt))
+        job.done.connect(lambda res, err, secs: pop.show_text(f"🧠 {term}", err or res, copy_text=None if err else res))
+        self._jobs = [j for j in self._jobs if j.isRunning()] + [job]
+        job.start()
+
+
+def importer_granola() -> str:
+    from . import importer
+    try:
+        added, total = importer.import_granola()
+    except FileNotFoundError as e:
+        return (f"{e}. Если Granola у тебя только в браузере или на другом компьютере — экспортируй заметки в файлы "
+                "(Markdown / PDF) и скажи «импортируй материалы».")
+    return f"Granola: добавила {added} встреч (всего в Granola {total}). Теперь ищу и по ним: «что мы проходили по …»."
+
+
+def _import_folders(folders: list[str], progress) -> str:
+    from . import importer
+    out = []
+    for d in folders:
+        if not Path(d).is_dir():
+            out.append(f"• {d}: папки нет")
+            continue
+        done, skipped, errors = importer.import_folder(Path(d), progress=progress)
+        line = f"• {Path(d).name}: новых/обновлённых {done}, без изменений {skipped}"
+        if errors:
+            line += f", не прочитала {len(errors)} ({'; '.join(errors[:3])})"
+        out.append(line)
+    return "Материалы:\n" + "\n".join(out) + "\n\nИщу и по ним: «что мы проходили по …»."

@@ -54,4 +54,6 @@ try:
     print("loopback frames:", d.shape)
 except Exception as e:  # noqa: BLE001
     print("loopback: FAIL", type(e).__name__, str(e)[:150])
+from capri.live import importer  # noqa: E402
+print("granola cache:", importer.granola_cache())
 print("done")

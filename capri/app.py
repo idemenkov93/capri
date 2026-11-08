@@ -209,6 +209,9 @@ class CapriApp:
         # волна 4: субтитры урока с переводом
         from .live.controller import LiveController
         self.live = LiveController(self)
+        self.agent.prefs, self.agent.live = self.prefs, self.live
+        self._morning_timer = QTimer(interval=60_000, timeout=self._morning_auto)
+        self._morning_timer.start()
         # волна 3: слежу за сайтами (сообщения из фонового потока — через Bridge)
         self._bridge = Bridge()
         self._bridge.msg.connect(lambda m: self.timer_fired(m, prefix="🌐 "))
@@ -817,9 +820,11 @@ class CapriApp:
                                       copy=False)
 
     # волна 3: админ-аптечка и сайты ------------------------------------------------
-    def show_admin_popup(self, title: str, text: str, command: str = ""):
+    def show_admin_popup(self, title: str, text: str, command: str = "", copy: str = ""):
         pop = self.text.popup
         acts = []
+        if copy:
+            acts.append(("📋 Фразу", lambda: pop.copy(copy, "Фраза скопирована.")))
         if command:
             acts.append(("📜 Команда", lambda: pop.show_text(f"{title}: PowerShell", f"```powershell\n{command}\n```",
                                                              copy_text=command)))
@@ -829,7 +834,7 @@ class CapriApp:
         from PySide6.QtGui import QGuiApplication
         k, p = act.kind, act.params
         if k == "popup":
-            self.show_admin_popup(p.get("title", ""), p.get("text", ""), p.get("command", ""))
+            self.show_admin_popup(p.get("title", ""), p.get("text", ""), p.get("command", ""), p.get("copy", ""))
         elif k == "ps_helper":
             QGuiApplication.clipboard().setText(p["command"])
             from .admin_cmds import cheatsheet_path
@@ -907,8 +912,41 @@ class CapriApp:
         m.addAction("🔔 Слова-сигналы…", lambda: self.chat.add_system(lv.handle({"do": "list_words"})))
         m.addSeparator()
         m.addAction("📝 Конспект последнего урока", lambda: self.chat.add_system(lv.handle({"do": "notes"})))
+        m.addAction("📥 Импорт из Granola", lambda: self.chat.add_system(lv.handle({"do": "import_granola"})))
+        m.addAction("📥 Импорт материалов (папка)…", lambda: self.chat.add_system(lv.handle({"do": "import_folder"})))
+        m.addAction(self._check(m, "☀ Утренняя сводка сама", bool(self.prefs.get("morning_auto")),
+                                lambda: self.prefs.set("morning_auto", not self.prefs.get("morning_auto"))))
         m.addAction("📂 Папка уроков", lambda: (LN.lessons_dir().mkdir(parents=True, exist_ok=True),
                                                lv._open(LN.lessons_dir())))
+
+    def _morning_auto(self):
+        """Утренняя сводка сама: включена («включи утреннюю сводку»), после 6:00, раз в день, когда ты за компьютером."""
+        import datetime as _dt
+        now = _dt.datetime.now()
+        if not self.prefs.get("morning_auto") or now.hour < 6 or now.hour >= 13 or self.in_game:
+            return
+        if self.prefs.get("last_morning") == now.date().isoformat():
+            return
+        try:
+            from . import control
+            if control.idle_seconds() > 30:
+                return
+        except Exception:  # noqa: BLE001
+            pass
+        self.prefs.set("last_morning", now.date().isoformat())
+        from . import study
+        from .agent import Reply
+        from .convertui import Job
+        job = Job(lambda: study.morning(self.agent, Reply))
+
+        def done(r, err, secs):
+            if r is not None:
+                self.chat.add_capri(r.text, "rules")
+                for act in r.actions:
+                    self.run_action(act)
+        job.done.connect(done)
+        self._morning_job = job
+        job.start()
 
     # бэкап -----------------------------------------------------------------------
     def _backup_cfg(self) -> dict:

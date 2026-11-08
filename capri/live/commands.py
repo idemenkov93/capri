@@ -25,6 +25,13 @@ RE_SIGNALS = re.compile(r"^(?P<on>включи|выключи)\s+сигналы$
 RE_MIC = re.compile(r"^(?:переводи\s+и\s+меня|переводи\s+мой\s+микрофон)$|^(?P<off>не\s+переводи\s+(?:меня|мой\s+микрофон))$", re.I)
 RE_LAST = re.compile(r"^(?:повтори|напомни|покажи)\s+(?:мне\s+)?прошлый\s+урок$|^что\s+было\s+на\s+прошлом\s+уроке$|"
                      r"^(?:о\s+ч[её]м|про\s+что)\s+был\s+(?:прошлый|последний)\s+урок$", re.I)
+RE_IMPORT_GRANOLA = re.compile(r"^(?:импортируй|загрузи|забери|подтяни)\s+(?:заметки\s+(?:из\s+)?)?(?:гранол\w*|granola)|"
+                               r"^импорт\s+(?:из\s+)?(?:гранол\w*|granola)", re.I)
+RE_IMPORT_FOLDER = re.compile(r"^(?:импортируй|загрузи|добавь)\s+(?:папку|материал\w*|файлы)(?:\s+(?:курса|урок\w*|"
+                              r"цукунфт\w*|zukunftsmotor))?$", re.I)
+RE_IMPORT_REFRESH = re.compile(r"^обнови\s+материал\w*$", re.I)
+RE_EXPLAIN = re.compile(r"^объясни\s+(?:мне\s+)?(?:по\s+(?:моим\s+)?урокам|из\s+(?:моих\s+)?уроков)\s+(?P<t>.{2,60})$|"
+                        r"^объясни\s+(?P<t2>.{2,60}?)\s+по\s+(?:моим\s+)?урокам$", re.I)
 ORD = {"перв": 1, "втор": 2, "трет": 3, "четв": 4, "пят": 5, "шест": 6, "седьм": 7, "восьм": 8}
 RE_RENAME = re.compile(r"^(?:(?:это\s+)?(?:спикер|говорящ\w*|голос)\s*(?:номер\s*)?(?P<n>\d+)|"
                        r"(?P<ord>перв|втор|трет|четв|пят|шест|седьм|восьм)\w*\s+(?:спикер|говорящ\w*|голос))"
@@ -74,6 +81,14 @@ def route(text: str):
         return act("Смотрю.", do="who")
     if m := RE_FORGET_VOICE.match(t):
         return act("Забываю.", do="forget_voice", name=m.group("name").strip(" «»\"'"))
+    if RE_IMPORT_GRANOLA.match(t):
+        return act("Импортирую Granola.", do="import_granola")
+    if RE_IMPORT_REFRESH.match(t):
+        return act("Обновляю материалы.", do="import_refresh")
+    if RE_IMPORT_FOLDER.match(t):
+        return act("Выбери папку.", do="import_folder")
+    if m := RE_EXPLAIN.match(t):
+        return act("Объясняю.", do="explain", term=(m.group("t") or m.group("t2")).strip(" ?.!"))
     if RE_LAST.match(t):
         return act("Открываю прошлый урок.", do="last")
     if m := RE_SEARCH.match(t):
