@@ -305,6 +305,7 @@ class Viewport(QWidget):
 
 class HudWindow(ChatExtras, QWidget):
     brain_changed = Signal(str)
+    quick = Signal(str)
     submitted = Signal(str)
     stop_requested = Signal()
     mic_clicked = Signal()
@@ -332,7 +333,7 @@ class HudWindow(ChatExtras, QWidget):
         head.addStretch()
         self.btn_mic_top = self._icon("🎙", "Сказать голосом", self.mic_clicked.emit)
         self.btn_voice = self._icon("🔊", "Озвучка вкл/выкл", self.speak_toggled.emit)
-        self.btn_hist = self._icon("☰", "История переписки", self.toggle_history)
+        self.btn_hist = self._icon("☰", "История переписки (с кнопками «📋 копировать»)", self.toggle_history)
         self.btn_copy = self._icon("📋", "Скопировать последний ответ", lambda: self.copy_text(self.card._target))
         self.btn_hide = self._icon("—", "Свернуть", self.hide)
         for b in (self.btn_mic_top, self.btn_voice, self.btn_copy, self.btn_hist, self.btn_hide):
@@ -352,7 +353,7 @@ class HudWindow(ChatExtras, QWidget):
 
         row = QHBoxLayout()
         row.setSpacing(6)
-        self.input = QLineEdit(placeholderText="Talk to Capri…")
+        self.input = QLineEdit()
         self.mic = QPushButton("🎤")
         self.mic.setToolTip("Нажми, говори, нажми ещё раз")
         self.mic.hide()
@@ -363,8 +364,11 @@ class HudWindow(ChatExtras, QWidget):
         row.addWidget(self.mic)
         row.addWidget(self.send)
         row.addWidget(self.stop)
+        root.addLayout(self._quick_row())           # буфер, перевод, письмо, экран, 🔕, учёба, ❓
         root.addLayout(self._brain_row())           # кто отвечает на письменные вопросы
         root.addLayout(row)
+        self._setup_input(self.input)
+        self._dnd_text = ""
 
         self.status = QLabel(objectName="status")
         root.addWidget(self.status)
@@ -409,7 +413,13 @@ class HudWindow(ChatExtras, QWidget):
     # совместимость с ChatWindow -------------------------------------------
     def set_status(self, state: str):
         self.view.set_state(state)
-        self.status.setText(STATE_LINE.get(state, state).upper() + "   ·   ENTER — SEND   ·   ESC — HIDE")
+        dnd = f"   ·   🔕 {self._dnd_text.upper()}" if getattr(self, "_dnd_text", "") else ""
+        self.status.setText(STATE_LINE.get(state, state).upper() + dnd + "   ·   ENTER — SEND   ·   ESC — HIDE")
+        self._state = state
+
+    def set_dnd_label(self, text: str):
+        self._dnd_text = text
+        self.set_status(getattr(self, "_state", "ONLINE"))
 
     def keyPressEvent(self, e):
         if e.key() == Qt.Key_Escape:

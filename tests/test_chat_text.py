@@ -99,3 +99,31 @@ def test_typed_replies_are_not_spoken_by_default(tmp_path):
     p = tmp_path / "s.json"
     p.write_text(json.dumps({"speak_typed": True}), encoding="utf-8")
     assert State(p).get("speak_typed") is False
+
+
+def test_quick_buttons_completer_and_availability():
+    from capri.ui.hud import HudWindow
+    h = HudWindow()
+    KEEP.append(h)
+    got = []
+    h.quick.connect(got.append)
+    h.quick_buttons["📋 Буфер"].click()
+    acts = h.quick_buttons["🔕"].menu().actions()
+    acts[1].trigger()
+    assert got == ["что в буфере", "не беспокой меня час"]
+    assert h.input.completer() is not None and "переведи буфер" in h.input.completer().model().stringList()
+    h.set_brain_available({"gemini": (False, "нет ключа"), "claude": (True, "ok")})
+    assert not h.brain_buttons["gemini"].isEnabled() and h.brain_buttons["gemini"].toolTip() == "нет ключа"
+    h.set_dnd_label("до 18:00")
+    assert "18:00" in h.status.text()
+
+
+def test_app_quick_action_runs_command(monkeypatch):
+    from tests.test_eco import quiet_app
+    app = quiet_app(monkeypatch)
+    app.warmup.wait(10_000)
+    seen = []
+    monkeypatch.setattr(app, "on_message", seen.append)
+    app.chat.quick.emit("что в буфере")
+    assert seen == ["что в буфере"] and app.last_input_was_voice is False
+    app.refresh_brain_buttons()

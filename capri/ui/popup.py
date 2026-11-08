@@ -115,7 +115,14 @@ class Popup(QWidget):
         self._reset()
         self.title.setText(title.upper())
         self.body.setPlainText(what)
+        self._fit_body()
         self._place()
+
+    def _fit_body(self):
+        """Высота текста — по содержимому (короткий ответ — маленькое окно), но не выше 320."""
+        doc = self.body.document()
+        doc.setTextWidth(max(300, self.width() - 40))
+        self.body.setFixedHeight(int(min(320, max(48, doc.size().height() + 14))))
 
     def show_text(self, title: str, text: str, actions: list | None = None, warn: str = "", markdown: bool = True,
                   copy: bool = True, copy_text: str | None = None):
@@ -127,6 +134,7 @@ class Popup(QWidget):
             self.body.setMarkdown(text)
         else:
             self.body.setPlainText(text)
+        self._fit_body()
         if warn:
             self.warn.setText("⚠ " + warn)
             self.warn.show()

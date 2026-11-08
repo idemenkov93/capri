@@ -138,6 +138,8 @@ class CapriApp:
         self.agent.chat_brain = self.prefs.get("chat_brain", "auto")
         self.chat.set_brain(self.agent.chat_brain)
         self.chat.brain_changed.connect(self.set_chat_brain)
+        self.chat.quick.connect(self.on_quick)
+        QTimer.singleShot(3000, self.refresh_brain_buttons)
         self.chat.stop_requested.connect(self.stop_current)
 
         self.avatar.place_on_ground()
@@ -596,6 +598,30 @@ class CapriApp:
         except Exception as e:  # noqa: BLE001
             self.chat.add_system(str(e))
 
+    def on_quick(self, text: str):
+        """Быстрая кнопка в чате — как будто написал эту фразу (ответ текстом, без озвучки)."""
+        self.last_input_was_voice = False
+        self.chat.add_user(text)
+        self.on_message(text)
+
+    def refresh_brain_buttons(self):
+        """Кнопки «Отвечает: …»: недоступных не выбрать, в подсказке — почему и как подключить."""
+        a = self.agent
+        tm = self.cfg["ollama"].get("text_model") or self.cfg["ollama"].get("model")
+        avail = {
+            "auto": (True, "Как обычно: простое — локальная модель, сложное — помощник из мастера"),
+            "local": (True, f"Только модель на этом компьютере ({tm}), без интернета"),
+            "gemini": (a.gemini_ready(), "Только Gemini" if a.gemini_ready()
+                       else "Gemini не подключён — скажи «как подключить gemini» (ключ бесплатный)"),
+            "claude": (a._claude_ready(), "Только Claude (подписка)" if a._claude_ready()
+                       else "Claude не установлен или выключен — «⚙ Мастер настройки»"),
+        }
+        if hasattr(self.chat, "set_brain_available"):
+            self.chat.set_brain_available(avail)
+        if not avail.get(a.chat_brain, (True,))[0]:
+            self.set_chat_brain("auto")
+            self.chat.set_brain("auto")
+
     def set_chat_brain(self, code: str):
         """Кто отвечает на письменные вопросы в чате (переключатель над полем ввода)."""
         self.agent.chat_brain = code
@@ -655,12 +681,16 @@ class CapriApp:
             self.avatar.wander = False                    # не гуляет по экрану
             self.avatar.set_dance(0.0)
             self.tray.setToolTip(f"Capri — 🔕 {dnd.describe(until)}")
+            if hasattr(self.chat, "set_dnd_label"):
+                self.chat.set_dnd_label(dnd.describe(until))
             self.chat.add_system(f"🔕 Не беспокою {dnd.describe(until)}. Таймеры звенят, «Привет, Капри» работает.")
         else:
             self._dnd_timer.stop()
             if was:
                 self.avatar.wander = getattr(self, "_wander_before", self.avatar.wander)
                 self.tray.setToolTip("Capri")
+                if hasattr(self.chat, "set_dnd_label"):
+                    self.chat.set_dnd_label("")
                 self.chat.add_system("🔔 «Не беспокоить» закончилось.")
 
     def _dnd_check(self):

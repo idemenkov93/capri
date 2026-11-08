@@ -6,8 +6,39 @@ import re
 
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QGuiApplication, QTextCursor
-from PySide6.QtWidgets import (QButtonGroup, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTextBrowser, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QButtonGroup, QCompleter, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
+                               QTextBrowser, QToolButton, QVBoxLayout, QWidget)
+
+# быстрые кнопки над полем ввода: (надпись, подсказка, фраза или [(пункт меню, фраза), …])
+QUICK = (
+    ("📋 Буфер", "Что в буфере: текст, скриншот или файл — объясню (письмо, ошибка, QR)", "что в буфере"),
+    ("🌐 Перевод", "Перевести то, что в буфере (выделенное в любой программе — Ctrl+Shift+T)", "переведи буфер"),
+    ("✉ Письмо", "Письмо на экране: объяснить или ответить", [("Объяснить письмо на экране", "объясни письмо"),
+                                                              ("Ответить на письмо…", "ответь на письмо")]),
+    ("📄 Экран", "Текст с экрана", [("Скопировать текст с экрана", "скопируй текст с экрана"),
+                                    ("Перевести, что на экране", "переведи, что на экране"),
+                                    ("Что у меня на экране?", "что у меня на экране")]),
+    ("🔕", "Не беспокоить", [("30 минут", "не беспокой 30 минут"), ("1 час", "не беспокой меня час"),
+                             ("2 часа", "не беспокой 2 часа"), ("До вечера", "не беспокой до вечера"),
+                             ("До утра", "не беспокой до утра"), ("Можно беспокоить", "можно беспокоить")]),
+    ("📚", "Учёба: не отвлекаю, в конце спрошу «что выучил?»", [("25 минут", "начни учёбу на 25 минут"),
+                                                                ("45 минут", "начни учёбу на 45 минут"),
+                                                                ("60 минут", "начни учёбу на 60 минут"),
+                                                                ("Режим учёбы (Teams + Claude)", "режим учёбы")]),
+    ("❓", "Что я умею", "что ты умеешь"),
+)
+
+# подсказки при наборе (Ctrl+пробел не нужен — выпадают сами по совпадению)
+COMPLETIONS = [
+    "что в буфере", "переведи буфер", "переведи буфер на немецкий", "переведи буфер на английский",
+    "переведи буфер на иврит", "объясни письмо", "ответь на письмо: ", "скопируй текст с экрана",
+    "переведи, что на экране", "сделай qr-код", "что у меня на экране", "не беспокой меня час", "не беспокой до вечера",
+    "можно беспокоить", "начни учёбу на 45 минут", "режим учёбы", "урок закончился", "поиск работы", "игровой режим",
+    "ночной режим", "режим работы", "какие у меня экраны", "громкость 30", "поставь таймер на 10 минут",
+    "напомни через час ", "запиши: ", "погода", "сколько ты ешь ресурсов", "собери отчёт", "обнови капри",
+    "проверь gemini", "как подключить gemini", "открой ", "найди на ютубе ", "что сейчас играет", "следующий трек",
+    "/claude ", "что ты умеешь",
+]
 
 CODE_RX = re.compile(r"```[^\n]*\n(.*?)```", re.S)
 BRAINS = (("auto", "Авто", "Как обычно: простое — локальная модель, сложное — помощник из мастера"),
@@ -36,6 +67,44 @@ class ChatExtras:
         log.setOpenLinks(False)
         log.anchorClicked.connect(self._link)
 
+    def _quick_row(self) -> QHBoxLayout:
+        """Быстрые кнопки: буфер, перевод, письмо, экран, 🔕, учёба, ❓. Нажатие = будто написал фразу."""
+        row = QHBoxLayout()
+        row.setSpacing(4)
+        self.quick_buttons = {}
+        for title, tip, what in QUICK:
+            b = QToolButton(objectName="quick")
+            b.setText(title)
+            b.setToolTip(tip)
+            if isinstance(what, str):
+                b.clicked.connect(lambda _=False, w=what: self.quick.emit(w))
+            else:
+                m = QMenu(b)
+                for label, phrase in what:
+                    m.addAction(label, lambda p=phrase: self.quick.emit(p))
+                b.setMenu(m)
+                b.setPopupMode(QToolButton.InstantPopup)
+            row.addWidget(b)
+            self.quick_buttons[title] = b
+        row.addStretch(1)
+        return row
+
+    def _setup_input(self, line: QLineEdit):
+        line.setPlaceholderText("Спроси или скажи, что сделать…")
+        line.setToolTip("Начни печатать — появятся подсказки команд. Enter — отправить, /claude — сразу к Claude")
+        comp = QCompleter(COMPLETIONS, self)
+        comp.setCaseSensitivity(Qt.CaseInsensitive)
+        comp.setFilterMode(Qt.MatchContains)
+        comp.setMaxVisibleItems(8)
+        line.setCompleter(comp)
+
+    def set_brain_available(self, avail: dict):
+        """{code: (можно?, подсказка)} — недоступных «мозгов» не выбрать, в подсказке — почему."""
+        for code, (ok, tip) in avail.items():
+            if b := self.brain_buttons.get(code):
+                b.setEnabled(ok)
+                b.setToolTip(tip)
+
     def _brain_row(self) -> QHBoxLayout:
         brow = QHBoxLayout()
         brow.setSpacing(4)
@@ -58,6 +127,9 @@ class ChatExtras:
     def set_brain(self, code: str):
         if b := self.brain_buttons.get(code):
             b.setChecked(True)
+
+    def set_dnd_label(self, text: str):
+        self.setWindowTitle("CAPRI // link" + (f"  🔕 {text}" if text else ""))
 
     def copy_links(self, text: str) -> str:
         """Строка «📋 копировать ответ · 📋 код 1 …» под ответом."""
@@ -84,12 +156,17 @@ class ChatExtras:
 
 
 BRAIN_CSS = """
+QToolButton#quick { border: 1px solid #1d3550; color: #9fb3cf; background: transparent; padding: 3px 7px; font-size: 11px; }
+QToolButton#quick:hover { border-color: #3ff3ff; color: #3ff3ff; }
+QToolButton#quick::menu-indicator { image: none; width: 0; }
+QPushButton#brain:disabled { color: #2c3a50; border-color: #16233a; }
 QPushButton#brain { border: 1px solid #1d3550; color: #5b6b85; padding: 2px 8px; font-size: 10px; background: transparent; }
 QPushButton#brain:checked { border-color: #ff2a6d; color: #ff2a6d; }
 """
 
 
 class ChatWindow(ChatExtras, QWidget):
+    quick = Signal(str)
     submitted = Signal(str)
     stop_requested = Signal()
     mic_clicked = Signal()
@@ -103,7 +180,7 @@ class ChatWindow(ChatExtras, QWidget):
 
         self.log = QTextBrowser()
         self._init_extras(self.log)
-        self.input = QLineEdit(placeholderText="Напиши Капри… (/claude — сразу к Claude)")
+        self.input = QLineEdit()
         self.send = QPushButton("SEND")
         self.stop = QPushButton("STOP")
         self.stop.setStyleSheet("border-color:#ff2a6d; color:#ff2a6d;")
@@ -120,12 +197,14 @@ class ChatWindow(ChatExtras, QWidget):
         lay = QVBoxLayout(self)
         lay.addWidget(self.log)
         brow = self._brain_row()          # кто отвечает на письменные вопросы
+        self._setup_input(self.input)
         # «живой» ответ: текст появляется по мере того, как модель его печатает
         self.live = QLabel(objectName="live", wordWrap=True)
         self.live.hide()
         self._live_text = ""
         self._thinking = 0
         lay.addWidget(self.live)
+        lay.addLayout(self._quick_row())
         lay.addLayout(brow)
         lay.addLayout(row)
 
