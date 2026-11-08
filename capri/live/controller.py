@@ -361,8 +361,10 @@ class LiveController(QObject):
         lang = LANGS.get(self.prefs()["language"], "немецкий")
         pop = self.app.text.popup
         pop.show_busy("📝 Конспект урока", "Читаю урок… (длинный урок — пару минут)")
+        from . import glossary
+        gl = glossary.for_prompt(text)
         job = Job(lambda: N.make_notes(self.app.agent.ask_text, text, lang,
-                                       progress=lambda s: job.progress.emit(0.0, s)))
+                                       progress=lambda s: job.progress.emit(0.0, s), glossary=gl))
         job.progress.connect(lambda f, s: pop.status.setText(s))
 
         def done(md, err, secs):
@@ -380,11 +382,87 @@ class LiveController(QObject):
             acts = [("📂 Папка урока", lambda: self._open(new))]
             if pdf:
                 acts.append(("📄 PDF", lambda: self._open(pdf)))
+            try:
+                fresh = glossary.new_terms(new / "конспект.md")
+            except Exception:  # noqa: BLE001
+                fresh = []
+            if fresh:
+                acts.insert(0, (f"📖 Новые термины ({len(fresh)})", lambda: self.app.chat.add_system(self.review_terms(new))))
             pop.show_text(f"📝 {N.title_of(md)}", md, acts, copy_text=md)
-            self.app.chat.add_system(f"📝 Конспект готов: {N.title_of(md)} — папка «{new.name}».")
+            self.app.chat.add_system(f"📝 Конспект готов: {N.title_of(md)} — папка «{new.name}»." +
+                                     (f" Новых терминов: {len(fresh)} — нажми «📖 Новые термины», "
+                                      "отметь, что оставить в бестиарии." if fresh else ""))
         job.done.connect(done)
         self._jobs = [j for j in self._jobs if j.isRunning()] + [job]
         job.start()
+
+    def review_terms(self, folder: Path | None = None) -> str:
+        """Новые термины урока → галочки → бестиарий (data\\glossary\\Из уроков.csv)."""
+        from . import glossary
+        if folder is None:
+            folder = next((p for p in reversed(N.lessons()) if (p / "конспект.md").exists()), None)
+        if folder is None:
+            return "Конспектов пока нет — сначала «сделай конспект»."
+        f = folder / "конспект.md"
+        fresh = glossary.new_terms(f)
+        if not fresh:
+            return f"В уроке «{folder.name}» новых терминов нет — всё уже в бестиарии."
+        from ..ui.terms import TermsDialog
+        dlg = TermsDialog(fresh, N.title_of(f.read_text(encoding="utf-8")))
+        if not dlg.exec():
+            return "Ок, термины разберём позже: «новые термины урока»."
+        n = glossary.accept(dlg.accepted_rows)
+        glossary.skip(dlg.skipped)
+        msg = f"📖 В бестиарий добавила {n}" + (f", пропустила {len(dlg.skipped)}" if dlg.skipped else "") + \
+            f". Всего терминов: {glossary.count()}."
+        return msg
+
+    def export_glossary(self) -> str:
+        from . import glossary
+        dest = N.lessons_dir().parent / f"Бестиарий {dt.date.today():%Y-%m-%d}.csv"
+        n = glossary.export(dest)
+        self.app.text.popup.show_text("📖 Бестиарий выгружен", f"**{n}** терминов → `{dest}`\n\n"
+                                      "Колонки: Deutsch;Русский;Заметка;Источник;Тема — как у твоего бестиария. "
+                                      "На новом ноутбуке: «импортируй бестиарий» и выбери этот файл. "
+                                      "Можно открыть в Excel или закинуть в проект Claude.",
+                                      [("📂 Открыть папку", lambda: self._open(dest.parent))], copy=False)
+        return f"Выгрузила бестиарий: {n} терминов — Документы\\Capri\\{dest.name}."
+
+    def prepare(self) -> str:
+        """«Подготовь к уроку»: прошлые уроки, домашка, термины, вероятные вопросы, фразы. Уроки — личное: локально."""
+        from ..convertui import Job
+        last = [p for p in reversed(N.lessons()) if (p / "конспект.md").exists()][:2]
+        if not last:
+            return "Конспектов пока нет — после первого урока скажи «сделай конспект», и я буду готовить тебя к следующему."
+        pop = self.app.text.popup
+        pop.show_busy("📋 Подготовка к уроку", "Читаю прошлые уроки…")
+        text = "\n\n".join(f"=== Урок {p.name[:10]} ===\n" + (p / "конспект.md").read_text(encoding="utf-8")[:5000]
+                            for p in last)
+        from . import glossary
+        prompt = PREP_PROMPT.format(notes=text, glossary=glossary.for_prompt(text, 25) or "—")
+        agent = self.app.agent
+
+        def ask():
+            from .. import mentor
+            if self.app.prefs.get("mentor_local", True) is not False:
+                try:
+                    return mentor.ask_local(agent, prompt) + "\n\n_🔒 Подготовила локальная модель._"
+                except Exception:  # noqa: BLE001 — Ollama выключена: обычный «мозг»
+                    pass
+            return agent.ask_text(prompt)
+        job = Job(ask)
+        job.done.connect(lambda res, err, secs: pop.show_text(
+            "📋 Подготовка к уроку", err or res,
+            [("🗣 Фразы для урока", self.show_phrases), ("📖 Прошлый урок", lambda: self.handle({"do": "last"}))],
+            copy_text=None if err else res))
+        self._jobs = [j for j in self._jobs if j.isRunning()] + [job]
+        job.start()
+        return "Готовлю тебя к уроку — по прошлым конспектам."
+
+    def show_phrases(self) -> str:
+        from . import phrases
+        self.app.text.popup.show_text("🗣 Фразы для урока", phrases.markdown(), copy=False)
+        return "Фразы — в окне. На уроке: кнопка 🗣 на субтитрах — фраза крупно одним кликом."
 
     def _open(self, path: Path):
         from PySide6.QtCore import QUrl
@@ -433,6 +511,14 @@ class LiveController(QObject):
             if self.session:
                 self.session.s.signals = bool(p["on"])
             return "Сигналы включены." if p["on"] else "Сигналы выключила — субтитры работают тихо."
+        if do == "review_terms":
+            return self.review_terms()
+        if do == "export_glossary":
+            return self.export_glossary()
+        if do == "prepare":
+            return self.prepare()
+        if do == "phrases":
+            return self.show_phrases()
         if do == "teams_name":
             self.set_pref(teams_name=p["name"])
             if self.session is not None:
@@ -555,6 +641,39 @@ class LiveController(QObject):
         job.done.connect(lambda res, err, secs: pop.show_text(f"🧠 {term}", err or res, copy_text=None if err else res))
         self._jobs = [j for j in self._jobs if j.isRunning()] + [job]
         job.start()
+
+
+PREP_PROMPT = """Ученик курса IT-Support / Systemadministration в Германии (немецкий B1) идёт на урок.
+Вот конспекты прошлых уроков:
+
+{notes}
+
+Словарь курса (переводы терминов — именно так):
+{glossary}
+
+Подготовь его к сегодняшнему уроку. По-русски, коротко, строго в формате Markdown, без вступлений:
+
+## Что было
+<2–3 предложения: о чём были прошлые уроки>
+
+## Домашка
+- <что задали и к какому сроку; если ничего — «Ничего не задавали»>
+
+## 5 терминов на сегодня
+| Deutsch | Русский |
+|---|---|
+| <термин с артиклем> | <перевод> |
+
+## Что могут спросить
+1. **<вопрос учителя по-немецки, B1>** — _<перевод>_
+   Ответ: **<простой ответ по-немецки B1, 1–2 предложения>** — _<перевод>_
+(3 вопроса)
+
+## Фразы на урок
+- **<фраза по-немецки по теме урока>** — _<перевод>_
+(3 фразы)
+
+Только то, что следует из конспектов. Не выдумывай новые темы."""
 
 
 def importer_granola() -> str:

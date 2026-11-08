@@ -62,12 +62,13 @@ def read_csv(p: Path) -> list[dict]:
     i_ru = 1 if i_ru is None else i_ru
     i_note = col("замет", "note", "notiz", "коммент") if has_head else 2
     i_topic = col("тема", "thema", "topic") if has_head else None
+    i_src = col("источник", "quelle", "source") if has_head else None
     out = []
     for r in rows[1 if has_head else 0:]:
         get = lambda i: r[i].strip() if i is not None and i < len(r) else ""  # noqa: E731
         de, ru = get(i_de), get(i_ru)
         if de and ru:
-            out.append({"de": de, "ru": ru, "note": get(i_note), "topic": get(i_topic)})
+            out.append({"de": de, "ru": ru, "note": get(i_note), "topic": get(i_topic), "source": get(i_src)})
     return out
 
 
@@ -121,34 +122,137 @@ def _files(root: Path) -> list[Path]:
     d = csv_dir()
     csvs = sorted(d.glob("*.csv")) if d.exists() else []
     csvs += sorted(root.glob("*.csv")) if root.exists() else []
-    return [f for f in lessons + csvs + [path(root)] if f.exists()]
+    return [f for f in lessons + csvs + [path(root), skip_path()] if f.exists()]
+
+
+def skip_path() -> Path:
+    return csv_dir() / "_пропущено.txt"
+
+
+def _skipped() -> set[str]:
+    p = skip_path()
+    return {ln.strip().lower() for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()} if p.exists() else set()
+
+
+def lesson_terms(conspect: Path) -> list[dict]:
+    """Таблица «## Термины» из конспекта урока."""
+    text = conspect.read_text(encoding="utf-8", errors="replace")
+    m = re.search(r"^##\s*Термины\s*\n(.*?)(?=^##\s|\Z)", text, re.M | re.S)
+    src = f"урок {conspect.parent.name[:10]}"
+    return [{"de": k, "ru": v, "note": n, "topic": "", "source": src} for k, (v, n) in _rows(m.group(1) if m else "").items()]
 
 
 def entries(root: Path | None = None) -> list[dict]:
-    """Все термины: [{de, ru, note, topic}]. Кэш — пока файлы не менялись."""
+    """Все термины: [{de, ru, note, topic, source}]. Кэш — пока файлы не менялись."""
     root = root or N.lessons_dir()
     files = _files(root)
     key = tuple((str(f), f.stat().st_mtime) for f in files)
     if _cache["key"] == key:
         return _cache["entries"]
+    skipped = _skipped()
     by_de: dict[str, dict] = {}
     for f in files:                                  # позже в списке — главнее
         try:
             if f.suffix.lower() == ".csv":
                 rows = read_csv(f)
+                for r in rows:
+                    r["source"] = r.get("source") or f.stem
+            elif f.name == "конспект.md":
+                rows = [{**r, "lesson": True} for r in lesson_terms(f) if r["de"].lower() not in skipped]
+            elif f == path(root):
+                rows = [{"de": k, "ru": v, "note": n, "topic": "", "source": "мой словарь"}
+                        for k, (v, n) in _rows(f.read_text(encoding="utf-8", errors="replace")).items()]
             else:
-                text = f.read_text(encoding="utf-8", errors="replace")
-                if f.name == "конспект.md":
-                    m = re.search(r"^##\s*Термины\s*\n(.*?)(?=^##\s|\Z)", text, re.M | re.S)
-                    text = m.group(1) if m else ""
-                rows = [{"de": k, "ru": v, "note": n, "topic": ""} for k, (v, n) in _rows(text).items()]
+                continue
         except (OSError, csv.Error):
             continue
         for r in rows:
             by_de[r["de"].lower()] = r
     out = list(by_de.values())
+    # термин из конспекта, который уже есть в бестиарии под другим написанием («die Gruppenrichtlinie» и
+    # «Gruppenrichtlinie (GPO)»), не дублируем — главный перевод из бестиария
+    known = set()
+    for r in out:
+        if not r.get("lesson"):
+            known.update(v.lower() for v in variants(r["de"]))
+    out = [r for r in out if not r.get("lesson") or not ({v.lower() for v in variants(r["de"])} & known)]
     _cache.update(key=key, entries=out, terms={r["de"]: r["ru"] for r in out})
     return out
+
+
+def _known_variants(root: Path | None = None) -> set[str]:
+    """Термины, которые уже есть в бестиарии / своём словаре (не из конспектов)."""
+    out = set()
+    for e in entries(root):
+        if not e.get("lesson"):
+            out.update(v.lower() for v in variants(e["de"]))
+            out.add(e["de"].lower())
+    return out
+
+
+def new_terms(conspect: Path, root: Path | None = None) -> list[dict]:
+    """Термины урока, которых ещё нет в бестиарии и которые не пропускали."""
+    known, skipped = _known_variants(root), _skipped()
+    out = []
+    for t in lesson_terms(conspect):
+        vs = {v.lower() for v in variants(t["de"])} | {t["de"].lower()}
+        if t["de"].lower() not in skipped and not vs & known:
+            out.append(t)
+    return out
+
+
+LESSONS_CSV = "Из уроков.csv"
+FIELDS = ["Deutsch", "Русский", "Заметка", "Источник", "Тема"]
+
+
+def accept(rows: list[dict]) -> int:
+    """Отмеченные термины → data\\glossary\\Из уроков.csv (главнее конспектов и импортированного бестиария)."""
+    if not rows:
+        return 0
+    d = csv_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    f = d / LESSONS_CSV
+    new = not f.exists()
+    with open(f, "a", encoding="utf-8-sig" if new else "utf-8", newline="") as fh:
+        w = csv.writer(fh, delimiter=";")
+        if new:
+            w.writerow(FIELDS)
+        for r in rows:
+            w.writerow([r["de"].strip(), r["ru"].strip(), r.get("note", "").strip(), r.get("source", ""), r.get("topic", "")])
+    _cache["key"] = None
+    return len(rows)
+
+
+def skip(des: list[str]):
+    """«Выкинуть»: эти термины из конспектов в словарь не берём."""
+    if not des:
+        return
+    d = csv_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    with open(skip_path(), "a", encoding="utf-8") as fh:
+        fh.write("".join(de.strip() + "\n" for de in des))
+    _cache["key"] = None
+
+
+def export(dest: Path, root: Path | None = None) -> int:
+    """«выгрузи бестиарий»: всё (бестиарий + уроки + свой словарь) одним CSV — для нового ноутбука или Claude."""
+    rows = sorted(entries(root), key=lambda e: (e.get("topic") or "яя", e["de"].lower()))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with open(dest, "w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.writer(fh, delimiter=";", quoting=csv.QUOTE_ALL)
+        w.writerow(FIELDS)
+        for e in rows:
+            w.writerow([e["de"], e["ru"], e.get("note", ""), e.get("source", ""), e.get("topic", "")])
+    return len(rows)
+
+
+def for_prompt(text: str, limit: int = 40, root: Path | None = None) -> str:
+    """Термины бестиария, которые встречаются в тексте, — строками «термин — перевод» для промпта."""
+    try:
+        rel = relevant(text.splitlines(), load(root), limit=limit)
+    except Exception:  # noqa: BLE001
+        return ""
+    return "\n".join(f"{k} — {v}" for k, v in rel.items())
 
 
 def load(root: Path | None = None) -> dict[str, str]:

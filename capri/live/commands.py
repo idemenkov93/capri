@@ -34,6 +34,13 @@ RE_TEAMS_NAME = re.compile(r"^(?:в\s+(?:тимсе|тимс|teams)\s+)?меня
 RE_TEAMS_SRC = re.compile(r"^(?P<off>не\s+читай|не\s+бери|выключи)\s+субтитры\s+(?:из\s+)?(?:тимс\w*|teams)$|"
                           r"^(?:читай|бери|включи)\s+субтитры\s+(?:из\s+)?(?:тимс\w*|teams)$|"
                           r"^(?P<off2>субтитры\s+только\s+(?:по|из)\s+звук\w*)$", re.I)
+RE_EXPORT_GLOSSARY = re.compile(r"^(?:выгрузи|экспортируй|сохрани|скачай)\s+(?:мой\s+|весь\s+)?(?:бестиари\w*|бистиари\w*|"
+                                r"словар\w*(?:\s+курса)?|глоссари\w*)(?:\s+в\s+(?:csv|файл|эксель|excel))?$", re.I)
+RE_REVIEW_TERMS = re.compile(r"^(?:новые\s+термины(?:\s+(?:с\s+)?урока)?|разбери\s+(?:новые\s+)?термины(?:\s+урока)?|"
+                             r"добавь\s+термины\s+урока(?:\s+в\s+бестиарий)?)$", re.I)
+RE_PREPARE = re.compile(r"^(?:подготовь\s+(?:меня\s+)?к\s+(?:уроку|занятию|паре)|подготовка\s+к\s+(?:уроку|занятию)|"
+                        r"что\s+(?:будет|ждёт|ждет)\s+на\s+уроке)(?:\s+(?:сегодня|завтра))?$", re.I)
+RE_PHRASES = re.compile(r"^(?:фразы|покажи\s+фразы|полезные\s+фразы)(?:\s+(?:для|на)\s+урок\w*)?$", re.I)
 RE_IMPORT_GLOSSARY = re.compile(r"^(?:импортируй|загрузи|добавь|подключи)\s+(?:мой\s+|свой\s+)?(?:бестиари\w*|бистиари\w*|"
                                 r"словар\w*(?:\s+курса)?|глоссари\w*|термин\w*)$", re.I)
 RE_IMPORT_REFRESH = re.compile(r"^обнови\s+материал\w*$", re.I)
@@ -94,6 +101,14 @@ def route(text: str):
         return act("Запомнила.", do="teams_name", name=(m.group("n") or m.group("n2")).strip(" «»\"'"))
     if m := RE_TEAMS_SRC.match(t):
         return act("Готово.", do="source", value="audio" if (m.group("off") or m.group("off2")) else "auto")
+    if RE_EXPORT_GLOSSARY.match(t):
+        return act("Выгружаю бестиарий.", do="export_glossary")
+    if RE_REVIEW_TERMS.match(t):
+        return act("Открываю новые термины.", do="review_terms")
+    if RE_PREPARE.match(t):
+        return act("Готовлю к уроку.", do="prepare")
+    if RE_PHRASES.match(t):
+        return act("Фразы — в окне.", do="phrases")
     if RE_IMPORT_GLOSSARY.match(t):
         return act("Выбери файл словаря.", do="import_glossary")
     if RE_IMPORT_REFRESH.match(t):

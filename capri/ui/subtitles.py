@@ -76,6 +76,7 @@ class SubtitleBar(QWidget):
                   self._btn("💡", "Что спросили и как ответить (окно, не вслух)", self.hint_clicked.emit),
                   self._btn("💬", "Хочу ответить: напиши по-русски — покажу фразу по-немецки (Ctrl+Shift+1)",
                             self.answer_clicked.emit),
+                  self._phrases_btn(),
                   self._btn("📝", "Конспект (остановит субтитры)", self.notes_clicked.emit),
                   self._btn("✕", "Выключить субтитры", self.stop_clicked.emit)):
             b.addWidget(w)
@@ -87,6 +88,23 @@ class SubtitleBar(QWidget):
         self._save_timer = QTimer(self, singleShot=True, interval=400, timeout=self._save)
         self.place()
         self.render()
+
+    def _phrases_btn(self):
+        """🗣 — готовые фразы для урока: крупно сразу, без модели."""
+        b = self._btn("🗣", "Готовые фразы: «Повторите, пожалуйста», «У меня вопрос»… — крупно сразу", lambda: None)
+        b.clicked.disconnect()
+        b.clicked.connect(lambda: self._phrases_menu(b))
+        return b
+
+    def _phrases_menu(self, b):
+        from PySide6.QtWidgets import QMenu
+        from ..live import phrases
+        m = QMenu(self)
+        for title, items in phrases.all_groups():
+            sub = m.addMenu(title)
+            for de, ru in items:
+                sub.addAction(f"{de}  —  {ru}", lambda de=de, ru=ru: self.show_answer(de, ru))
+        m.exec(b.mapToGlobal(b.rect().bottomLeft()))
 
     def _btn(self, text, tip, fn):
         b = QPushButton(text)

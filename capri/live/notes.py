@@ -89,7 +89,7 @@ YT: <ещё запрос>
 YT: <ещё запрос>
 
 Пиши только то, что есть в транскрипте. Не выдумывай.
-
+{glossary}
 Транскрипт:
 {text}"""
 
@@ -114,7 +114,7 @@ def split_text(text: str, size: int = CHUNK) -> list[str]:
 
 
 def make_notes(ask: Callable[[str], str], text: str, lang: str = "немецкий",
-               progress: Callable[[str], None] = lambda s: None) -> str:
+               progress: Callable[[str], None] = lambda s: None, glossary: str = "") -> str:
     """Длинный урок — сначала по частям, потом общий конспект из выжимок (map → reduce)."""
     parts = split_text(text)
     if len(parts) > 1:
@@ -124,7 +124,9 @@ def make_notes(ask: Callable[[str], str], text: str, lang: str = "немецки
             notes.append(f"--- Часть {i} ---\n" + ask(PART_PROMPT.format(i=i, n=len(parts), text=part)).strip())
         text = "\n\n".join(notes)
     progress("Пишу конспект…")
-    return finish(ask(NOTES_PROMPT.format(lang=lang, text=text)))
+    gl = ("\nСловарь курса — в «Термины» и в тексте переводи эти термины ИМЕННО ТАК, как здесь:\n" + glossary + "\n"
+          if glossary else "")
+    return finish(ask(NOTES_PROMPT.format(lang=lang, text=text, glossary=gl)))
 
 
 def finish(md: str) -> str:
