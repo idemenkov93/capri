@@ -850,6 +850,8 @@ class CapriApp:
             "convert": self.convert.from_hotkey,
         }.get(aid)
         if go is not None:
+            from .log import log
+            log.info(f"hotkey: {aid}")
             go()
 
     def _ask_mentor(self):

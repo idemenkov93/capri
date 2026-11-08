@@ -261,6 +261,43 @@ def local_llm(agent):
     return agent._text_llm()
 
 
+_HW: dict = {}
+
+
+def has_gpu() -> bool:
+    """Есть видеокарта, где локальная модель отвечает быстро (≥ 6 ГБ). Проверяем один раз."""
+    if "gpu" not in _HW:
+        try:
+            from . import hardware
+            _HW["gpu"] = hardware.detect().vram_gb >= 6
+        except Exception:  # noqa: BLE001
+            _HW["gpu"] = False
+    return _HW["gpu"]
+
+
+def local_ok(agent) -> bool:
+    """Кто думает за наставника: local — всегда локально (приватно), cloud — облако (быстро),
+    auto — локально, если есть видеокарта; на ноутбуке без неё локальная модель отвечает минуту, поэтому облако."""
+    prefs = getattr(agent, "prefs", None)
+    mode = (prefs.get("mentor_brain", "auto") if prefs is not None else "auto") or "auto"
+    if mode == "local":
+        return True
+    if mode == "cloud":
+        return not any(agent.ready(p) for p in ("groq", "gemini", "openrouter"))
+    return has_gpu() or not any(agent.ready(p) for p in ("groq", "gemini", "openrouter"))
+
+
+def ask_brain(agent, prompt: str) -> tuple[str, str]:
+    """→ (ответ, кто ответил). Локально — если local_ok, иначе бесплатное облако по HTTP (1–3 с)."""
+    if local_ok(agent):
+        try:
+            return ask_local(agent, prompt), f"🔒 локальная модель {getattr(local_llm(agent), 'model', '')}"
+        except Exception:  # noqa: BLE001 — Ollama выключена: облако
+            pass
+    from .study import fast_ask
+    return fast_ask(agent, prompt).strip(), "☁ облако (Groq / Gemini)"
+
+
 def ask_local(agent, prompt: str) -> str:
     from .llm.ollama_client import strip_thinking
     msg = local_llm(agent).chat([{"role": "user", "content": prompt + " /no_think"}], tools=None)
@@ -317,14 +354,17 @@ def answer(agent, question: str, *, online: bool = True, goal: str = "", names: 
             videos = youtube(query + " einfach erklärt", 2) + youtube(query + " простыми словами", 1)
         except Exception:  # noqa: BLE001
             videos = []
-    status("Думаю (локальная модель)…")
+    status("Думаю…")
     prompt = PROMPT.format(goal=goal or GOAL, context=build_context(mine, web), question=question)
-    text = ask_local(agent, prompt)
-    model = getattr(local_llm(agent), "model", "локальная")
+    text, who = ask_brain(agent, prompt)
     tail = sources_md(mine, web, videos, query if online else "")
-    info = {"model": model, "mine": len(mine), "web": len(web), "secs": round(time.monotonic() - t0, 1)}
-    foot = f"_🔒 Ответила локальная модель {model} за {info['secs']} с. В интернет ушёл только запрос: «{query}»._" \
-        if web or videos else f"_🔒 Ответила локальная модель {model} за {info['secs']} с, без интернета._"
+    info = {"model": who, "mine": len(mine), "web": len(web), "secs": round(time.monotonic() - t0, 1)}
+    if who.startswith("🔒"):
+        foot = f"_{who} за {info['secs']} с." + (f" В интернет ушёл только запрос: «{query}»._" if web or videos
+                                                  else " Без интернета._")
+    else:
+        foot = (f"_{who} за {info['secs']} с — на этом компьютере нет видеокарты, локально ответ шёл бы около минуты. "
+                "Приватно: «наставник только локально»._")
     return text + ("\n\n---\n" + tail if tail else "") + "\n\n" + foot, info
 
 
@@ -348,8 +388,8 @@ def plan(agent, *, weak: list[str] | None = None, goal: str = "", online: bool =
     tp = topics(root)
     prompt = PLAN_PROMPT.format(goal=goal or GOAL, topics="\n".join(f"- {t}" for t in tp) or "- (уроков пока нет)",
                                 weak=("Слабые места по тренажёру: " + ", ".join(weak) + "\n") if weak else "")
-    status("Составляю план (локальная модель)…")
-    text = ask_local(agent, prompt)
+    status("Составляю план…")
+    text, who = ask_brain(agent, prompt)
     if online:
         status("Подбираю видео…")
         lines = []
@@ -365,7 +405,7 @@ def plan(agent, *, weak: list[str] | None = None, goal: str = "", online: bool =
                 lines += [f"  ▶ [{v['title'][:80]}]({v['url']})" for v in vids] or \
                     [f"  ▶ [YouTube: {q}]({youtube_search_url(q)})"]
         text = "\n".join(lines)
-    return text + f"\n\n_🔒 План составила локальная модель {getattr(local_llm(agent), 'model', '')}._"
+    return text + f"\n\n_{who}._"
 
 
 # ====================================================================== фразы
@@ -374,7 +414,9 @@ RE_ASK = re.compile(r"^(?:наставник|ментор|локально|сп�
 RE_PLAN = re.compile(r"^(?:что\s+(?:мне\s+)?(?:подучить|подтянуть|учить\s+дальше|изучить\s+дальше)|"
                      r"(?:составь\s+)?план\s+(?:обучения|учёбы|учебы|развития)|куда\s+(?:мне\s+)?расти)\s*\??$", re.I)
 RE_VIDEO = re.compile(r"^(?:найди\s+)?(?:видео|ютуб|youtube|ролик\w*)\s+(?:про|по|о|об)\s+(?P<q>.{2,80}?)\??$", re.I)
-RE_OFFLINE = re.compile(r"^наставник\s+(?P<off>без\s+интернета|только\s+локально)|^наставник\s+(?:с\s+интернетом|онлайн)$", re.I)
+RE_OFFLINE = re.compile(r"^наставник\s+(?P<off>без\s+интернета)|^наставник\s+(?:с\s+интернетом|онлайн)$", re.I)
+RE_BRAIN = re.compile(r"^наставник\s+(?:(?P<local>только\s+локально|локально|приватно)|(?P<cloud>через\s+облако|в\s+облаке|быстро)|"
+                      r"(?P<auto>авто(?:матически)?))$", re.I)
 RE_GOAL = re.compile(r"^(?:моя\s+цель|запомни\s+мою\s+цель)\s*[:—–-]?\s+(?P<g>.{5,300})$", re.I)
 RE_INSTALL = re.compile(r"^(?:да[,\s]+)?(?:ставь|поставь|скачай|включи)\s+умную\s+модель$", re.I)
 RE_MODEL = re.compile(r"^(?:поставь|скачай|установи)\s+(?:самую\s+)?(?:умную|сильную|лучшую|большую)\s+локальную\s+модель$|"
@@ -390,6 +432,13 @@ def route(agent, text: str):
         if prefs is not None:
             prefs.set("mentor_goal", m.group("g").strip())
         return Reply("Запомнила цель — наставник будет учитывать её в ответах и плане.", route="rules")
+    if m := RE_BRAIN.match(t.strip(" .!")):
+        mode = "local" if m.group("local") else "cloud" if m.group("cloud") else "auto"
+        if prefs is not None:
+            prefs.set("mentor_brain", mode)
+        return Reply({"local": "Наставник думает только локально — личное не уходит в облако (без видеокарты — медленно).",
+                      "cloud": "Наставник думает через бесплатное облако — ответ за пару секунд.",
+                      "auto": "Наставник: с видеокартой — локально, без неё — через облако (быстро)."}[mode], route="rules")
     if m := RE_OFFLINE.match(t.strip(" .!")):
         on = not m.group("off")
         if prefs is not None:

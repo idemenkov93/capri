@@ -59,6 +59,9 @@ class Agent:
     def _text_llm(self):
         return self.llm
 
+    def ready(self, p):
+        return False
+
 
 def test_answer_local_with_own_files_no_web_when_enough(root, monkeypatch):
     monkeypatch.setattr(M, "web_search", lambda q: pytest.fail("в интернет не ходим — хватает своих файлов"))
@@ -86,7 +89,7 @@ def test_offline_mode_never_touches_network(root, monkeypatch):
     monkeypatch.setattr(M, "web_search", lambda q: pytest.fail("без интернета"))
     monkeypatch.setattr(M, "youtube", lambda q, n=3: pytest.fail("без интернета"))
     text, info = M.answer(Agent(), "что такое Kubernetes", online=False, root=root)
-    assert "без интернета" in text
+    assert "без интернета" in text.lower()
 
 
 def test_parse_ddg_and_bing_and_youtube():
@@ -124,3 +127,39 @@ def test_plan_adds_videos(root, monkeypatch):
     monkeypatch.setattr(M, "youtube", lambda q, n=3: [{"title": "AZ-900 Kurs", "url": "https://www.youtube.com/watch?v=aaaaaaaaaaa"}])
     out = M.plan(A(), root=root)
     assert "AZ-900 Kurs" in out and "Active Directory und GPO" in M.topics(root)
+
+
+def test_laptop_without_gpu_uses_fast_cloud_unless_private(root, monkeypatch):
+    monkeypatch.setattr(M, "has_gpu", lambda: False)
+    monkeypatch.setattr(M, "web_search", lambda q: [])
+    monkeypatch.setattr(M, "youtube", lambda q, n=3: [])
+
+    class Prefs(dict):
+        def set(self, k, v):
+            self[k] = v
+
+    class Cloud(Agent):
+        def __init__(self):
+            super().__init__()
+            self.prefs = Prefs()
+            self.asked = []
+
+        def ready(self, p):
+            return p == "groq"
+
+        def _ccfg(self, p):
+            return {}
+
+        def cloud_ask(self, p, prompt, cfg, images=None, system=""):
+            self.asked.append(p)
+            return "Ответ из облака"
+    a = Cloud()
+    text, info = M.answer(a, "Как работает GPO?", root=root)
+    assert a.asked == ["groq"] and "Ответ из облака" in text and "нет видеокарты" in text and not a.prompts
+    M.route(a, "наставник только локально")
+    assert a.prefs["mentor_brain"] == "local"
+    text, info = M.answer(a, "Как работает GPO?", root=root)
+    assert a.prompts and "🔒" in text
+    monkeypatch.setattr(M, "has_gpu", lambda: True)
+    M.route(a, "наставник авто")
+    assert M.local_ok(a)

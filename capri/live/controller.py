@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
 import sys
 from pathlib import Path
 
@@ -95,6 +96,8 @@ class LiveController(QObject):
         want = self.prefs()["model"]
         gpu = gpu_available()
         name = want if want != "auto" else ("large-v3-turbo" if gpu else v.get("whisper_model", "small"))
+        if want == "auto" and not gpu and name in ("small", "medium") and (os.cpu_count() or 4) <= 4:
+            name = "base"            # слабый ноутбук: small не успевает за речью — base в 2–3 раза быстрее
         voice = getattr(self.app, "voice", None)
         if voice is not None and getattr(voice.stt, "model_size", "") == name:
             return voice.stt._load()
@@ -155,8 +158,8 @@ class LiveController(QObject):
         self.folder = None
         self.session.start()
         self._start_teams(p)
-        if tr.order()[0] != "local" and gpu_available():
-            # переводит облако — освобождаем видеопамять от локальной модели под точное распознавание
+        if tr.order()[0] != "local":
+            # переводит облако — выгружаем локальную модель: видеопамять под распознавание, а на ноутбуке — память и процессор
             import threading
             threading.Thread(target=lambda: getattr(self.app.agent.llm, "unload", lambda: None)(), daemon=True).start()
         self.bar.show()
@@ -219,6 +222,8 @@ class LiveController(QObject):
             if self.session is not sess:
                 return
             sess.external = active
+            from ..log import log
+            log.info(f"teams captions: {'найдены' if active else 'пропали'}")
             self.sig_status.emit("Читаю субтитры Teams: имена и текст — из Teams, перевожу сразу." if active else
                                  "Субтитры Teams пропали — слушаю звук сама.")
         self.teams = TeamsCaptions(on_event, on_state, dump_path=expand("data/teams_uia.txt"))
@@ -444,12 +449,8 @@ class LiveController(QObject):
 
         def ask():
             from .. import mentor
-            if self.app.prefs.get("mentor_local", True) is not False:
-                try:
-                    return mentor.ask_local(agent, prompt) + "\n\n_🔒 Подготовила локальная модель._"
-                except Exception:  # noqa: BLE001 — Ollama выключена: обычный «мозг»
-                    pass
-            return agent.ask_text(prompt)
+            text, who = mentor.ask_brain(agent, prompt)       # с видеокартой — локально, без неё — облако (быстро)
+            return text + f"\n\n_{who}_"
         job = Job(ask)
         job.done.connect(lambda res, err, secs: pop.show_text(
             "📋 Подготовка к уроку", err or res,
@@ -647,14 +648,9 @@ class LiveController(QObject):
                   "Опирайся на фрагменты из его уроков и материалов ниже; немецкие термины оставляй с переводом; "
                   "в конце — на каком уроке это было и 2 вопроса для самопроверки.\n\n" + found[:12000])
         def ask():
-            # уроки — личное: объясняет локальная модель; не отвечает (Ollama выключена) — обычный «мозг»
             from .. import mentor
-            if self.app.prefs.get("mentor_local", True) is not False:
-                try:
-                    return mentor.ask_local(self.app.agent, prompt) + "\n\n_🔒 Объяснила локальная модель._"
-                except Exception:  # noqa: BLE001
-                    pass
-            return self.app.agent.ask_text(prompt)
+            text, who = mentor.ask_brain(self.app.agent, prompt)
+            return text + f"\n\n_{who}_"
         job = Job(ask)
         job.done.connect(lambda res, err, secs: pop.show_text(f"🧠 {term}", err or res, copy_text=None if err else res))
         self._jobs = [j for j in self._jobs if j.isRunning()] + [job]

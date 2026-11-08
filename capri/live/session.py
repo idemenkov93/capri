@@ -103,6 +103,14 @@ def clean(text: str) -> str:
     return t
 
 
+def _log(msg: str):
+    try:
+        from ..log import log
+        log.info(msg)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 class LiveSession:
     def __init__(self, model_getter: Callable[[], object], settings: Settings, *,
                  on_line: Callable[[Line], None], on_translation: Callable[[int, str], None],
@@ -226,7 +234,10 @@ class LiveSession:
                 spans = self.system_spans + ([(sys_seg._start, sys_seg._t)] if sys_seg.speaking else [])
                 if is_echo(ch, spans):
                     continue
+            t_asr = time.monotonic()
             text, lang = self._transcribe(model, ch.audio)
+            _log(f"live asr {ch.source}: {(time.monotonic() - t_asr) * 1000:.0f} мс на {ch.end - ch.start:.1f} с речи, "
+                 f"очередь {self.chunk_q.qsize()}")
             self.on_partial(ch.source, "")
             if not text:
                 continue
@@ -260,6 +271,7 @@ class LiveSession:
             self.on_partial("system", f"{speaker}: {text}" if text and speaker else text)
 
     def external_line(self, speaker: str, text: str, lang: str = "") -> Line | None:
+        _log(f"live teams: {len(text)} симв.")
         """Фраза из Teams: имя и текст уже есть — сразу в окно и в перевод."""
         text = clean(text)
         if self.paused or not text:
@@ -331,7 +343,11 @@ class LiveSession:
             context = [x.text for x in self.lines if x.id < batch[0].id][-3:]
             try:
                 out = self.translator.translate([b.text for b in batch], context)
+                _log(f"live tr: {len(batch)} фраз за {getattr(self.translator, 'last_ms', 0):.0f} мс — "
+                     f"{getattr(self.translator, 'last_used', '')}; от конца фразы до перевода "
+                     f"{(self.elapsed() - batch[-1].end) * 1000:.0f} мс")
             except Exception as e:  # noqa: BLE001
+                _log(f"live tr ошибка: {str(e)[:200]}")
                 self.on_status(f"⚠ перевод: {str(e)[:120]}")
                 continue
             for b, tr in zip(batch, out):
