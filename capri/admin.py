@@ -96,9 +96,9 @@ def run_elevated(script: str, timeout: float = 120) -> str:
 # ====================================================================== сеть
 def my_ip() -> Result:
     cmd = "Get-NetIPConfiguration | Where-Object IPv4DefaultGateway"
-    rows = ps_json(f"{cmd} | ForEach-Object {{ [pscustomobject]@{{ Name=$_.InterfaceAlias; "
+    rows = ps_json(cmd + " | ForEach-Object { [pscustomobject]@{ Name=$_.InterfaceAlias; "
                    "IP=($_.IPv4Address.IPAddress -join ', '); Gateway=($_.IPv4DefaultGateway.NextHop -join ', '); "
-                   "DNS=($_.DNSServer | Where-Object AddressFamily -eq 2 | ForEach-Object ServerAddresses) -join ', ' }} }}")
+                   "DNS=(($_.DNSServer | Where-Object AddressFamily -eq 2 | ForEach-Object { $_.ServerAddresses }) -join ', ') } }")
     public = public_ip()
     lines = [f"**{r['Name']}** — IP {r['IP']}, шлюз {r['Gateway']}, DNS {r['DNS'] or '—'}" for r in rows]
     if public:
@@ -258,6 +258,8 @@ def top_processes(n: int = 6) -> Result:
     time.sleep(1.0)
     rows = []
     for p in procs:
+        if (p.info.get("name") or "").lower() in ("system idle process", "idle", "memory compression") or p.pid == 0:
+            continue
         try:
             rows.append((p.info["name"] or "?", p.cpu_percent(None) / (psutil.cpu_count() or 1),
                          (p.info["memory_info"].rss if p.info["memory_info"] else 0) / 2**20))

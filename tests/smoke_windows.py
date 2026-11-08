@@ -27,7 +27,7 @@ print("pdfium + heif: ok")
 print("ffmpeg found:", media.find_ffmpeg())
 # волна 3: админ-аптечка на настоящей Windows (PowerShell + разбор JSON)
 from capri import admin  # noqa: E402
-for name in ("my_ip", "uptime", "hardware", "disk_health", "firewall", "defender", "errors_today", "why_reboot",
+for name in ("my_ip", "check_internet", "wifi_password", "uptime", "hardware", "disk_health", "firewall", "defender", "errors_today", "why_reboot",
              "updates", "top_processes", "who_logged_in"):
     try:
         print(f"admin.{name}:", getattr(admin, name)().say[:150])
