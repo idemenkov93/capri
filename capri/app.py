@@ -201,11 +201,13 @@ class CapriApp:
         hk = self.cfg.get("hotkeys") or {}
         from .hotkeys import HotkeyPoller
         self.hotkeys = HotkeyPoller(hk.get("translate", "Ctrl+Shift+T"), hk.get("dictate", "Ctrl+Win"),
-                                    hk.get("chat", "Ctrl+Shift+Space"), hk.get("convert", "Ctrl+Shift+Q"))
+                                    hk.get("chat", "Ctrl+Shift+Space"), hk.get("convert", "Ctrl+Shift+Q"),
+                                    hk.get("answer", "Ctrl+Shift+1"))
         # волна 3: конвертер файлов (круговое меню)
         from .convertui import ConvertUI
         self.convert = ConvertUI(self)
         self.hotkeys.convert.connect(self.convert.from_hotkey)
+        self.hotkeys.answer.connect(lambda: self.live.ask_answer())
         # волна 4: субтитры урока с переводом
         from .live.controller import LiveController
         self.live = LiveController(self)
@@ -651,6 +653,8 @@ class CapriApp:
 
     def on_quick(self, text: str):
         """Быстрая кнопка в чате — как будто написал эту фразу (ответ текстом, без озвучки)."""
+        if text == "__answer__":
+            return self.live.ask_answer()
         self.last_input_was_voice = False
         self.chat.add_user(text)
         self.on_message(text)
@@ -1636,6 +1640,9 @@ class CapriApp:
             return
         if act.kind == "check_updates":
             self.check_updates()
+            return
+        if act.kind == "live_answer":
+            self.live.show_answer(act.params.get("say", ""), act.params.get("ru", ""))
             return
         if act.kind == "live":
             msg = self.live.handle(act.params)

@@ -126,6 +126,8 @@ class LiveController(QObject):
         s = Settings(language=p["language"], target=p["target"], mic=p["mic"], names=self.names(),
                      triggers=list(p["triggers"]), signals=p["signals"])
         tr = Translator(self.app.agent, s.target, p["translate_with"])
+        from . import glossary
+        tr.glossary = glossary.load
         if self.bar is None:
             self.bar = SubtitleBar()
             self.bar.stop_clicked.connect(lambda: self.stop(ask_notes=True))
@@ -134,6 +136,8 @@ class LiveController(QObject):
             self.bar.geometry_saved.connect(lambda g: self.set_pref(geometry=g))
             self.bar.rename_requested.connect(self.ask_name)
             self.bar.hint_clicked.connect(lambda: self.app.on_message("подскажи ответ"))
+            self.bar.answer_clicked.connect(self.ask_answer)
+            self.bar.word_clicked.connect(self.word_lookup)
         self.bar.clear()
         if p.get("geometry"):
             self.bar.place(p["geometry"])
@@ -216,6 +220,45 @@ class LiveController(QObject):
                 (self.folder / "транскрипт.md").write_text(N.transcript_md(lines, self.started or dt.datetime.now()),
                                                          encoding="utf-8")
         return f"Запомнила голос: {sp.name}. В следующий раз узнаю сама."
+
+    def word_lookup(self, word: str, sentence: str):
+        """Двойной клик по слову в записи урока: перевод в этом смысле + «➕ В словарь»."""
+        from ..convertui import Job
+        from ..study import fast_ask, parse_json
+        from . import glossary
+        pop = self.app.text.popup
+        pop.show_busy(f"🔤 {word}", "Смотрю слово…")
+        prompt = (f"Немецкое слово «{word}» в предложении «{sentence[:300]}». Ответ строго JSON без markdown: "
+                  '{"de": "<начальная форма с артиклем для существительных>", "ru": "<перевод в этом смысле, 1–3 слова>", '
+                  '"note": "<очень коротко: что это / пример, по-русски>"}')
+        job = Job(lambda: fast_ask(self.app.agent, prompt))
+
+        def done(raw, err, secs):
+            if err:
+                return pop.show_text("Не получилось", err, copy=False)
+            try:
+                d = parse_json(raw)
+            except Exception:  # noqa: BLE001
+                d = {"de": word, "ru": raw.strip()[:80], "note": ""}
+            de, ru, note = str(d.get("de") or word), str(d.get("ru") or ""), str(d.get("note") or "")
+            pop.show_text(f"🔤 {de}", f"**{de}** — {ru}" + (f"\n\n_{note}_" if note else ""),
+                          [("➕ В словарь", lambda: (glossary.add(de, ru, note), pop.status.setText("Добавила в словарь курса.")))],
+                          copy_text=f"{de} — {ru}")
+        job.done.connect(done)
+        self._jobs = [j for j in self._jobs if j.isRunning()] + [job]
+        job.start()
+
+    def ask_answer(self):
+        """💬 / Ctrl+Shift+1: «что хочешь сказать?» по-русски → фраза для урока крупно на полосе субтитров."""
+        pop = self.app.text.popup
+        pop.show_text("💬 Хочу ответить", "Напиши по-русски, что хочешь сказать (или держи Ctrl+Win и скажи) — "
+                      "покажу, как сказать по-немецки. Enter — готово.", copy=False, markdown=False)
+        pop.ask("Что сказать?", "например: я не понял, повторите пожалуйста медленнее",
+                lambda text: text and (pop.hide(), self.app.on_message(f"помоги ответить: {text}")))
+
+    def show_answer(self, say: str, ru: str = ""):
+        if self.bar is not None and self.running:
+            self.bar.show_answer(say, ru)
 
     def ask_name(self, sid: int):
         from PySide6.QtWidgets import QInputDialog

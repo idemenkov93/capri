@@ -22,9 +22,11 @@ PROMPT = """Ты синхронный переводчик субтитров у
 Ответ — только JSON-массив строк той же длины ({n}), без markdown."""
 
 
-def build_prompt(lines: list[str], context: list[str], target: str = "ru") -> str:
+def build_prompt(lines: list[str], context: list[str], target: str = "ru", glossary: dict | None = None) -> str:
     ctx = ("Что говорили перед этим (для смысла, не переводи):\n" + "\n".join(f"— {c}" for c in context[-3:]) + "\n\n"
            if context else "")
+    if glossary:
+        ctx += "Словарь курса — эти термины переводи именно так:\n" + "\n".join(f"{k} — {v}" for k, v in glossary.items()) + "\n\n"
     return PROMPT.format(target=LANG_NAME.get(target, target), context=ctx,
                          lines="\n".join(f"{i}. {t}" for i, t in enumerate(lines, 1)), n=len(lines))
 
@@ -53,6 +55,7 @@ class Translator:
     def __init__(self, agent, target: str = "ru", prefer: str = "auto"):
         self.agent, self.target, self.prefer = agent, target, prefer
         self.last_used = ""
+        self.glossary = None                         # () → {немецкий: русский} — словарь курса
         self._broken: dict[str, float] = {}          # кто не ответил — не трогаем минуту
 
     def order(self) -> list[str]:
@@ -78,7 +81,14 @@ class Translator:
 
     def translate(self, lines: list[str], context: list[str]) -> list[str]:
         import time
-        prompt = build_prompt(lines, context, self.target)
+        gl = None
+        if self.glossary is not None:
+            try:
+                from .glossary import relevant
+                gl = relevant(lines, self.glossary()) or None
+            except Exception:  # noqa: BLE001 — словарь не прочитался: переводим без него
+                gl = None
+        prompt = build_prompt(lines, context, self.target, gl)
         errors = []
         for p, model in self.steps():
             key = f"{p}:{model}"

@@ -26,6 +26,8 @@ RE_MORNING_AUTO = re.compile(r"^(?P<on>включи|выключи)\s+утрен
 RE_COURSE_END = re.compile(r"^(?:курс|учёба|учеба|weiterbildung|вайтербильдунг)\s+(?:заканчивается|кончается|до)\s+(?P<d>.+)$", re.I)
 RE_HINT = re.compile(r"^(?:подскажи\s+(?:ответ|что\s+ответить)|что\s+(?:мне\s+)?ответить|какой\s+был\s+вопрос|"
                      r"что\s+(?:меня\s+)?спросили|о\s+ч[её]м\s+(?:меня\s+)?спросили)\??$", re.I)
+RE_ANSWER = re.compile(r"^(?:помоги\s+ответить|как\s+ответить|ответ\s+учителю|быстрый\s+ответ|хочу\s+сказать)"
+                       r"\s*[:,—-]?\s*(?P<what>.+)$", re.I | re.S)
 RE_TRAIN = re.compile(r"^(?:тренируй|тренировка|потренируй|потренируемся|начни\s+тренировку)\s*(?P<what>.*)$", re.I)
 RE_CARDS = re.compile(r"^(?:спроси|проверь|погоняй)\s+меня(?:\s+(?P<n>\d+|пять|три|десять)\s+вопрос\w*)?\s*(?:по|на\s+тему|про)\s+"
                       r"(?P<topic>.+)$", re.I)
@@ -324,6 +326,8 @@ def route(agent, text: str):
                      route="rules")
     if RE_MORNING.match(t):
         return morning(agent, Reply)
+    if m := RE_ANSWER.match(t):
+        return answer_reply(agent, Reply, m.group("what"))
     if RE_HINT.match(t):
         return lesson_hint(agent, Reply)
     if RE_WEAK.match(t):
@@ -375,6 +379,45 @@ def answer_training(agent, Reply, text: str):
     else:
         agent.ask("trainer", ttl=1800)
     return Reply(out, route="rules")
+
+
+ANSWER_PROMPT = """Ученик Игорь (немецкий B1) на уроке хочет сказать учителю по-{lang}: «{what}».
+{context}Сформулируй, как он может это сказать сам: коротко, просто, вежливо (Sie, если учителю), уровень B1.
+Ответ строго JSON без markdown: {{"say": "<фраза по-{lang}>", "easy": "<ещё проще, если можно, иначе пусто>",
+"ru": "<как это звучит по-русски, коротко>"}}"""
+
+
+def quick_answer(agent, what: str) -> dict:
+    """«Что хочу сказать» по-русски → фраза для урока. Контекст — последние фразы субтитров (если идут)."""
+    live = getattr(agent, "live", None)
+    lines = []
+    if live is not None:
+        lines = list(live.session.lines) if live.session is not None else list(getattr(live, "_last_lines", None) or [])
+    ctx = ""
+    if lines:
+        ctx = "Последние фразы урока:\n" + "\n".join(
+            f"{(getattr(x, 'speaker', '') or ('Ты' if x.source == 'mic' else 'Они'))}: {x.text}" for x in lines[-6:]) + "\n"
+    code = live.prefs().get("language", "de") if live is not None else "de"
+    lang = {"de": "немецки", "en": "английски"}.get(code, "немецки")
+    raw = fast_ask(agent, ANSWER_PROMPT.format(lang=lang, what=what.strip(), context=ctx))
+    try:
+        d = parse_json(raw)
+        if isinstance(d, dict) and d.get("say"):
+            return {"say": str(d["say"]).strip(), "easy": str(d.get("easy") or "").strip(), "ru": str(d.get("ru") or "").strip()}
+    except Exception:  # noqa: BLE001
+        pass
+    return {"say": raw.strip().strip('"'), "easy": "", "ru": ""}
+
+
+def answer_reply(agent, Reply, what: str):
+    try:
+        d = quick_answer(agent, what)
+    except Exception as e:  # noqa: BLE001
+        return Reply(f"Не получилось: {str(e)[:150]}", route="error")
+    text = f"**{d['say']}**" + (f"\n\nПроще: **{d['easy']}**" if d["easy"] else "") + (f"\n\n_{d['ru']}_" if d["ru"] else "")
+    return Reply(d["say"], [A.Action("popup", "Ответ", {"title": "💬 Скажи так", "text": text, "command": "", "copy": d["say"]},
+                                     needs_confirm=False),
+                            A.Action("live_answer", "", {"say": d["say"], "ru": d["ru"]}, needs_confirm=False)], "rules")
 
 
 def lesson_hint(agent, Reply):

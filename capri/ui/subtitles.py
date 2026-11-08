@@ -32,6 +32,8 @@ class SubtitleBar(QWidget):
     geometry_saved = Signal(list)          # [x, y, w, h, масштаб]
     rename_requested = Signal(int)         # клик по имени в записи урока — «как зовут спикера N?»
     hint_clicked = Signal()                # 💡 — что спросили и как ответить
+    answer_clicked = Signal()              # 💬 — хочу ответить: пишу по-русски, Капри даёт фразу
+    word_clicked = Signal(str, str)        # двойной клик по слову в записи: (слово, предложение)
 
     BASE_H = 190                           # при такой высоте шрифт = font_size
 
@@ -72,6 +74,8 @@ class SubtitleBar(QWidget):
         for w in (self.btn_pause, self._btn("A−", "Мельче", lambda: self.zoom(-2)), self._btn("A+", "Крупнее", lambda: self.zoom(2)),
                   self._btn("☰", "Вся запись урока", self.show_history),
                   self._btn("💡", "Что спросили и как ответить (окно, не вслух)", self.hint_clicked.emit),
+                  self._btn("💬", "Хочу ответить: напиши по-русски — покажу фразу по-немецки (Ctrl+Shift+1)",
+                            self.answer_clicked.emit),
                   self._btn("📝", "Конспект (остановит субтитры)", self.notes_clicked.emit),
                   self._btn("✕", "Выключить субтитры", self.stop_clicked.emit)):
             b.addWidget(w)
@@ -108,6 +112,15 @@ class SubtitleBar(QWidget):
         self.setGeometry(scr.left() + (scr.width() - w) // 2, scr.bottom() - h - 24, w, h)
 
     # ------------------------------------------------------------------ данные
+    def show_answer(self, say: str, ru: str = ""):
+        """«Скажи так» — крупно, отдельной строкой; следующая фраза урока её не вытесняет сразу."""
+        self._answer_id = getattr(self, "_answer_id", 0) - 1
+        self.entries[self._answer_id] = {"source": "answer", "text": ru, "lang": "", "tr": say, "trigger": "", "spk": 0}
+        self.order.append(self._answer_id)
+        self.show()
+        self.raise_()
+        self.render()
+
     def add_line(self, id_: int, source: str, text: str, lang: str = "", trigger: str = "", spk: int = 0,
                  speaker: str = ""):
         self.entries[id_] = {"source": source, "text": text, "lang": lang, "tr": None, "trigger": trigger, "spk": spk}
@@ -164,6 +177,11 @@ class SubtitleBar(QWidget):
         parts = []
         for id_ in self.order[-12:]:                 # сколько влезет — решает высота окна
             e = self.entries[id_]
+            if e["source"] == "answer":                # «💬 Скажи так» — зелёным, крупно
+                parts.append(f'<p style="color:#7dff9b; font-size:{small}px; margin-top:{int(small * 0.7)}px; margin-bottom:1px;">'
+                             f'💬 Скажи так{": " + html.escape(e["text"]) if e["text"] else ""}</p>'
+                             f'<p style="color:#b8ffc8; font-size:{fs}px; font-weight:700; margin:0;">{html.escape(e["tr"])}</p>')
+                continue
             mine = e["source"] == "mic"
             col = "#ffd23f" if e["trigger"] else ("#ff7ab0" if mine else "#9fb3cf")
             flag = FLAG.get(e["lang"], "")
@@ -332,7 +350,8 @@ class SubtitleBar(QWidget):
             self.history.setOpenLinks(False)
             self.history.anchorClicked.connect(lambda url: url.scheme() == "spk" and
                                                self.rename_requested.emit(int(url.path() or 0)))
-            self.history.setToolTip("Нажми на имя говорящего, чтобы назвать его (голос запомню)")
+            self.history.setToolTip("Имя говорящего — назвать (голос запомню). Двойной клик по слову — перевод и в словарь")
+            self.history.viewport().installEventFilter(self)
             self.history.resize(640, 720)
         self._fill_history()
         self.history.show()
@@ -340,10 +359,30 @@ class SubtitleBar(QWidget):
 
     def _entry_html(self, id_: int) -> str:
         e = self.entries[id_]
+        if e["source"] == "answer":
+            return f'<p style="color:#7dff9b">💬 <b>{html.escape(e["tr"])}</b> <i>{html.escape(e["text"])}</i></p>'
         col = "#ffd23f" if e["trigger"] else ("#ff7ab0" if e["source"] == "mic" else "#9fb3cf")
         who = self._who(e, link=True) or "<b>Они:</b> "
         tr = f'<br><span style="color:#ffffff">{html.escape(e["tr"])}</span>' if e["tr"] else ""
         return f'<p>{who}<span style="color:{col}">{html.escape(e["text"])}</span>{tr}</p>'
+
+    def eventFilter(self, obj, ev):
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QTextCursor
+        try:
+            ours = self.history is not None and ev.type() == QEvent.MouseButtonDblClick and obj is self.history.viewport()
+        except RuntimeError:                 # окно записи уже закрыто и удалено
+            return False
+        if ours:
+            c = self.history.cursorForPosition(ev.position().toPoint())
+            c.select(QTextCursor.WordUnderCursor)
+            word = c.selectedText().strip()
+            c2 = self.history.cursorForPosition(ev.position().toPoint())
+            c2.select(QTextCursor.BlockUnderCursor)
+            if len(word) >= 2 and word.isalpha():
+                self.word_clicked.emit(word, c2.selectedText().strip())
+                return True
+        return super().eventFilter(obj, ev)
 
     def _fill_history(self):
         if self.history is None:

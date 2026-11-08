@@ -224,3 +224,51 @@ def test_import_folder_and_search(tmp_path):
 def test_import_phrases(phrase, params):
     from capri.live import commands
     assert commands.route(phrase).actions[0].params == params
+
+
+# ------------------------------------------------------------------ 💬 быстрый ответ
+def test_quick_answer_on_subtitles():
+    from capri.live.session import Line
+
+    class Live:
+        session = None
+        _last_lines = [Line(1, "system", "Hat jemand eine Frage?", "de", 0, 2, speaker="Herr Müller")]
+
+        def prefs(self):
+            return {"language": "de"}
+    a = agent('{"say": "Können Sie das bitte langsamer wiederholen?", "easy": "Bitte langsamer.", "ru": "Повторите медленнее"}')
+    a.live = Live()
+    r = a.handle("помоги ответить: я не понял, повторите медленнее")
+    assert "Herr Müller: Hat jemand eine Frage?" in a.asked[0] and "немецки" in a.asked[0]
+    assert r.text == "Können Sie das bitte langsamer wiederholen?"
+    kinds = [x.kind for x in r.actions]
+    assert kinds == ["popup", "live_answer"] and r.actions[0].params["copy"] == r.text
+
+
+def test_subtitle_bar_shows_answer():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from capri.ui.subtitles import SubtitleBar
+    b = SubtitleBar()
+    b.add_line(1, "system", "Hat jemand eine Frage?", "de")
+    b.show_answer("Können Sie das bitte wiederholen?", "Повторите, пожалуйста")
+    assert "💬 Скажи так" in b.html and "Können Sie das bitte wiederholen?" in b.html
+
+
+# ------------------------------------------------------------------ словарь курса
+def test_glossary_from_file_and_notes_goes_into_translation(tmp_path):
+    from capri.live import glossary as G
+    from capri.live import translate as T
+    lesson = tmp_path / "2026-11-09 0900 — AD"
+    lesson.mkdir()
+    (lesson / "конспект.md").write_text("# AD\n\n## Термины\n| Deutsch | Русский | Что это |\n|---|---|---|\n"
+                                        "| die Freigabe | общий ресурс | папка в сети |\n| der Benutzer | юзер | |\n", encoding="utf-8")
+    G.add("der Benutzer", "пользователь", "учётка", tmp_path)          # свой словарь важнее конспекта
+    G.add("der Benutzer", "дубль", "", tmp_path)                        # второй раз не добавляется
+    terms = G.load(tmp_path)
+    assert terms["die Freigabe"] == "общий ресурс" and terms["der Benutzer"] == "пользователь"
+    rel = G.relevant(["Die Freigaben auf dem Server prüfen."], terms)
+    assert rel == {"die Freigabe": "общий ресурс"}
+    p = T.build_prompt(["Die Freigaben prüfen."], [], "ru", rel)
+    assert "die Freigabe — общий ресурс" in p
+    assert (tmp_path / "Словарь.md").read_text(encoding="utf-8").count("Benutzer") == 1
