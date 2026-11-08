@@ -784,6 +784,9 @@ class Agent:
             return dn
         if (tx := self._text_cmd(text)) is not None:
             return tx
+        from .admin_cmds import route as admin_route        # волна 3: админ-аптечка, сайты, PowerShell
+        if (ad := admin_route(self, text)) is not None:
+            return ad
         if re.fullmatch(r"(?:какие|сколько)\s+(?:у\s+меня\s+)?(?:экран\w*|монитор\w*)(?:\s+(?:у\s+меня|подключен\w*|есть))?",
                         text.strip(" .!?"), re.I):
             from . import control

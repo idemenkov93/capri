@@ -4,7 +4,7 @@ from __future__ import annotations
 import sys
 import time
 
-from PySide6.QtCore import QThread, QTimer, Signal
+from PySide6.QtCore import QObject, QThread, QTimer, Signal
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtGui import QAction, QActionGroup
@@ -78,6 +78,11 @@ class Warmup(QThread):
 
     def run(self):
         self.agent.llm.warmup()
+
+
+class Bridge(QObject):
+    """Сообщения из фоновых потоков (проверка сайтов) — в главный поток."""
+    msg = Signal(str)
 
 
 class CapriApp:
@@ -201,6 +206,15 @@ class CapriApp:
         from .convertui import ConvertUI
         self.convert = ConvertUI(self)
         self.hotkeys.convert.connect(self.convert.from_hotkey)
+        # волна 3: слежу за сайтами (сообщения из фонового потока — через Bridge)
+        self._bridge = Bridge()
+        self._bridge.msg.connect(lambda m: self.timer_fired(m, prefix="🌐 "))
+        if self.prefs.get("watch_sites"):
+            self._ensure_site_timer()
+        # бэкап по расписанию: проверяю раз в час (и через минуту после запуска)
+        self._backup_timer = QTimer(interval=3_600_000, timeout=self._backup_auto)
+        self._backup_timer.start()
+        QTimer.singleShot(60_000, self._backup_auto)
         self.hotkeys.chat.connect(self.open_or_hide_chat)
         self.hotkeys.translate.connect(self.text.translate_selection)
         self.hotkeys.dictate.connect(self.text.dictate)
@@ -510,6 +524,7 @@ class CapriApp:
         from .ui import models as models_menu
         models_menu.build(self, menu, t("models", L))
         self._dnd_menu(menu)
+        self._backup_menu(menu)
         tm = menu.addMenu("📋 Буфер и экран")
         tm.addAction("❓ Что в буфере?", lambda: self.on_message("что в буфере"))
         tm.addAction("🌐 Перевести буфер", lambda: self.on_message("переведи буфер"))
@@ -796,6 +811,197 @@ class CapriApp:
             path = self.text.make_qr(src)
             self.text.popup.show_text("QR-код готов — картинка в буфере", f"![qr]({path})\n\n`{src[:120]}`",
                                       copy=False)
+
+    # волна 3: админ-аптечка и сайты ------------------------------------------------
+    def show_admin_popup(self, title: str, text: str, command: str = ""):
+        pop = self.text.popup
+        acts = []
+        if command:
+            acts.append(("📜 Команда", lambda: pop.show_text(f"{title}: PowerShell", f"```powershell\n{command}\n```",
+                                                             copy_text=command)))
+        pop.show_text(title, text, acts)
+
+    def run_admin_action(self, act):
+        from PySide6.QtGui import QGuiApplication
+        k, p = act.kind, act.params
+        if k == "popup":
+            self.show_admin_popup(p.get("title", ""), p.get("text", ""), p.get("command", ""))
+        elif k == "ps_helper":
+            QGuiApplication.clipboard().setText(p["command"])
+            from .admin_cmds import cheatsheet_path
+            sheet = cheatsheet_path()
+            text = f"```powershell\n{p['command']}\n```\n\n{p.get('explain', '')}"
+            if p.get("admin"):
+                text += "\n\n🛡 Запускай PowerShell **от имени администратора**."
+            if p.get("danger"):
+                text += f"\n\n⚠ {p['danger']}"
+            self.text.popup.show_text("PowerShell — команда в буфере", text,
+                                      [("📒 Шпаргалка", lambda: A.execute(A.Action("open_file", "", {"path": str(sheet)}), self.cfg))],
+                                      copy_text=p["command"])
+        elif k == "site_watch":
+            from . import sites
+            watch = list(self.prefs.get("watch_sites") or [])
+            if p.get("list"):
+                self.chat.add_system("Слежу за: " + ", ".join(sites.host_of(u) for u in watch) if watch
+                                     else "Ни за какими сайтами не слежу. Скажи «следи за сайтом example.com».")
+                return
+            url = p["url"]
+            watch = [u for u in watch if u != url] + ([url] if p.get("on") else [])
+            self.prefs.set("watch_sites", watch)
+            self._site_state = getattr(self, "_site_state", {})
+            self._ensure_site_timer()
+
+    def _ensure_site_timer(self):
+        if not getattr(self, "_site_timer", None):
+            self._site_timer = QTimer(interval=5 * 60_000, timeout=self._check_sites)
+        if self.prefs.get("watch_sites"):
+            self._site_timer.start()
+            QTimer.singleShot(2000, self._check_sites)
+        else:
+            self._site_timer.stop()
+
+    def _check_sites(self):
+        """Каждые 5 минут — в фоне. Говорю только когда что-то поменялось: упал / поднялся."""
+        import threading
+        from . import sites
+        urls = list(self.prefs.get("watch_sites") or [])
+        if not urls or getattr(self, "_site_busy", False):
+            return
+        self._site_busy = True
+        self._site_state = getattr(self, "_site_state", {})
+
+        def work():
+            try:
+                results = [sites.check(u) for u in urls]
+            finally:
+                self._site_busy = False
+            for c in results:
+                was = self._site_state.get(c.url)
+                self._site_state[c.url] = c.ok
+                if was is not None and was != c.ok or (was is None and not c.ok):
+                    msg = (f"{sites.host_of(c.url)} снова работает." if c.ok else f"{sites.host_of(c.url)} упал: {c.error}.")
+                    self._bridge.msg.emit(msg)
+        threading.Thread(target=work, daemon=True, name="sites").start()
+
+    # бэкап -----------------------------------------------------------------------
+    def _backup_cfg(self) -> dict:
+        from . import backup
+        return {**backup.defaults(), **(self.prefs.get("backup") or {})}
+
+    def _backup_set(self, **kw):
+        self.prefs.set("backup", {**self._backup_cfg(), **kw})
+
+    def backup_add_folder(self):
+        from PySide6.QtWidgets import QFileDialog
+        d = QFileDialog.getExistingDirectory(None, "Какую папку бэкапить?")
+        if d:
+            cfg = self._backup_cfg()
+            self._backup_set(folders=[f for f in cfg["folders"] if f != d] + [d])
+            self.chat.add_system(f"💾 В бэкап добавлена папка {d}.")
+
+    def backup_remove_folder(self, folder: str):
+        self._backup_set(folders=[f for f in self._backup_cfg()["folders"] if f != folder])
+
+    def backup_choose_dest(self):
+        from PySide6.QtWidgets import QFileDialog
+        d = QFileDialog.getExistingDirectory(None, "Куда сохранять бэкапы? (второй диск или флешка — надёжнее)")
+        if d:
+            self._backup_set(dest=d)
+            self.chat.add_system(f"💾 Бэкапы будут лежать в {d}.")
+
+    def backup_setup(self):
+        from . import backup
+        cfg = self._backup_cfg()
+        pop = self.text.popup
+        pop.show_text("💾 Бэкап", backup.describe(cfg) + "\n\nОстальное — меню Капри → «💾 Бэкап».", [
+            ("➕ Папка", lambda: (self.backup_add_folder(), self.backup_setup())),
+            ("📁 Куда", lambda: (self.backup_choose_dest(), self.backup_setup())),
+            ("💾 Сейчас", self.backup_now)], markdown=False, copy=False)
+
+    def _backup_menu(self, menu):
+        from . import backup
+        cfg = self._backup_cfg()
+        bm = menu.addMenu("💾 Бэкап")
+        bm.addAction("💾 Сделать сейчас", self.backup_now)
+        bm.addSeparator()
+        bm.addAction("➕ Добавить папку…", self.backup_add_folder)
+        if cfg["folders"]:
+            rm = bm.addMenu("➖ Убрать папку")
+            for f in cfg["folders"]:
+                rm.addAction(f, lambda f=f: self.backup_remove_folder(f))
+        bm.addAction(f"📁 Куда: {cfg['dest'] or 'выбрать…'}", self.backup_choose_dest)
+        km = bm.addMenu(f"Хранить копий: {cfg['keep']}")
+        for n in (3, 5, 10, 20):
+            km.addAction(self._check(km, str(n), cfg["keep"] == n, lambda n=n: self._backup_set(keep=n)))
+        em = bm.addMenu("Автоматически")
+        for code, label in (("off", "выключено"), ("day", "каждый день"), ("week", "раз в неделю")):
+            em.addAction(self._check(em, label, cfg["every"] == code, lambda c=code: self._backup_set(every=c)))
+        bm.addSeparator()
+        bm.addAction(backup.describe(cfg).splitlines()[-1]).setEnabled(False)
+
+    def backup_now(self, quiet: bool = False):
+        from . import backup
+        from .convertui import Job
+        import threading as _th
+        cfg = self._backup_cfg()
+        if not cfg["folders"] or not cfg["dest"]:
+            return self.backup_setup()
+        if getattr(self, "_backup_job", None) is not None and self._backup_job.isRunning():
+            return self.chat.add_system("Бэкап уже идёт.")
+        cancel = _th.Event()
+        job = Job(lambda: backup.make(cfg["folders"], cfg["dest"], int(cfg["keep"]),
+                                      lambda f, s: job.progress.emit(f, s), cancel))
+        if not quiet:
+            self.text.popup.show_busy("💾 Бэкап", "Собираю файлы…")
+            self.text.popup.add_button("■ Стоп", cancel.set)
+            job.progress.connect(lambda f, s: self.text.popup.status.setText(f"{int(f * 100)} % — {s}"))
+
+        def done(res, err, secs):
+            if err:
+                msg = f"Бэкап не получился: {err}"
+                self.text.popup.show_text("💾 Бэкап", msg, copy=False) if not quiet else self.tray.showMessage("Capri", msg)
+                self.chat.add_system(msg)
+                return
+            self._backup_set(last=time.time())
+            msg = backup.summary(*res)
+            self.chat.add_system("💾 " + msg)
+            if quiet:
+                if not self.in_game:
+                    self.tray.showMessage("Capri", msg)
+            else:
+                from .convertui import _reveal
+                self.text.popup.show_text("💾 Бэкап готов", msg, [("📂 Показать", lambda: _reveal(res[0]))], copy=False,
+                                          markdown=False)
+        job.done.connect(done)
+        self._backup_job = job
+        job.start()
+
+    def _backup_auto(self):
+        from . import backup
+        if self.in_game or not backup.due(self._backup_cfg()):
+            return
+        self.backup_now(quiet=True)
+
+    def run_admin_do(self, act):
+        from .convertui import Job
+        from . import admin
+        what = act.params["what"]
+        fn = (lambda: admin.restart_service(act.params["name"])) if what == "restart_service" else admin.DANGER[what]
+        job = Job(fn)
+        self.text.popup.show_busy(act.description, "Делаю…")
+
+        def done(res, err, secs):
+            if err:
+                self.text.popup.show_text("Не получилось", err, copy=False)
+                self.chat.add_system(f"Не получилось: {err}")
+                return
+            self.chat.add_capri(res.say, "rules")
+            self.show_admin_popup(res.title, res.details or res.say, res.command)
+            if self.voice and self.cfg["voice"]["speak"] and self.last_input_was_voice:
+                self.voice.speak(res.say)
+        job.done.connect(done)
+        self._admin_jobs = [j for j in getattr(self, "_admin_jobs", []) if j.isRunning()] + [job]
+        job.start()
 
     def add_reminder(self, at: float, text: str):
         rem = list(self.prefs.get("reminders") or [])
@@ -1349,6 +1555,12 @@ class CapriApp:
         if act.kind == "check_updates":
             self.check_updates()
             return
+        if act.kind == "backup":
+            self.backup_now() if act.params.get("do") == "now" else self.backup_setup()
+            return
+        if act.kind in ("popup", "site_watch", "ps_helper"):
+            self.run_admin_action(act)
+            return
         if act.kind in ("clip_explain", "clip_translate", "screen_text", "letter_explain", "letter_reply", "qr_make",
                         "convert"):
             self.run_text_action(act)
@@ -1385,6 +1597,9 @@ class CapriApp:
             if box.exec() != QMessageBox.Yes:
                 self.chat.add_system("Отменено.")
                 return
+        if act.kind == "admin_do":                 # уже спросили «Да?» — делаем в фоне
+            self.run_admin_do(act)
+            return
         if act.kind == "timer":
             ms = int(act.params["minutes"] * 60_000)
             label = act.params.get("label") or "Время вышло!"

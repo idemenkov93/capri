@@ -28,6 +28,10 @@ def test_avatar_draws_less_when_idle_in_eco():
     a.eco = True
     a._animate()
     a.glitch = 0
+    a.mode, a.walk_to, a.dance = "ground", None, False     # стоит на месте (на CI-экране она могла ещё падать)
+    a._fall = lambda: None
+    a._animate()
+    a.mode = "ground"
     a._animate()
     assert a._tick.interval() == 100
     a.walk_to = a.x() + 300          # пошла гулять — снова плавно

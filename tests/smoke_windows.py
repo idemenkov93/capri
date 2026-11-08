@@ -25,4 +25,18 @@ import pypdfium2, pillow_heif  # noqa: E402,F401
 pillow_heif.register_heif_opener()
 print("pdfium + heif: ok")
 print("ffmpeg found:", media.find_ffmpeg())
+# волна 3: админ-аптечка на настоящей Windows (PowerShell + разбор JSON)
+from capri import admin  # noqa: E402
+for name in ("my_ip", "uptime", "hardware", "disk_health", "firewall", "defender", "errors_today", "why_reboot",
+             "updates", "top_processes", "who_logged_in"):
+    try:
+        print(f"admin.{name}:", getattr(admin, name)().say[:150])
+    except Exception as e:  # noqa: BLE001
+        print(f"admin.{name}: FAIL {type(e).__name__}: {str(e)[:150]}")
+try:
+    print("admin.service_status:", admin.service_status("Spooler").say)
+    print("admin.port_open:", admin.port_open("github.com", 443).say)
+    print("admin.ping:", admin.ping("github.com", 2))
+except Exception as e:  # noqa: BLE001
+    print("admin misc: FAIL", e)
 print("done")
