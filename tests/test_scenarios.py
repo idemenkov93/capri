@@ -62,6 +62,7 @@ def test_runner_does_steps_in_order_and_survives_errors(monkeypatch):
     monkeypatch.setattr(control, "placed_ok", lambda h, screen, place: True)
     monkeypatch.setattr(control, "window_title", lambda h: f"win{h}")
     monkeypatch.setattr(control, "night_light", lambda on: True)
+    monkeypatch.setattr(control, "monitors", lambda: [(0, 0, 1920, 1080, True), (1920, 0, 3840, 1080, False)])
     monkeypatch.setattr(scenarios.time, "sleep", lambda s: None)
     monkeypatch.setattr(scenarios, "browser_exe", lambda: None)
     tabs = []
@@ -296,3 +297,13 @@ def test_scenario_dnd_becomes_action(monkeypatch):
     a = Agent(copy.deepcopy(DEFAULTS), llm=object(), claude=lambda t, c: "", system=Sys(), apps=AppIndex(Path("/x")))
     r = a._scenario("учёба", True, S.DEFAULT)
     assert any(x.kind == "dnd" and x.params["choice"] == "forever" for x in r.actions)
+
+
+def test_one_real_screen_splits_windows(monkeypatch):
+    _fake_screens(monkeypatch, active=1, connected=1)
+    from capri import control
+    placed = []
+    monkeypatch.setattr(control, "place_window", lambda h, screen, place: placed.append((screen, place)) or "окно")
+    r = scenarios.Runner(lambda n: "A", Sys(), lambda a: None)
+    r.run([{"open": "teams", "screen": "main", "place": "max"}, {"open": "claude", "screen": "other", "place": "max"}])
+    assert placed[:2] == [(1, "left"), (1, "right")]
