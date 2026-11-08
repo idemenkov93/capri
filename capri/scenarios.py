@@ -33,7 +33,8 @@ DEFAULT_TEXT = """# Сценарии Капри: скажи «Капри, игр
 #   browser: [ссылка1, ссылка2]  — одно окно браузера, вкладки по порядку
 #   volume: 20 · brightness: 40 · nightlight: on/off · break_reminder: 180 (минут, 0 — выключить) · say: "текст"
 #   display: extend (оба экрана) | internal (только основной) | external (только второй) | clone — как Win+P
-#   screen: 1 / 2 / 3 или main (основной) | left | right (экран слева/справа от основного) | other (любой второй)
+#   screen: 1 / 2 / 3 или main (основной) | left | right | top | bottom (где стоит относительно основного) | other (любой второй)
+#   or_browser: [ссылки] — если программы нет, открыть эти сайты в браузере по умолчанию (на том же месте)
 #   place: max | left | right | top | bottom | center | top_left | top_right | bottom_left | bottom_right
 #   dnd: 60 | evening | morning | forever | off — «не беспокоить»
 # Экран один, а сценарий на два — Капри сама разложит окна по половинкам.
@@ -95,6 +96,7 @@ NEW_TEXT_11 = """учёба:
     - open: claude
       screen: other
       place: max
+      or_browser: [https://gemini.google.com, https://chat.deepseek.com, https://www.deepl.com/translator]
     - dnd: forever             # 🔕 не беспокоить до конца урока
     - say: "Режим учёбы. Тимс на основном экране, Клод на втором. Не отвлекаю, пока не скажешь «урок закончился»."
   off_steps:
@@ -200,8 +202,38 @@ def match(text: str, data: dict | None = None) -> tuple[str, bool] | None:
 
 
 # ------------------------------------------------------------------ выполнение шагов
+DEFAULT_BROWSERS = {"chromehtml": "chrome.exe", "msedgehtm": "msedge.exe", "firefoxurl": "firefox.exe",
+                    "bravehtml": "brave.exe", "operastable": "opera.exe", "vivaldihtm": "vivaldi.exe",
+                    "yandexhtml": "browser.exe"}
+
+
+def default_browser_exe() -> str | None:
+    """Браузер по умолчанию (как в «Параметры → Приложения по умолчанию»): путь к exe или None."""
+    if sys.platform != "win32":
+        return None
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice") as k:
+            prog = str(winreg.QueryValueEx(k, "ProgId")[0]).lower()
+    except OSError:
+        return None
+    exe = next((v for key, v in DEFAULT_BROWSERS.items() if prog.startswith(key)), None)
+    if not exe:
+        return None
+    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.OpenKey(hive, rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe}") as k:
+                return winreg.QueryValue(k, None)
+        except OSError:
+            continue
+    return shutil.which(exe)
+
+
 def browser_exe() -> str | None:
-    """Chrome (или Edge) — чтобы открыть несколько вкладок одним окном."""
+    """Браузер по умолчанию, иначе Chrome (или Edge) — чтобы открыть несколько вкладок одним окном."""
+    if exe := default_browser_exe():
+        return exe
     if sys.platform == "win32":
         import winreg
         for exe in ("chrome.exe", "msedge.exe"):
@@ -273,7 +305,16 @@ class Runner:
                 continue
             try:
                 if "open" in step:
-                    title = self._open(str(step["open"]), screen_arg(step.get("screen", 1)), str(step.get("place", "max")))
+                    try:
+                        title = self._open(str(step["open"]), screen_arg(step.get("screen", 1)), str(step.get("place", "max")))
+                    except Exception:
+                        alt = step.get("or_browser")
+                        if not alt:
+                            raise
+                        urls = [str(u) for u in (alt if isinstance(alt, list) else [alt])]
+                        self._browser(urls, step.get("screen"), str(step.get("place", "max")))
+                        title = f"{step['open']} нет — открыла в браузере: " + ", ".join(
+                            re.sub(r"^https?://(www\.)?", "", u).split("/")[0] for u in urls)
                     done.append(title)
                 elif "browser" in step:
                     urls = step["browser"] if isinstance(step["browser"], list) else [step["browser"]]
@@ -364,6 +405,6 @@ class Runner:
         if screen:
             from . import control
             time.sleep(2.0)
-            h = control.find_app_window("chrome" if "chrome" in exe.lower() else "msedge.exe", strict=True)
+            h = control.find_app_window(Path(exe).name.lower(), strict=True)
             if h:
                 control.place_window(h, screen_arg(screen), place)

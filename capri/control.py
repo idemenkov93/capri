@@ -266,7 +266,7 @@ def monitors() -> list[tuple[int, int, int, int, bool]]:
 
 
 def screen_index(screen, mons: list) -> int:
-    """Номер экрана для сценария: 1/2/3 или слова main | left | right | other. → 1..len(mons)."""
+    """Номер экрана для сценария: 1/2/3 или слова main | left | right | top | bottom | other. → 1..len(mons)."""
     n = len(mons)
     if isinstance(screen, int) or str(screen).isdigit():
         return min(max(int(screen), 1), n)
@@ -281,6 +281,13 @@ def screen_index(screen, mons: list) -> int:
     if key in ("right", "справа", "правый"):
         right = [i for i in others if mons[i - 1][0] > ml]
         return right[0] if right else others[-1]
+    mt, mb = mons[0][1], mons[0][3]
+    if key in ("top", "сверху", "верхний"):                # ноутбук, а монитор над ним
+        top = [i for i in others if mons[i - 1][3] <= mt + 8]
+        return top[-1] if top else others[0]
+    if key in ("bottom", "снизу", "нижний"):
+        bottom = [i for i in others if mons[i - 1][1] >= mb - 8]
+        return bottom[0] if bottom else others[0]
     return others[0]                                     # other / второй
 
 

@@ -307,3 +307,25 @@ def test_one_real_screen_splits_windows(monkeypatch):
     r = scenarios.Runner(lambda n: "A", Sys(), lambda a: None)
     r.run([{"open": "teams", "screen": "main", "place": "max"}, {"open": "claude", "screen": "other", "place": "max"}])
     assert placed[:2] == [(1, "left"), (1, "right")]
+
+
+def test_monitor_above_laptop():
+    from capri import control
+    mons = [(0, 0, 1920, 1040, True), (0, -1080, 1920, 0, False)]          # ноутбук внизу, монитор над ним
+    assert control.screen_index("top", mons) == 2 and control.screen_index("other", mons) == 2
+    assert "второй 1920×1080 — сверху от основного" in control.layout_text(mons)
+
+
+def test_claude_missing_opens_sites_in_browser(monkeypatch):
+    _fake_screens(monkeypatch, active=2, connected=2)
+    from capri import control
+    monkeypatch.setattr(control, "wait_window", lambda n, *a, **k: 0)        # окно Claude так и не появилось
+    monkeypatch.setattr(control, "find_app_window", lambda n, *a, **k: 0)
+    opened = []
+    monkeypatch.setattr(scenarios.Runner, "_browser", lambda self, urls, screen, place: opened.append((urls, screen, place)))
+    r = scenarios.Runner(lambda n: "A", Sys(), lambda a: None)
+    step = next(st for st in scenarios.DEFAULT["учёба"]["steps"] if st.get("open") == "claude")
+    done, failed, *_ = r.run([step])
+    assert not failed and "открыла в браузере" in done[0]
+    urls, screen, place = opened[0]
+    assert any("gemini" in u for u in urls) and any("deepseek" in u for u in urls) and screen == "other"
