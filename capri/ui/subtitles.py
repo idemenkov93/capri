@@ -74,7 +74,7 @@ class SubtitleBar(QWidget):
         for w in (self.btn_pause, self._btn("A−", "Мельче", lambda: self.zoom(-2)), self._btn("A+", "Крупнее", lambda: self.zoom(2)),
                   self._btn("☰", "Вся запись урока", self.show_history),
                   self._btn("💡", "Что спросили и как ответить (окно, не вслух)", self.hint_clicked.emit),
-                  self._btn("💬", "Хочу ответить: напиши по-русски — покажу фразу по-немецки (Ctrl+Shift+1)",
+                  self._btn("💬", "Хочу ответить: напиши по-русски — покажу фразу по-немецки (Win+Alt+A)",
                             self.answer_clicked.emit),
                   self._phrases_btn(),
                   self._btn("📝", "Конспект (остановит субтитры)", self.notes_clicked.emit),

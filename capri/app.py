@@ -199,15 +199,12 @@ class CapriApp:
         from .textui import TextOps
         self.text = TextOps(self)
         hk = self.cfg.get("hotkeys") or {}
-        from .hotkeys import HotkeyPoller
-        self.hotkeys = HotkeyPoller(hk.get("translate", "Ctrl+Shift+T"), hk.get("dictate", "Ctrl+Win"),
-                                    hk.get("chat", "Ctrl+Shift+Space"), hk.get("convert", "Ctrl+Shift+Q"),
-                                    hk.get("answer", "Ctrl+Shift+1"))
+        from .hotkeys import HotkeyPoller, resolve
+        self.hotkeys = HotkeyPoller(resolve(hk))
+        self.hotkeys.fired.connect(self.on_hotkey)
         # волна 3: конвертер файлов (круговое меню)
         from .convertui import ConvertUI
         self.convert = ConvertUI(self)
-        self.hotkeys.convert.connect(self.convert.from_hotkey)
-        self.hotkeys.answer.connect(lambda: self.live.ask_answer())
         # волна 4: субтитры урока с переводом
         from .live.controller import LiveController
         self.live = LiveController(self)
@@ -223,8 +220,6 @@ class CapriApp:
         self._backup_timer = QTimer(interval=3_600_000, timeout=self._backup_auto)
         self._backup_timer.start()
         QTimer.singleShot(60_000, self._backup_auto)
-        self.hotkeys.chat.connect(self.open_or_hide_chat)
-        self.hotkeys.translate.connect(self.text.translate_selection)
         self.hotkeys.dictate.connect(self.text.dictate)
         self.hotkeys.dictate_cancel.connect(self.text.dictate_cancel)
         if hk.get("enabled", True):
@@ -541,11 +536,14 @@ class CapriApp:
         tm.addAction("📄 Скопировать текст с экрана", lambda: self.on_message("скопируй текст с экрана"))
         tm.addAction("🔳 QR-код из ссылки в буфере", lambda: self.on_message("сделай qr-код"))
         tm.addAction("🔄 Конвертер (скопированные файлы)", self.convert.from_clipboard)
-        hk = self.cfg.get("hotkeys") or {}
+        from .hotkeys import resolve
+        keys = resolve(self.cfg.get("hotkeys"))
         tm.addSeparator()
-        tm.addAction(f"Перевод выделенного: {hk.get('translate', 'Ctrl+Shift+T')}").setEnabled(False)
-        tm.addAction(f"Диктовка: держи {hk.get('dictate', 'Ctrl+Win')}").setEnabled(False)
-        tm.addAction(f"Конвертер: выдели файлы → {hk.get('convert', 'Ctrl+Shift+Q')}").setEnabled(False)
+        for aid, what in (("translate", "Перевод выделенного"), ("explain", "Объяснить выделенное"),
+                          ("clipboard", "Что в буфере"), ("convert", "Конвертер")):
+            tm.addAction(f"{what}: {keys.get(aid) or 'не назначено'}").setEnabled(False)
+        tm.addAction(f"Диктовка: держи {keys.get('dictate') or 'не назначено'}").setEnabled(False)
+        menu.addAction("⌨ Горячие клавиши…", self.open_hotkeys)
         sm = menu.addMenu(t("skin", L))
         lg = QActionGroup(sm)
         for code, label in (("glow", "✨ Свечение по краю экрана (без персонажа)"), ("capri", "🧍 Капри на экране")):
@@ -833,6 +831,49 @@ class CapriApp:
             acts.append(("📜 Команда", lambda: pop.show_text(f"{title}: PowerShell", f"```powershell\n{command}\n```",
                                                              copy_text=command)))
         pop.show_text(title, text, acts)
+
+    # ------------------------------------------------------------------ горячие клавиши
+    def on_hotkey(self, aid: str):
+        """Сочетание из таблицы (hotkeys.ACTIONS) → действие. Всё — в главном потоке."""
+        t = self.text
+        go = {
+            "chat": self.open_or_hide_chat,
+            "translate": t.translate_selection,
+            "explain": t.explain_selection,
+            "clipboard": t.explain_clipboard,
+            "screen": lambda: t.screen_text(translate=True),
+            "hint": lambda: self.on_message("подскажи ответ"),
+            "answer": self.live.ask_answer,
+            "phrases": self.live.phrases_menu,
+            "subtitles": lambda: self.chat.add_system(self.live.stop() if self.live.running else self.live.start()),
+            "mentor": self._ask_mentor,
+            "convert": self.convert.from_hotkey,
+        }.get(aid)
+        if go is not None:
+            go()
+
+    def _ask_mentor(self):
+        self.chat.show()
+        self.chat.raise_()
+        self.chat.activateWindow()
+        self.chat._quick_pick("наставник: ")
+
+    def open_hotkeys(self):
+        from .hotkeys import resolve
+        from .ui.hotkeys_dialog import HotkeysDialog
+        dlg = HotkeysDialog(resolve(self.cfg.get("hotkeys")))
+        dlg.saved.connect(self.save_hotkeys)
+        self.hotkeys.paused = True
+        try:
+            dlg.exec()
+        finally:
+            self.hotkeys.paused = False
+
+    def save_hotkeys(self, keys: dict):
+        self.cfg.setdefault("hotkeys", {}).update(keys, v=2)
+        self._save_cfg({("hotkeys", "v"): 2, **{("hotkeys", k): v for k, v in keys.items()}})
+        self.hotkeys.set_keys(keys)
+        self.chat.add_system("⌨ Горячие клавиши сохранила — уже работают.")
 
     def run_mentor(self, p: dict):
         """Наставник (mentor.py): локальная модель + твои файлы (+ интернет по теме). Долго — в фоне."""
@@ -1423,7 +1464,7 @@ class CapriApp:
             self.avatar.hide()
             self.glow.set_status(getattr(self, "state", "ONLINE"))
             self.chat.add_system("✨ Вид: свечение по краю экрана. Капри видно, только когда она слушает, думает или "
-                                 "отвечает. Чат — значок в трее или Ctrl+Shift+Space.")
+                                 "отвечает. Чат — значок в трее или Win+Alt+O.")
         else:
             self.glow.set_status("ONLINE")
             self.show_avatar()
@@ -1676,6 +1717,9 @@ class CapriApp:
             msg = self.live.handle(act.params)
             if msg:
                 self.chat.add_system(msg)
+            return
+        if act.kind == "hotkeys":
+            self.open_hotkeys()
             return
         if act.kind == "mentor":
             self.run_mentor(act.params)

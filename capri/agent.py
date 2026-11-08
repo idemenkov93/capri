@@ -722,6 +722,9 @@ class Agent:
             return Reply(say, [A.Action(kind, say, params, needs_confirm=False)], "rules")
         lang = next((code for code, rx in (("de", r"немецк|deutsch"), ("en", r"английск|english"), ("he", r"иврит"),
                                            ("ru", r"русск")) if re.search(rf"\bна\s+(?:{rx})", t)), "")
+        if re.fullmatch(r"(?:настрой\w*\s+|покажи\s+|открой\s+|поменяй\s+|измени\s+)?(?:горяч\w+\s+клавиш\w*|хоткеи?|"
+                        r"хоткейс\w*|hotkeys?|сочетани\w+\s+клавиш)(?:\s+капри)?", t):
+            return act("hotkeys", "Открываю таблицу горячих клавиш.")
         if re.search(r"^переведи\s+(?:то,?\s+что\s+в\s+)?буфер\w*", t):
             return act("clip_translate", "Перевожу буфер.", lang=lang)
         if re.search(r"^(?:что|че|чё)\s+(?:у\s+меня\s+)?в\s+буфере|^объясни\s+(?:что\s+в\s+)?буфер\w*|"

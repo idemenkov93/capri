@@ -1,4 +1,4 @@
-"""Конвертер на экране: Ctrl+Shift+Q → выделенные файлы → круговое меню → работа в фоне с прогрессом → «Готово».
+"""Конвертер на экране: Win+Alt+V → выделенные файлы → круговое меню → работа в фоне с прогрессом → «Готово».
 
 Выделенные файлы берём из окна Проводника (Shell.Application), а если не вышло (рабочий стол, вкладки Windows 11,
 другие программы) — через Ctrl+C и буфер; буфер потом возвращаем как был.
@@ -99,7 +99,7 @@ class ConvertUI(QObject):
         files = [u.toLocalFile() for u in md.urls() if u.isLocalFile()] if md.hasUrls() else []
         if files:
             return self.open_for(files)
-        self.popup.show_text("Конвертер", "Выдели файлы в Проводнике и нажми **Ctrl+Shift+Q** — или скопируй их (Ctrl+C) "
+        self.popup.show_text("Конвертер", "Выдели файлы в Проводнике и нажми **Win+Alt+V** — или скопируй их (Ctrl+C) "
                              "и скажи «конвертер».", copy=False)
 
     def _grab_by_copy(self):
@@ -120,7 +120,7 @@ class ConvertUI(QObject):
                 self.open_for(files)
             else:
                 self.popup.show_text("Конвертер", "Не вижу выделенных файлов. Выдели их в Проводнике или на рабочем "
-                                     "столе и нажми **Ctrl+Shift+Q** ещё раз.", copy=False)
+                                     "столе и нажми **Win+Alt+V** ещё раз.", copy=False)
 
         def press(wait=[0]):  # noqa: B006
             try:

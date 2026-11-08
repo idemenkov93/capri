@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 import time
 from pathlib import Path
 
@@ -53,6 +54,12 @@ def pdf_text(path: str, limit: int = 12000) -> str:
         return "\n".join(out).strip()[:limit]
     except Exception:  # noqa: BLE001
         return ""
+
+
+def is_word(text: str) -> bool:
+    """Слово / короткий термин (до 3 слов, одна строка) — объясняем как слово, а не как текст."""
+    t = text.strip()
+    return bool(t) and "\n" not in t and len(t) <= 60 and len(t.split()) <= 3
 
 
 class TextOps(QObject):
@@ -216,11 +223,12 @@ class TextOps(QObject):
             return
         self.translate(text, target)
 
-    def translate_selection(self):
-        """Горячая клавиша: копируем выделенное (Ctrl+C), переводим, буфер возвращаем как было."""
+    def grab_selection(self, then):
+        """Копируем выделенное (Ctrl+C) и возвращаем буфер как было. then(выделенное или '', что было в буфере)."""
         from . import control
         cb = QGuiApplication.clipboard()
         self._clip_saved = cb.text()
+        saved = self._clip_saved or ""
         marker = f"⁣capri{time.time()}"
         cb.setText(marker)
 
@@ -232,14 +240,11 @@ class TextOps(QObject):
                 return
             if self._clip_saved is not None:
                 cb.setText(self._clip_saved)
-            if not text or text == marker:
-                self.popup.show_text("Перевод", "Выдели текст мышкой и нажми сочетание ещё раз.", copy=False)
-                return
-            self.translate(text.strip())
+            then("" if not text or text == marker else text.strip(), saved.strip())
 
         def press(wait=[0]):  # noqa: B006
             try:
-                if control.keys_held() and wait[0] < 30:      # ещё держишь Ctrl+Shift — ждём (до 1,5 с)
+                if control.keys_held() and wait[0] < 30:      # ещё держишь Win+Alt — ждём (до 1,5 с)
                     wait[0] += 1
                     QTimer.singleShot(50, press)
                     return
@@ -248,6 +253,55 @@ class TextOps(QObject):
                 pass
             QTimer.singleShot(120, grab)
         QTimer.singleShot(60, press)
+
+    def translate_selection(self):
+        """Горячая клавиша: переводим выделенное; ничего не выделено — то, что в буфере."""
+        def go(sel: str, clip: str):
+            text = sel or clip
+            if not text:
+                self.popup.show_text("Перевод", "Выдели текст мышкой (или скопируй его) и нажми сочетание ещё раз.",
+                                     copy=False)
+                return
+            self.translate(text)
+        self.grab_selection(go)
+
+    def explain_selection(self):
+        """Горячая клавиша «объяснить»: слово / термин — перевод и смысл (из бестиария — сразу), текст — объяснение.
+        Ничего не выделено — что в буфере (там может быть и скриншот, и файл)."""
+        def go(sel: str, clip: str):
+            if not sel:
+                return self.explain_clipboard()
+            self.explain_word(sel) if is_word(sel) else self.explain_text(sel)
+        self.grab_selection(go)
+
+    def explain_word(self, word: str):
+        from .live import glossary
+        w = word.strip(" .,;:!?«»\"'()")
+        try:
+            hits = glossary.find(w, limit=3)
+            low = re.sub(r"^(?:der|die|das)\s+", "", w.lower())
+            exact = [e for e in hits if low in [v.lower() for v in glossary.variants(e["de"])] + [e["de"].lower()]]
+        except Exception:  # noqa: BLE001
+            exact = []
+        if exact:
+            text = "\n\n".join(glossary.line(e) for e in exact) + "\n\n_📖 из словаря курса_"
+            return self.popup.show_text(f"📖 {exact[0]['de']}", text, copy_text=f"{exact[0]['de']} — {exact[0]['ru']}")
+        self.popup.show_busy(f"🔤 {w}", "Смотрю слово…")
+        prompt = (f"Слово или выражение: «{w}». Ответь по-русски коротко, в Markdown:\n"
+                  "**<слово в начальной форме; у немецких существительных — с артиклем>** — <перевод, 1–3 слова>\n"
+                  "<что это значит простыми словами; если это IT-термин — что это в IT>\n"
+                  "_Пример:_ <короткое предложение на языке слова (немецкий — уровень B1)> — <перевод>\n"
+                  "Без вступлений.")
+
+        def show(ans: str):
+            m = re.search(r"\*\*([^*]+)\*\*\s*[—–-]\s*([^\n]+)", ans)
+            acts = []
+            if m:
+                de, ru = m.group(1).strip(), m.group(2).strip()
+                acts.append(("➕ В словарь", lambda: (glossary.add(de, ru, ""),
+                                                     self.popup.status.setText("Добавила в словарь курса."))))
+            self.popup.show_text(f"🔤 {w}", ans, acts)
+        self._ask(prompt, None, show, fast=True)
 
     # ------------------------------------------------------------------ письма
     def explain_letter_on_screen(self):

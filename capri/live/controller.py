@@ -294,7 +294,7 @@ class LiveController(QObject):
         job.start()
 
     def ask_answer(self):
-        """💬 / Ctrl+Shift+1: «что хочешь сказать?» по-русски → фраза для урока крупно на полосе субтитров."""
+        """💬 / Win+Alt+A: «что хочешь сказать?» по-русски → фраза для урока крупно на полосе субтитров."""
         pop = self.app.text.popup
         pop.show_text("💬 Хочу ответить", "Напиши по-русски, что хочешь сказать (или держи Ctrl+Win и скажи) — "
                       "покажу, как сказать по-немецки. Enter — готово.", copy=False, markdown=False)
@@ -458,6 +458,24 @@ class LiveController(QObject):
         self._jobs = [j for j in self._jobs if j.isRunning()] + [job]
         job.start()
         return "Готовлю тебя к уроку — по прошлым конспектам."
+
+    def phrases_menu(self):
+        """Горячая клавиша 🗣: меню фраз у мыши → фраза крупно на субтитрах (субтитры выключены — в окне)."""
+        from PySide6.QtGui import QCursor
+        from PySide6.QtWidgets import QMenu
+        from . import phrases
+        m = QMenu()
+        for title, items in phrases.all_groups():
+            sub = m.addMenu(title)
+            for de, ru in items:
+                sub.addAction(f"{de}  —  {ru}", lambda de=de, ru=ru: self._say_phrase(de, ru))
+        m.exec(QCursor.pos())
+
+    def _say_phrase(self, de: str, ru: str):
+        if self.bar is not None and self.running:
+            self.bar.show_answer(de, ru)
+        else:
+            self.app.text.popup.show_text("🗣 Скажи так", f"## {de}\n\n_{ru}_", copy_text=de)
 
     def show_phrases(self) -> str:
         from . import phrases
