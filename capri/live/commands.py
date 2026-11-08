@@ -25,6 +25,12 @@ RE_SIGNALS = re.compile(r"^(?P<on>включи|выключи)\s+сигналы$
 RE_MIC = re.compile(r"^(?:переводи\s+и\s+меня|переводи\s+мой\s+микрофон)$|^(?P<off>не\s+переводи\s+(?:меня|мой\s+микрофон))$", re.I)
 RE_LAST = re.compile(r"^(?:повтори|напомни|покажи)\s+(?:мне\s+)?прошлый\s+урок$|^что\s+было\s+на\s+прошлом\s+уроке$|"
                      r"^(?:о\s+ч[её]м|про\s+что)\s+был\s+(?:прошлый|последний)\s+урок$", re.I)
+ORD = {"перв": 1, "втор": 2, "трет": 3, "четв": 4, "пят": 5, "шест": 6, "седьм": 7, "восьм": 8}
+RE_RENAME = re.compile(r"^(?:(?:это\s+)?(?:спикер|говорящ\w*|голос)\s*(?:номер\s*)?(?P<n>\d+)|"
+                       r"(?P<ord>перв|втор|трет|четв|пят|шест|седьм|восьм)\w*\s+(?:спикер|говорящ\w*|голос))"
+                       r"(?:\s*(?:[—–:-]|это|зовут)\s*)+(?:тоже\s+)?(?P<name>[^.?!]{2,40})$", re.I)
+RE_WHO = re.compile(r"^кто\s+(?:сейчас\s+)?(?:говорит|это\s+говорит|говорил)$", re.I)
+RE_FORGET_VOICE = re.compile(r"^забудь\s+голос\s+(?P<name>.{2,40})$", re.I)
 RE_SEARCH = re.compile(r"^(?:что\s+мы\s+проходили\s+(?:по|про)|когда\s+мы\s+проходили|найди\s+в\s+уроках|"
                        r"что\s+говорили\s+на\s+уроке\s+про)\s+(?P<t>.{2,60})$", re.I)
 
@@ -61,6 +67,13 @@ def route(text: str):
         return act("Готово.", do="signals", on=m.group("on").lower().startswith("вк"))
     if m := RE_MIC.match(t):
         return act("Готово.", do="mic", on=not m.group("off"))
+    if m := RE_RENAME.match(t):
+        ref = m.group("n") or str(next(v for k, v in ORD.items() if m.group("ord").lower().startswith(k)))
+        return act("Запоминаю.", do="rename", ref=ref, name=m.group("name").strip(" «»\"'"))
+    if RE_WHO.match(t):
+        return act("Смотрю.", do="who")
+    if m := RE_FORGET_VOICE.match(t):
+        return act("Забываю.", do="forget_voice", name=m.group("name").strip(" «»\"'"))
     if RE_LAST.match(t):
         return act("Открываю прошлый урок.", do="last")
     if m := RE_SEARCH.match(t):

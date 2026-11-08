@@ -5,3 +5,4 @@ numpy>=1.26
 edge-tts>=7.0
 vosk>=0.3.45
 soundcard>=0.4.4   # субтитры: звук компьютера (WASAPI loopback) — Teams, Zoom, YouTube
+kaldi-native-fbank>=1.20   # субтитры: кто говорит — признаки голоса для модели WeSpeaker (~1 МБ)

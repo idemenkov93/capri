@@ -13,6 +13,8 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QSizeGrip, QTex
 
 FLAG = {"de": "🇩🇪", "en": "🇬🇧", "ru": "🇷🇺", "he": "🇮🇱", "uk": "🇺🇦"}
 WHO = {"system": "", "mic": "Ты: "}
+# цвет имени по номеру голоса — одинаковый у одного человека весь урок
+SPK_COLORS = ("#3ff3ff", "#b48cff", "#7dff9b", "#ffa36b", "#6bb6ff", "#ff8ad8", "#e0ff6b", "#ffd0a0")
 
 BTN = """QPushButton { border: 1px solid #1d3550; color: #9fb3cf; background: rgba(11,18,34,220); padding: 1px 7px;
 font-size: 11px; border-radius: 3px; } QPushButton:hover { border-color: #3ff3ff; color: #3ff3ff; }"""
@@ -23,6 +25,7 @@ class SubtitleBar(QWidget):
     pause_toggled = Signal(bool)
     notes_clicked = Signal()
     geometry_saved = Signal(list)          # [x, y, w, h, шрифт]
+    rename_requested = Signal(int)         # клик по имени в записи урока — «как зовут спикера N?»
 
     SHOW = 3                               # сколько последних фраз на экране
 
@@ -34,6 +37,7 @@ class SubtitleBar(QWidget):
         self.font_size = font_size
         self.entries: dict[int, dict] = {}
         self.order: list[int] = []
+        self.names: dict[int, str] = {}        # номер голоса → имя («Спикер 2», «Herr Müller»)
         self.partial = ("", "")
         self.status = ""
         self.paused = False
@@ -88,8 +92,11 @@ class SubtitleBar(QWidget):
         self.setGeometry(scr.left() + (scr.width() - w) // 2, scr.bottom() - h - 24, w, h)
 
     # ------------------------------------------------------------------ данные
-    def add_line(self, id_: int, source: str, text: str, lang: str = "", trigger: str = ""):
-        self.entries[id_] = {"source": source, "text": text, "lang": lang, "tr": None, "trigger": trigger}
+    def add_line(self, id_: int, source: str, text: str, lang: str = "", trigger: str = "", spk: int = 0,
+                 speaker: str = ""):
+        self.entries[id_] = {"source": source, "text": text, "lang": lang, "tr": None, "trigger": trigger, "spk": spk}
+        if spk and speaker:
+            self.names.setdefault(spk, speaker)
         self.order.append(id_)
         if self.history is not None:
             self._append_history(id_)
@@ -136,7 +143,7 @@ class SubtitleBar(QWidget):
             col = "#ffd23f" if e["trigger"] else ("#ff7ab0" if mine else "#9fb3cf")
             flag = FLAG.get(e["lang"], "")
             bell = f" 🔔 <b>{html.escape(e['trigger'])}</b>" if e["trigger"] else ""
-            parts.append(f'<div style="color:{col}; font-size:{small}px; margin-top:6px;">{flag} {WHO.get(e["source"], "")}'
+            parts.append(f'<div style="color:{col}; font-size:{small}px; margin-top:6px;">{flag} {self._who(e)}'
                          f'{html.escape(e["text"])}{bell}</div>')
             if e["tr"] is None and not mine:
                 parts.append(f'<div style="color:#5b6b85; font-size:{fs}px;">…</div>')
@@ -152,6 +159,24 @@ class SubtitleBar(QWidget):
             parts.append(f'<div style="color:#5b6b85; font-size:{small}px;">{html.escape(msg)}</div>')
         self.text.setText("".join(parts))
         self.update()
+
+    def _who(self, e: dict, link: bool = False) -> str:
+        if e["source"] == "mic":
+            return '<b style="color:#ff7ab0">Ты:</b> '
+        name = self.names.get(e.get("spk", 0))
+        if not name:
+            return ""
+        col = SPK_COLORS[(e["spk"] - 1) % len(SPK_COLORS)]
+        label = html.escape(name)
+        if link:
+            label = f'<a href="spk:{e["spk"]}" style="color:{col}; text-decoration:none">{label}</a>'
+        return f'<b style="color:{col}">{label}:</b> '
+
+    def rename_speakers(self, names: dict[int, str]):
+        """После «спикер 2 — это Herr Müller»: новые имена (и слитые голоса) — на экране и в записи."""
+        self.names.update(names)
+        self.render()
+        self._fill_history()
 
     def _flash_step(self):
         self.flash -= 1
@@ -207,6 +232,10 @@ class SubtitleBar(QWidget):
             self.history = QTextBrowser()
             self.history.setWindowTitle("Capri — запись урока")
             self.history.setStyleSheet("QTextBrowser { background:#0b1222; color:#eef6ff; font-size:13px; padding:8px; }")
+            self.history.setOpenLinks(False)
+            self.history.anchorClicked.connect(lambda url: url.scheme() == "spk" and
+                                               self.rename_requested.emit(int(url.path() or 0)))
+            self.history.setToolTip("Нажми на имя говорящего, чтобы назвать его (голос запомню)")
             self.history.resize(640, 720)
         self._fill_history()
         self.history.show()
@@ -214,10 +243,10 @@ class SubtitleBar(QWidget):
 
     def _entry_html(self, id_: int) -> str:
         e = self.entries[id_]
-        who = "Ты" if e["source"] == "mic" else "Они"
         col = "#ffd23f" if e["trigger"] else ("#ff7ab0" if e["source"] == "mic" else "#9fb3cf")
+        who = self._who(e, link=True) or "<b>Они:</b> "
         tr = f'<br><span style="color:#ffffff">{html.escape(e["tr"])}</span>' if e["tr"] else ""
-        return f'<p><span style="color:{col}"><b>{who}:</b> {html.escape(e["text"])}</span>{tr}</p>'
+        return f'<p>{who}<span style="color:{col}">{html.escape(e["text"])}</span>{tr}</p>'
 
     def _fill_history(self):
         if self.history is None:
@@ -232,5 +261,5 @@ class SubtitleBar(QWidget):
         self._fill_history()
 
     def clear(self):
-        self.entries, self.order, self.partial = {}, [], ("", "")
+        self.entries, self.order, self.partial, self.names = {}, [], ("", ""), {}
         self.render()

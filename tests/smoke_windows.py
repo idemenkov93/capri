@@ -39,6 +39,10 @@ try:
     print("admin.ping:", admin.ping("github.com", 2))
 except Exception as e:  # noqa: BLE001
     print("admin misc: FAIL", e)
+import kaldi_native_fbank  # noqa: E402,F401
+from capri.live.speakers import fbank  # noqa: E402
+import numpy as _np  # noqa: E402
+print("fbank:", fbank(_np.random.default_rng(0).standard_normal(16000).astype("float32") * 0.1).shape)
 # волна 4: звук компьютера для субтитров (WASAPI loopback) — на CI звуковой карты может не быть
 try:
     import soundcard as sc

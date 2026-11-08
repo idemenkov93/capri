@@ -53,6 +53,8 @@ class LiveController(QObject):
         self.folder: Path | None = None
         self._model = None
         self._model_name = ""
+        self.speakers = None                  # кто говорит — в текущем (или последнем) уроке
+        self._embedder = None
         self._jobs = []
         self.sig_line.connect(self._on_line)
         self.sig_tr.connect(lambda i, t: self.bar and self.bar.set_translation(i, t))
@@ -130,13 +132,18 @@ class LiveController(QObject):
             self.bar.notes_clicked.connect(lambda: self.stop(ask_notes=False, make=True))
             self.bar.pause_toggled.connect(lambda on: self.session and self.session.set_paused(on))
             self.bar.geometry_saved.connect(lambda g: self.set_pref(geometry=g))
+            self.bar.rename_requested.connect(self.ask_name)
         self.bar.clear()
         if p.get("geometry"):
             self.bar.place(p["geometry"])
+        from ..config import expand
+        from .speakers import Speakers
+        self.speakers = Speakers(voices_file=expand("data/voices.json")) if p.get("speakers", True) else None
         self.session = LiveSession(
             self._model_getter, s, on_line=self.sig_line.emit, on_translation=self.sig_tr.emit,
             on_partial=self.sig_partial.emit, on_trigger=self.sig_trigger.emit, on_status=self.sig_status.emit,
-            translator=tr, gpu=gpu_available(), capture_factory=Capture)
+            translator=tr, gpu=gpu_available(), capture_factory=Capture, speakers=self.speakers,
+            embedder_getter=self._embedder_getter)
         self.started = dt.datetime.now()
         self.folder = None
         self.session.start()
@@ -157,6 +164,9 @@ class LiveController(QObject):
         if self.bar:
             self.bar.hide()
         lines = sess.lines
+        if self.speakers is not None:
+            self._refresh_names(lines)
+            self.speakers.remember_session()
         if len(lines) < 3:
             return "Выключила субтитры."
         self.folder = N.save_session(lines, self.started or dt.datetime.now())
@@ -171,10 +181,60 @@ class LiveController(QObject):
                           copy=False, markdown=False)
         return f"Выключила субтитры. Записала {len(lines)} фраз — транскрипт в «Документы\\Capri\\Уроки»."
 
+    # ------------------------------------------------------------------ кто говорит
+    def _embedder_getter(self):
+        if self._embedder is None:
+            from ..config import expand
+            from .speakers import Embedder, download
+            v = self.app.cfg.get("voice", {})
+            self._embedder = Embedder(download(expand(v.get("models_dir", "data/models")), self.sig_status.emit))
+            self.sig_status.emit("")
+        return self._embedder
+
+    def _refresh_names(self, lines):
+        for ln in lines:
+            if ln.spk and self.speakers is not None and (sp := self.speakers.resolve(ln.spk)) is not None:
+                ln.spk, ln.speaker = sp.id, sp.name
+
+    def rename(self, ref: str, name: str) -> str:
+        if self.speakers is None or not self.speakers.speakers:
+            return "Пока не знаю ни одного голоса — включи субтитры на уроке."
+        sp = self.speakers.rename(ref, name)
+        if sp is None:
+            have = ", ".join(s.name for s in self.speakers.speakers)
+            return f"Не нашла «{ref}». Сейчас говорят: {have}."
+        names = {sid: sp.name for sid in [sp.id] + [k for k, v in self.speakers.alias.items() if v == sp.id]}
+        if self.bar:
+            self.bar.rename_speakers(names)
+        lines = self.session.lines if self.session else getattr(self, "_last_lines", None)
+        if lines:
+            self._refresh_names(lines)
+            if self.session is None and self.folder is not None and (self.folder / "транскрипт.md").exists():
+                (self.folder / "транскрипт.md").write_text(N.transcript_md(lines, self.started or dt.datetime.now()),
+                                                         encoding="utf-8")
+        return f"Запомнила голос: {sp.name}. В следующий раз узнаю сама."
+
+    def ask_name(self, sid: int):
+        from PySide6.QtWidgets import QInputDialog
+        sp = self.speakers.resolve(sid) if self.speakers else None
+        if sp is None:
+            return
+        name, ok = QInputDialog.getText(None, "Кто это говорит?", f"Имя для «{sp.name}» (голос запомню):", text=
+                                        "" if sp.name.startswith("Спикер") else sp.name)
+        if ok and name.strip():
+            self.app.chat.add_system(self.rename(str(sp.id), name.strip()))
+
+    def who_speaks(self) -> str:
+        if self.speakers is None or self.speakers.last is None:
+            return "Пока никого не слышала."
+        others = [s for s in self.speakers.speakers if s is not self.speakers.last]
+        tail = (" Ещё: " + ", ".join(f"{s.name} ({s.count})" for s in others[:5]) + ".") if others else ""
+        return f"Сейчас говорит {self.speakers.last.name}.{tail}"
+
     # ------------------------------------------------------------------ события
     def _on_line(self, line):
         if self.bar:
-            self.bar.add_line(line.id, line.source, line.text, line.lang, line.trigger)
+            self.bar.add_line(line.id, line.source, line.text, line.lang, line.trigger, line.spk, line.speaker)
 
     def _on_trigger(self, line):
         self.play_chime()
@@ -245,6 +305,15 @@ class LiveController(QObject):
         do = p.get("do")
         if do == "start":
             return self.start(p.get("lang"))
+        if do == "rename":
+            return self.rename(p["ref"], p["name"])
+        if do == "who":
+            return self.who_speaks()
+        if do == "forget_voice":
+            from ..config import expand
+            from .speakers import Speakers
+            sp = self.speakers or Speakers(voices_file=expand("data/voices.json"))
+            return f"Забыла голос «{p['name']}»." if sp.forget(p["name"]) else f"Голоса «{p['name']}» я не знаю."
         if do == "stop":
             return self.stop(ask_notes=True)
         if do == "notes":

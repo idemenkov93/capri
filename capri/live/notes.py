@@ -28,10 +28,10 @@ def _ts(sec: float) -> str:
 
 def transcript_md(lines, started: dt.datetime) -> str:
     out = [f"# Транскрипт {started:%d.%m.%Y %H:%M}", "",
-           "_«Они» — звук компьютера (учитель, собеседник), «Ты» — твой микрофон. Звук не сохранялся._", ""]
+           "_«Ты» — твой микрофон, остальные — звук компьютера (имена — по голосу). Звук не сохранялся._", ""]
     for ln in lines:
         mark = f" 🔔 {ln.trigger}" if getattr(ln, "trigger", "") else ""
-        out.append(f"**[{_ts(ln.start)}] {WHO.get(ln.source, ln.source)}:** {ln.text}{mark}")
+        out.append(f"**[{_ts(ln.start)}] {who(ln)}:** {ln.text}{mark}")
         if ln.translation:
             out.append(f"> {ln.translation}")
         out.append("")
@@ -39,7 +39,11 @@ def transcript_md(lines, started: dt.datetime) -> str:
 
 
 def transcript_plain(lines) -> str:
-    return "\n".join(f"[{_ts(ln.start)}] {WHO.get(ln.source, ln.source)}: {ln.text}" for ln in lines)
+    return "\n".join(f"[{_ts(ln.start)}] {who(ln)}: {ln.text}" for ln in lines)
+
+
+def who(ln) -> str:
+    return getattr(ln, "speaker", "") or WHO.get(ln.source, ln.source)
 
 
 def save_session(lines, started: dt.datetime, root: Path | None = None) -> Path:
@@ -55,7 +59,8 @@ def save_session(lines, started: dt.datetime, root: Path | None = None) -> Path:
 
 
 NOTES_PROMPT = """Ниже — транскрипт урока (курс IT-Support / Systemadministration, Германия). Язык урока — {lang}.
-«Они» — учитель и группа, «Ты» — ученик Игорь (немецкий B1). Сделай конспект ПО-РУССКИ, простыми словами.
+Говорящие помечены по голосу («Спикер 1», имена, «Они»); «Ты» — ученик Игорь (немецкий B1).
+Учитель — обычно тот, кто говорит больше всех. Сделай конспект ПО-РУССКИ, простыми словами.
 Строго в таком формате (Markdown), без вступлений:
 
 # <тема урока в 3–7 словах>

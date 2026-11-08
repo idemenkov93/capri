@@ -39,6 +39,8 @@ class Line:
     end: float
     translation: str = ""
     trigger: str = ""        # какое слово сработало
+    spk: int = 0             # номер голоса в этом уроке (0 — неизвестно; ты — всегда 0)
+    speaker: str = ""        # имя: «Ты», «Спикер 2», «Herr Müller»
 
 
 @dataclass
@@ -63,6 +65,30 @@ def trigger_regex(words: list[str]) -> re.Pattern | None:
     return re.compile(r"(?<!\w)(" + "|".join(parts) + r")(?!\w)", re.I)
 
 
+_NAME = r"[A-ZÄÖÜА-ЯЁ][\wäöüßё-]{1,20}"
+_TITLE = r"(?:Herr|Frau|Mr\.?|Mrs\.?|Ms\.?)"
+# «меня зовут / mein Name ist / ich heiße X» — имя; «ich bin X» — только «Herr/Frau X» или имя с фамилией
+# (иначе «ich bin Informatiker» стал бы именем)
+RE_INTRO = re.compile(rf"\b(?i:mein name ist|ich hei(?:ß|ss)e|hier (?:ist|spricht)|my name is|меня зовут)\s+"
+                      rf"(?P<name>(?:{_TITLE}\s+)?{_NAME}(?:\s+{_NAME})?)")
+RE_INTRO2 = re.compile(rf"\b(?i:ich bin|i am|i'm)\s+(?P<name>{_TITLE}\s+{_NAME}|{_NAME}\s+{_NAME})")
+NOT_NAMES = {"Ihnen", "Sie", "Ich", "Hier", "Der", "Die", "Das", "Lehrer", "Lehrerin", "Student", "Studentin", "Teil",
+             "Fertig", "Gleich", "Gut", "Okay", "Ok", "Not", "Sure", "Sorry", "Ready", "Back", "Here", "Da", "Dran", "Neu"}
+
+
+def intro_name(text: str) -> str:
+    """«Hallo, ich bin Herr Müller» → «Herr Müller». Только с заглавной буквы и не служебные слова."""
+    m = RE_INTRO.search(text) or RE_INTRO2.search(text)
+    if not m:
+        return ""
+    words = m.group("name").split()
+    if words[0].rstrip(".") in ("Herr", "Frau", "Mr", "Mrs", "Ms"):
+        words = words[:2]
+    if any(w in NOT_NAMES for w in words):
+        return ""
+    return " ".join(words)
+
+
 def is_echo(chunk: Chunk, system_spans: list[tuple[float, float]]) -> bool:
     """Фраза с микрофона, когда в это же время говорили в колонках — скорее эхо колонок (без наушников)."""
     dur = max(1e-3, chunk.end - chunk.start)
@@ -83,12 +109,14 @@ class LiveSession:
                  on_partial: Callable[[str, str], None] = lambda s, t: None,
                  on_trigger: Callable[[Line], None] = lambda line: None,
                  on_status: Callable[[str], None] = lambda s: None,
-                 translator=None, gpu: bool = False, capture_factory=None):
+                 translator=None, gpu: bool = False, capture_factory=None, speakers=None, embedder_getter=None):
         self.model_getter, self.s = model_getter, settings
         self.on_line, self.on_translation, self.on_partial = on_line, on_translation, on_partial
         self.on_trigger, self.on_status = on_trigger, on_status
         self.translator, self.gpu = translator, gpu
         self.capture_factory = capture_factory
+        self.speakers, self.embedder_getter = speakers, embedder_getter    # кто говорит (speakers.py)
+        self._embedder = None
         self.lines: list[Line] = []
         self.audio_q: queue.Queue = queue.Queue(maxsize=2000)
         self.chunk_q: queue.Queue = queue.Queue()
@@ -200,6 +228,15 @@ class LiveSession:
                 continue
             self._id += 1
             line = Line(self._id, ch.source, text, lang, ch.start, ch.end)
+            if ch.source == "mic":
+                line.speaker = "Ты"
+            elif self.speakers is not None:
+                sp = self.speakers.assign(self._embed(ch.audio))
+                if sp is not None:
+                    if not sp.known and (nm := intro_name(text)) and nm not in {s.name for s in self.speakers.speakers}:
+                        sp.name = nm                    # представился — так и зовём (голос запомним, если подтвердишь)
+                        self.on_status(f"Похоже, {nm} — это голос {sp.id}. Не так — скажи «спикер {sp.id} это …».")
+                    line.spk, line.speaker = sp.id, sp.name
             if self._rx and ch.source == "system" and (m := self._rx.search(text)):
                 line.trigger = m.group(1)
             self.lines.append(line)
@@ -208,6 +245,21 @@ class LiveSession:
                 self.on_trigger(line)
             if self.s.translate and self.translator is not None and lang != self.s.target:
                 self.tr_q.put(line)
+
+    def _embed(self, audio: np.ndarray):
+        if self.embedder_getter is None:
+            return None
+        if self._embedder is None:
+            try:
+                self._embedder = self.embedder_getter()
+            except Exception as e:  # noqa: BLE001 — нет модели голосов: субтитры работают и без имён
+                self.on_status(f"⚠ голоса: {str(e)[:100]}")
+                self.embedder_getter = None
+                return None
+        try:
+            return self._embedder(audio)
+        except Exception:  # noqa: BLE001
+            return None
 
     def _transcribe(self, model, audio: np.ndarray, fast: bool = False) -> tuple[str, str]:
         lang = None if self.s.language == "auto" else self.s.language
