@@ -58,6 +58,12 @@ DEFAULTS: dict = {
         "when_claude_limit": True,        # лимит Claude кончился — отвечает Gemini
         "timeout": 60,
     },
+    # горячие клавиши в любой программе: перевод выделенного и диктовка (держать)
+    "hotkeys": {
+        "enabled": True,
+        "translate": "Ctrl+Shift+T",
+        "dictate": "Ctrl+Win",
+    },
     "games": {
         "enabled": True,       # игровой помощник: сам замечает игру и не мешает ей
         "strict": ["*"],        # лёгкий режим для всех игр: модели уходят из видеокарты, только простые команды

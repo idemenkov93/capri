@@ -565,6 +565,17 @@ def _hotkey(*vks: int) -> None:
         user32.keybd_event(vk, 0, KEYEVENTF_KEYUP, 0)
 
 
+def press_keys(*vks: int) -> None:
+    """Нажать сочетание (Ctrl+C, Ctrl+V…) в активном окне."""
+    _hotkey(*vks)
+
+
+def keys_held() -> bool:
+    """Зажата ли сейчас Ctrl/Shift/Alt/Win — пока зажаты, своё Ctrl+C не шлём (получится Ctrl+Shift+C)."""
+    get = user32.GetAsyncKeyState
+    return any(get(v) & 0x8000 for v in (0x10, 0x11, 0x12, 0x5B, 0x5C))
+
+
 def mouse_center() -> None:
     h = target_window()
     r = wintypes.RECT()

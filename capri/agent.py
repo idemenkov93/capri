@@ -659,6 +659,32 @@ class Agent:
                          "rules")
         return None
 
+    def _text_cmd(self, text: str) -> Reply | None:
+        """Волна 2: буфер, перевод, письма, текст с экрана, QR. Результат — в окне у курсора (textui.py)."""
+        t = text.strip(" .!?").lower().replace("ё", "е")
+
+        def act(kind, say, **params):
+            return Reply(say, [A.Action(kind, say, params, needs_confirm=False)], "rules")
+        lang = next((code for code, rx in (("de", r"немецк|deutsch"), ("en", r"английск|english"), ("he", r"иврит"),
+                                           ("ru", r"русск")) if re.search(rf"\bна\s+(?:{rx})", t)), "")
+        if re.search(r"^переведи\s+(?:то,?\s+что\s+в\s+)?буфер\w*", t):
+            return act("clip_translate", "Перевожу буфер.", lang=lang)
+        if re.search(r"^(?:что|че|чё)\s+(?:у\s+меня\s+)?в\s+буфере|^объясни\s+(?:что\s+в\s+)?буфер\w*|"
+                     r"^(?:прочитай|посмотри|глянь)\s+(?:что\s+в\s+)?буфер\w*", t):
+            return act("clip_explain", "Смотрю, что в буфере.")
+        if re.search(r"^(?:скопируй|перепиши|достань|вытащи)\s+(?:весь\s+)?текст\s+(?:с|со|из)\s+(?:экрана|окна|картинки)", t):
+            return act("screen_text", "Читаю текст с экрана.", translate=False)
+        if re.search(r"^переведи\s+(?:(?:то,?\s+)?что|текст|все|всё)?\s*(?:на|с|со)\s+экран\w*", t):
+            return act("screen_text", "Перевожу, что на экране.", translate=True)
+        if re.search(r"^(?:объясни|разбери|переведи)\s+(?:мне\s+)?(?:это\s+)?письмо|^что\s+(?:мне\s+)?пишут|^что\s+за\s+письмо", t):
+            return act("letter_explain", "Читаю письмо на экране.")
+        if m := re.search(r"^(?:ответь|напиши\s+ответ|составь\s+ответ)\s+на\s+(?:это\s+)?(?:письмо|сообщение)[:,]?\s*(?P<what>.*)$",
+                          text.strip(" .!?"), re.I):
+            return act("letter_reply", "Пишу ответ.", instruction=m.group("what").strip())
+        if m := re.search(r"^(?:сделай|создай)\s+qr(?:-код)?|^qr(?:-код)?\s+(?:из|для)\s+(?:ссылки|буфера)|^(?:сделай|создай)\s+кьюар", t):
+            return act("qr_make", "Делаю QR-код из ссылки в буфере.")
+        return None
+
     def _dnd_cmd(self, text: str) -> Reply | None:
         """«не беспокой меня час / до вечера», «можно беспокоить», «начни учёбу на 45 минут»."""
         from . import dnd
@@ -702,6 +728,8 @@ class Agent:
             return at
         if (dn := self._dnd_cmd(text)) is not None:
             return dn
+        if (tx := self._text_cmd(text)) is not None:
+            return tx
         if re.fullmatch(r"(?:какие|сколько)\s+(?:у\s+меня\s+)?(?:экран\w*|монитор\w*)(?:\s+(?:у\s+меня|подключен\w*|есть))?",
                         text.strip(" .!?"), re.I):
             from . import control
@@ -1060,6 +1088,17 @@ class Agent:
             else:
                 raise BrainError("local")
         raise BrainError(errors[-1] if errors else "умный помощник недоступен")
+
+    def ask_text(self, task: str, images: list | None = None) -> str:
+        """Вопрос без истории и характера (перевод, «что в буфере»): помощник из мастера, иначе локальная модель."""
+        try:
+            return self._brain(task, images, persona=False)[0]
+        except BrainError as e:
+            if str(e) != "local":
+                raise RuntimeError(str(e)) from None
+        from .llm.ollama_client import strip_thinking
+        msg = self._text_llm().chat([{"role": "user", "content": task + " /no_think"}], tools=None)
+        return strip_thinking(msg.get("content", ""))
 
     def _text_llm(self):
         """Модель для письменных вопросов: ollama.text_model (например, 14B — для голоса медленно, для текста норм)."""

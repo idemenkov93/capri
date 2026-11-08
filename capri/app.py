@@ -178,6 +178,20 @@ class CapriApp:
         self.warmup = Warmup(self.agent)
         self.warmup.finished.connect(lambda: self.set_status("ONLINE"))
         self.warmup.start()
+        # волна 2: окно у курсора (буфер, перевод, письма) и глобальные горячие клавиши
+        from .textui import TextOps
+        self.text = TextOps(self)
+        hk = self.cfg.get("hotkeys") or {}
+        from .hotkeys import HotkeyPoller
+        self.hotkeys = HotkeyPoller(hk.get("translate", "Ctrl+Shift+T"), hk.get("dictate", "Ctrl+Win"))
+        self.hotkeys.translate.connect(self.text.translate_selection)
+        self.hotkeys.dictate.connect(self.text.dictate)
+        self.hotkeys.dictate_cancel.connect(self.text.dictate_cancel)
+        if hk.get("enabled", True):
+            self.hotkeys.start()
+        # напоминания на дату (переживают перезапуск): data/state.json → reminders
+        self._rem_timer = QTimer(interval=30_000, timeout=self._check_reminders)
+        self._rem_timer.start()
         # железо — для меню моделей (быстро, но не в главном потоке)
         self.hw = None
         threading.Thread(target=self._detect_hw, daemon=True).start()
@@ -478,6 +492,16 @@ class CapriApp:
         from .ui import models as models_menu
         models_menu.build(self, menu, t("models", L))
         self._dnd_menu(menu)
+        tm = menu.addMenu("📋 Буфер и экран")
+        tm.addAction("❓ Что в буфере?", lambda: self.on_message("что в буфере"))
+        tm.addAction("🌐 Перевести буфер", lambda: self.on_message("переведи буфер"))
+        tm.addAction("✉ Объяснить письмо на экране", lambda: self.on_message("объясни письмо"))
+        tm.addAction("📄 Скопировать текст с экрана", lambda: self.on_message("скопируй текст с экрана"))
+        tm.addAction("🔳 QR-код из ссылки в буфере", lambda: self.on_message("сделай qr-код"))
+        hk = self.cfg.get("hotkeys") or {}
+        tm.addSeparator()
+        tm.addAction(f"Перевод выделенного: {hk.get('translate', 'Ctrl+Shift+T')}").setEnabled(False)
+        tm.addAction(f"Диктовка: держи {hk.get('dictate', 'Ctrl+Win')}").setEnabled(False)
         sm = menu.addMenu(t("skin", L))
         sg = QActionGroup(sm)
         current_skin = self.prefs.get("skin") or ""
@@ -678,6 +702,47 @@ class CapriApp:
         self.timer_fired("Учёба закончилась! Что выучил? Скажи или напиши — запишу в заметки.", prefix="📚 ")
         if self.voice and self.prefs.get("follow_up", True) and not self.in_game:
             self._listen_after_speech = True              # ответ — без «Привет, Капри»
+
+    # волна 2 -------------------------------------------------------------------
+    def run_text_action(self, act):
+        from PySide6.QtGui import QGuiApplication
+        k, p = act.kind, act.params
+        if k == "clip_explain":
+            self.text.explain_clipboard()
+        elif k == "clip_translate":
+            self.text.translate_clipboard(p.get("lang", ""))
+        elif k == "screen_text":
+            self.text.screen_text(bool(p.get("translate")))
+        elif k == "letter_explain":
+            self.text.explain_letter_on_screen()
+        elif k == "letter_reply":
+            if p.get("instruction"):
+                self.text.reply(p["instruction"])
+            else:
+                self.text.ask_reply()
+        elif k == "qr_make":
+            src = QGuiApplication.clipboard().text().strip()
+            if not src:
+                self.text.popup.show_text("QR-код", "Скопируй ссылку (Ctrl+C) и скажи ещё раз.", copy=False)
+                return
+            path = self.text.make_qr(src)
+            self.text.popup.show_text("QR-код готов — картинка в буфере", f"![qr]({path})\n\n`{src[:120]}`",
+                                      copy=False)
+
+    def add_reminder(self, at: float, text: str):
+        rem = list(self.prefs.get("reminders") or [])
+        rem.append({"at": at, "text": text})
+        self.prefs.set("reminders", rem)
+
+    def _check_reminders(self):
+        now = time.time()
+        rem = list(self.prefs.get("reminders") or [])
+        due = [r for r in rem if r.get("at", 0) <= now]
+        if not due:
+            return
+        self.prefs.set("reminders", [r for r in rem if r.get("at", 0) > now])
+        for r in due:
+            self.timer_fired(r.get("text") or "Напоминание", prefix="⏰ ")
 
     def _detect_hw(self):
         try:
@@ -992,6 +1057,9 @@ class CapriApp:
             self.chat.add_system("Распознаю…")
 
     def on_transcribed(self, text: str, lang: str):
+        if getattr(self, "text", None) and self.text._dictating:
+            self.text.paste(text)                    # диктовка (Ctrl+Win): печатаем туда, где курсор
+            return
         if getattr(self, "_wake_ok", True) is False:
             return                               # ложное «Капри» — не отвечаем
         follow_up, self._follow_up = getattr(self, "_follow_up", False), False
@@ -1154,6 +1222,9 @@ class CapriApp:
         if act.kind == "check_updates":
             self.check_updates()
             return
+        if act.kind in ("clip_explain", "clip_translate", "screen_text", "letter_explain", "letter_reply", "qr_make"):
+            self.run_text_action(act)
+            return
         if act.kind == "dnd":
             from . import dnd
             ch = act.params.get("choice")
@@ -1269,6 +1340,7 @@ class CapriApp:
         self.qt.aboutToQuit.connect(self.stop_wake)
         self.qt.aboutToQuit.connect(self.stop_dancing)
         self.qt.aboutToQuit.connect(self.game.shutdown)
+        self.qt.aboutToQuit.connect(lambda: hasattr(self, "hotkeys") and (self.hotkeys.stop(), self.hotkeys.wait(500)))
         self.qt.aboutToQuit.connect(lambda: hasattr(self, "ducker") and self.ducker.close())
         self._watch_hangs()
         return self.qt.exec()
