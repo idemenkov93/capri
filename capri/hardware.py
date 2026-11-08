@@ -53,6 +53,26 @@ class Hardware:
         g = self.best_gpu
         return g.vram_gb if g else 0.0
 
+    @property
+    def modern_gpu(self) -> bool:
+        """RTX 30/40/50, Radeon RX 7000/9000 — быстрые карты: им можно чуть больше при той же памяти."""
+        g = self.best_gpu
+        n = (g.name if g else "").lower()
+        return bool(re.search(r"rtx\s*[345]0\d\d|rx\s*[79]\d\d\d", n))
+
+    def profile(self) -> tuple[str, str, str]:
+        """(код, название, почему) — Лёгкий / Обычный / Мощный. Понятно для человека, без «средней по умолчанию»."""
+        g, vram = self.best_gpu, self.vram_gb
+        if vram >= 8:
+            return "strong", "Мощный", f"видеокарта {g.name}, {vram:.0f} ГБ — модель целиком в видеокарте, ответы за 1–2 с"
+        if vram >= 4:
+            return "normal", "Обычный", f"видеокарта {g.name}, {vram:.0f} ГБ — модель поменьше, тоже в видеокарте"
+        if self.ram_gb >= 16 and self.cores >= 8:
+            return "normal", "Обычный", (f"видеокарты для модели нет, но процессор ({self.cores} потоков) и "
+                                         f"{self.ram_gb:.0f} ГБ памяти потянут небольшую модель")
+        return "light", "Лёгкий", ("слабое железо для локальной модели — сложное лучше отдавать Gemini (бесплатно) "
+                                   "или Claude, а дома — быстрые команды")
+
     def summary(self) -> str:
         gpu = self.best_gpu
         if gpu:
@@ -173,6 +193,13 @@ class Preset:
     def title(self) -> str:
         return {"fast": "Быстрая", "medium": "Средняя", "smart": "Умная"}[self.level]
 
+    @property
+    def use(self) -> str:
+        """Для чего годится на ЭТОМ компьютере: голос хочет ответ за 1–2 с, тексту можно подумать."""
+        if self.on_gpu:
+            return "голос и текст ✓"
+        return "📝 только текст" if self.fits else "не советую"
+
 
 # Имена в Ollama. Важно: обычные qwen3:4b и qwen3:30b там теперь — «думающие» версии 2507: они не умеют
 # отключать рассуждения (think=false не помогает), и на процессоре минуту «думают» вслух, прежде чем ответить.
@@ -222,6 +249,26 @@ def presets(hw: Hardware) -> list[Preset]:
     pick = gpu_ok[-1] if gpu_ok else (out[1] if out[1].fits else out[0])
     pick.recommended = True
     return out
+
+
+def text_model(hw: Hardware) -> Preset | None:
+    """Модель посильнее для письменных вопросов: может не влезать в видеокарту целиком (часть — в оперативке).
+    None — лучше той, что для голоса, тут не будет."""
+    vram, ram = hw.vram_gb, hw.ram_gb
+    for name in ("qwen3:32b", "qwen3:14b", "qwen3:8b"):
+        dl, need = MODELS[name]
+        if vram >= need:
+            on_gpu = True
+        elif vram >= need * 0.6 and ram >= 16:
+            on_gpu = False                        # часть в оперативке: для текста нормально, для голоса медленно
+        else:
+            continue
+        voice = next((p for p in presets(hw) if p.recommended), None)
+        if voice and voice.model == name:
+            return None
+        note = "целиком в видеокарте" if on_gpu else "часть в оперативке — думает дольше, но умнее"
+        return Preset("smart", name, dl, "small", on_gpu, True, note)
+    return None
 
 
 def ollama_options(p: Preset) -> dict:

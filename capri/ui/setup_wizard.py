@@ -188,16 +188,20 @@ class SetupWizard(QDialog):
         return w
 
     def _page_hardware(self):
-        w, lay = self._page("// ТВОЁ ЖЕЛЕЗО", "Для модели важна память видеокарты, а не её серия. "
-                            "Выбор можно поменять потом: меню → «⚙ Мастер настройки».")
+        w, lay = self._page("// ТВОЁ ЖЕЛЕЗО", "Я посмотрела твоё железо и подобрала модели под него. Для модели важнее "
+                            "всего память видеокарты. Поменять можно потом: меню → «🧠 Модели».")
         self.hw_label = QLabel("Смотрю, что за компьютер…")
+        self.profile_label = QLabel("")
+        self.profile_label.setWordWrap(True)
+        self.profile_label.setStyleSheet("color:#3ff3ff; font-weight:bold;")
         card = QFrame()
         card.setObjectName("card")
         cl = QVBoxLayout(card)
         cl.addWidget(self.hw_label)
         lay.addWidget(card)
+        lay.addWidget(self.profile_label)
         lay.addSpacing(8)
-        lay.addWidget(QLabel("Какой будет Капри в разговоре:"))
+        lay.addWidget(QLabel("Модель для голоса и разговора (★ — подобрана под твой компьютер):"))
         self.group = QButtonGroup(self)
         self.radios: list[QRadioButton] = []
         for i in range(3):
@@ -317,9 +321,12 @@ class SetupWizard(QDialog):
         self.cb_voice = QCheckBox("Голос: «Капри» + распознавание речи (~0.5 ГБ)")
         self.cb_cuda = QCheckBox("Быстрое распознавание речи на видеокарте NVIDIA (~1.3 ГБ)")
         self.cb_claude = QCheckBox()
-        for cb in (self.cb_ollama, self.cb_model, self.cb_voice, self.cb_cuda, self.cb_claude):
+        self.cb_text = QCheckBox()
+        for cb in (self.cb_ollama, self.cb_model, self.cb_text, self.cb_voice, self.cb_cuda, self.cb_claude):
             cb.setChecked(True)
             lay.addWidget(cb)
+        self.cb_text.setChecked(False)          # большая, по желанию
+        self.cb_text.hide()
         hint = QLabel("Claude отвечает на сложные вопросы и смотрит на экран. Нужна подписка Claude Pro или Max — "
                       "после установки откроется окно входа.")
         hint.setObjectName("hint")
@@ -327,7 +334,7 @@ class SetupWizard(QDialog):
         lay.addWidget(hint)
         self.total = QLabel("")
         lay.addWidget(self.total)
-        for cb in (self.cb_model, self.cb_voice, self.cb_cuda):
+        for cb in (self.cb_model, self.cb_text, self.cb_voice, self.cb_cuda):
             cb.toggled.connect(lambda *_: self._refresh_components())
         lay.addStretch(1)
         return w
@@ -358,11 +365,13 @@ class SetupWizard(QDialog):
     def _detected(self, hw: hardware.Hardware):
         self.hw = hw
         self.hw_label.setText(hw.summary())
+        _code, title, why = hw.profile()
+        self.profile_label.setText(f"Профиль: {title} — {why}.")
         self.presets = hardware.presets(hw)
+        self.text_preset = hardware.text_model(hw)
         for r, p in zip(self.radios, self.presets):
-            tag = "  ★ рекомендую" if p.recommended else ""
-            warn = "" if p.fits else "  (не советую)"
-            r.setText(f"{p.title} — {p.model}, ~{p.download_gb:.1f} ГБ · {p.note}{tag}{warn}")
+            tag = "  ★ подобрано" if p.recommended else ""
+            r.setText(f"{p.model} — {p.use} · ~{p.download_gb:.1f} ГБ · {p.note}{tag}")
             r.setEnabled(True)
             r.setChecked(p.recommended)
         self._refresh_components()
@@ -378,7 +387,14 @@ class SetupWizard(QDialog):
         self.cb_ollama.setChecked(True)
         self.cb_ollama.setEnabled(not have_ollama)
         if p:
-            self.cb_model.setText(f"Модель {p.model} (~{p.download_gb:.1f} ГБ)")
+            self.cb_model.setText(f"Модель для голоса {p.model} (~{p.download_gb:.1f} ГБ)")
+        tp = getattr(self, "text_preset", None)
+        if tp and (not p or tp.model != p.model):
+            self.cb_text.setText(f"Модель для текста {tp.model} (~{tp.download_gb:.1f} ГБ) — 📝 умнее в чате, "
+                                 f"{tp.note}. По желанию")
+            self.cb_text.show()
+        else:
+            self.cb_text.hide()
         nvidia = bool(self.hw and self.hw.nvidia)
         self.cb_cuda.setVisible(nvidia and FROZEN)
         have_claude = bool(installer.claude_exe())
@@ -386,6 +402,7 @@ class SetupWizard(QDialog):
         self.cb_claude.setEnabled(not have_claude)
         self.cb_claude.setVisible(self._brain() == "claude")
         gb = (0 if have_ollama else 1.0) + (p.download_gb if p and self.cb_model.isChecked() else 0) \
+            + (tp.download_gb if tp and self.cb_text.isVisibleTo(self) and self.cb_text.isChecked() else 0) \
             + (0.5 if self.cb_voice.isChecked() else 0) + (1.3 if not self.cb_cuda.isHidden() and self.cb_cuda.isChecked() else 0) \
             + (hardware.MODELS.get(self._vision(), (0, 0))[0] if self._vision() else 0)
         self.total.setText(f"Скачается примерно {gb:.1f} ГБ.")
@@ -418,6 +435,10 @@ class SetupWizard(QDialog):
             return
         self._go(i + 1)
 
+    def _text_model(self) -> str:
+        tp = getattr(self, "text_preset", None)
+        return tp.model if tp and not self.cb_text.isHidden() and self.cb_text.isChecked() else ""
+
     def _vision(self) -> str:
         return (hardware.vision_model(self.hw) if self.hw else "qwen3-vl:4b") if self.cb_vision.isChecked() else ""
 
@@ -429,6 +450,8 @@ class SetupWizard(QDialog):
             steps.append(("Ollama", lambda pr: installer.install_ollama(self.url, pr)))
         if self.cb_model.isChecked() and p:
             steps.append((f"Модель {p.model}", lambda pr: installer.pull_model(self.url, p.model, pr)))
+        if (tm := self._text_model()):
+            steps.append((f"Модель для текста {tm}", lambda pr: installer.pull_model(self.url, tm, pr)))
         if self.cb_voice.isChecked():
             steps.append(("Модель для «Капри»", lambda pr: installer.install_vosk(models, pr)))
             steps.append(("Распознавание речи", lambda pr: installer.install_whisper(p.whisper if p else "small", models, pr)))
@@ -453,8 +476,10 @@ class SetupWizard(QDialog):
             except Exception as e:  # noqa: BLE001
                 self.log.addItem(f"✗ Не смогла сохранить ключ Gemini: {e}")
         try:
-            path = save_config(config_values(p, self.name.text().strip(), self.city.text().strip(), claude,
-                                             brain, gem_model, self._vision()))
+            values = config_values(p, self.name.text().strip(), self.city.text().strip(), claude,
+                                   brain, gem_model, self._vision())
+            values[("ollama", "text_model")] = self._text_model()
+            path = save_config(values)
             self.log.addItem(f"✓ Настройки сохранены: {path}")
         except OSError as e:
             self.log.addItem(f"✗ Не смогла сохранить настройки: {e}")

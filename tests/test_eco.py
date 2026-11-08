@@ -73,3 +73,25 @@ def test_app_runs_and_quits(monkeypatch):
     app.warmup.wait(10_000)
     QTimer.singleShot(300, app.qt.quit)
     assert app.run() == 0
+
+
+def test_app_dnd_study_and_menus(monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from capri import dnd
+    app = quiet_app(monkeypatch)
+    monkeypatch.setattr(app.prefs, "path", tmp_path / "state.json")
+    app.warmup.wait(10_000)
+    menu = app.build_menu()                                  # меню с «🔕» и «🧠 Модели» строится без ошибок
+    titles = [a.text() for a in menu.actions()]
+    assert any("Не беспокоить" in x for x in titles) and any("Модели" in x for x in titles)
+    app.set_dnd(dnd.until(30))
+    assert app.dnd_active() and app.avatar.wander is False
+    app.set_dnd(0)
+    assert not app.dnd_active()
+    app.start_study(25)
+    assert app.dnd_active() and app._study_timer.isActive()
+    app.study_done()
+    assert not app.dnd_active() and app.agent.pending["kind"] == "study_note"
+    r = app.agent.handle("настроил DHCP")
+    assert r.actions[0].kind == "note"

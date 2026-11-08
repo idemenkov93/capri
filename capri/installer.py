@@ -222,3 +222,10 @@ def open_claude_login() -> None:
     """Окно терминала с claude — там вход через браузер (нужна подписка Pro/Max)."""
     exe = claude_exe() or "claude"
     subprocess.Popen(["cmd", "/c", "start", "Claude Code", "cmd", "/k", exe], close_fds=True)
+
+
+def delete_model(url: str, name: str) -> None:
+    """ollama rm — освободить место на диске."""
+    r = httpx.request("DELETE", f"{url}/api/delete", json={"model": name}, timeout=30)
+    if r.status_code >= 400:
+        raise RuntimeError(f"Ollama не удалила {name}: {r.text[:120]}")

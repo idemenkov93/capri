@@ -33,7 +33,7 @@ def test_phrases(text, hit):
 def test_default_file_is_created_and_editable(tmp_path, monkeypatch):
     monkeypatch.setattr(scenarios, "path", lambda: tmp_path / "scenarios.yaml")
     data = scenarios.load()
-    assert set(data) == {"игровой", "ночной", "работа"} and (tmp_path / "scenarios.yaml").exists()
+    assert set(data) == {"игровой", "ночной", "работа", "учёба", "поиск работы"} and (tmp_path / "scenarios.yaml").exists()
     own = {"кино": {"phrases": ["режим кино"], "steps": [{"volume": 60}]}}
     (tmp_path / "scenarios.yaml").write_text(yaml.safe_dump(own, allow_unicode=True), encoding="utf-8")
     assert scenarios.match("включи режим кино") == ("кино", True)
@@ -169,7 +169,7 @@ def test_only_one_screen_at_all(monkeypatch):
     switched = _fake_screens(monkeypatch, active=1, connected=1)
     r = scenarios.Runner(lambda n: "A", Sys(), lambda a: None)
     r.run([{"open": "discord", "screen": 2, "place": "left"}])
-    assert switched == [] and "второго экрана нет" in r.notes[0]
+    assert switched == [] and "экран один" in r.notes[0]
     done, failed, *_ = r.run([{"display": "external"}])
     assert switched == [] and "не подключён" in failed[0]
 
@@ -197,7 +197,7 @@ def test_old_example_file_is_upgraded(tmp_path, monkeypatch):
     (tmp_path / "scenarios.yaml").write_text(ns["DEFAULT_TEXT"], encoding="utf-8")
     assert scenarios.load()["ночной"]["steps"][0] == {"display": "external"}
     (tmp_path / "scenarios.yaml").write_text("моё:\n  phrases: [мой режим]\n  steps: []\n", encoding="utf-8")
-    assert list(scenarios.load()) == ["моё"]          # свой файл не трогаем
+    assert list(scenarios.load())[0] == "моё"          # своё не трогаем, новые сценарии версии — дописаны в конец
 
 
 @pytest.mark.parametrize("text,mode", [
@@ -233,3 +233,66 @@ def test_window_that_maximizes_itself_is_put_back(monkeypatch):
     r.watch_async = False
     done, failed, *_ = r.run([{"open": "discord", "screen": 2, "place": "left"}])
     assert placed == [(5, 2, "left"), (5, 2, "left")] and not failed and state["checks"] == 6
+
+
+def test_screen_words_and_layout():
+    from capri import control
+    mons = [(0, 0, 2560, 1400, True), (-1920, 0, 0, 1040, False), (2560, 0, 4480, 1040, False)]
+    assert control.screen_index("main", mons) == 1
+    assert control.screen_index("left", mons) == 2 and control.screen_index("right", mons) == 3
+    assert control.screen_index("other", mons) == 2 and control.screen_index(5, mons) == 3
+    assert control.screen_index("right", mons[:1]) == 1
+    txt = control.layout_text(mons)
+    assert txt.startswith("3 экрана") and "второй 1920×1040 — слева" in txt and "третий 1920×1040 — справа" in txt
+    assert control.layout_text(mons[:1]).startswith("1 экран:")
+
+
+def test_one_screen_split():
+    from capri import scenarios as S
+    steps = S.DEFAULT["учёба"]["steps"]
+    out = S.one_screen(steps)
+    places = [(st.get("open"), st["place"], st["screen"]) for st in out if "open" in st]
+    assert places == [("teams", "left", 1), ("claude", "right", 1)]
+    game = S.one_screen(S.DEFAULT["игровой"]["steps"])
+    assert [st["place"] for st in game if "open" in st] == ["top_right", "bottom_right", "left"]
+
+
+def test_study_and_job_scenarios(monkeypatch):
+    from capri import scenarios as S
+    assert S.match("режим учёбы", S.DEFAULT) == ("учёба", True)
+    assert S.match("урок закончился", S.DEFAULT) == ("учёба", False)
+    assert S.match("поиск работы", S.DEFAULT) == ("поиск работы", True)
+    urls = S.DEFAULT["поиск работы"]["steps"][0]["browser"]
+    assert any("stepstone" in u for u in urls) and any("xing" in u for u in urls) and any("arbeitsagentur" in u for u in urls)
+    r = S.Runner(lambda n: None, None, lambda a: None)
+    r.run([{"dnd": "forever"}, {"say": "ok"}])
+    assert r.dnd == "forever"
+
+
+def test_new_scenarios_appended_once(tmp_path):
+    import yaml
+    from capri import scenarios as S
+    p = tmp_path / "s.yaml"
+    p.write_text("мой:\n  phrases: [мой режим]\n  steps: []\n", encoding="utf-8")
+    S._add_new(p)
+    S._add_new(p)
+    t = p.read_text(encoding="utf-8")
+    assert t.count("# + 1.1") == 1 and set(yaml.safe_load(t)) == {"мой", "учёба", "поиск работы"}
+
+
+def test_scenario_dnd_becomes_action(monkeypatch):
+    import copy
+    from pathlib import Path
+    from capri import scenarios as S
+    from capri.agent import Agent
+    from capri.applist import AppIndex
+    from capri.config import DEFAULTS
+    monkeypatch.setattr(S.Runner, "run", lambda self, steps: (setattr(self, "dnd", "forever"), setattr(self, "notes", []),
+                                                             ([], [], None, "Режим учёбы."))[-1])
+
+    class Sys:
+        def run(self, c):
+            return {}
+    a = Agent(copy.deepcopy(DEFAULTS), llm=object(), claude=lambda t, c: "", system=Sys(), apps=AppIndex(Path("/x")))
+    r = a._scenario("учёба", True, S.DEFAULT)
+    assert any(x.kind == "dnd" and x.params["choice"] == "forever" for x in r.actions)

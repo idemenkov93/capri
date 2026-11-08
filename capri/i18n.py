@@ -51,6 +51,7 @@ TEXTS: dict[str, dict[str, str]] = {
     "upd_none": {"ru": "У тебя последняя версия.", "en": "You have the latest version."},
     "upd_fail": {"ru": "Не получилось проверить обновления (нет интернета?).", "en": "Couldn't check for updates (offline?)."},
     "hide": {"ru": "🙈 Спрятать", "en": "🙈 Hide"},
+    "models": {"ru": "🧠 Модели (голос / текст)", "en": "🧠 Models (voice / text)"},
     "autostart": {"ru": "🚀 Запускать с Windows", "en": "🚀 Start with Windows"},
     "autostart_on": {"ru": "Буду запускаться вместе с Windows.", "en": "I'll start with Windows."},
     "autostart_off": {"ru": "С Windows больше не запускаюсь.", "en": "I won't start with Windows anymore."},

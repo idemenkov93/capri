@@ -26,9 +26,9 @@ class Worker(QThread):
     token = Signal(str, str)
     done = Signal(object)
 
-    def __init__(self, agent: Agent, text: str):
+    def __init__(self, agent: Agent, text: str, typed: bool = False):
         super().__init__()
-        self.agent, self.text = agent, text
+        self.agent, self.text, self.typed = agent, text, typed
         self.stop_requested = False
         self.abandoned = False        # завис и брошен — его ответ уже никому не нужен
         self.started_at = time.monotonic()
@@ -37,7 +37,7 @@ class Worker(QThread):
     def run(self):
         try:
             reply = self.agent.handle(self.text, on_status=self.status.emit, on_token=self.token.emit,
-                                      should_stop=lambda: self.stop_requested)
+                                      should_stop=lambda: self.stop_requested, typed=self.typed)
         except Exception as e:  # чтобы поток никогда не падал молча
             reply = Reply(f"Что-то сломалось: {e}", route="error")
         self.done.emit(reply)
@@ -135,6 +135,9 @@ class CapriApp:
         self.avatar.clicked.connect(self.toggle_chat)
         self.avatar.quit_requested.connect(self.qt.quit)
         self.chat.submitted.connect(self.on_message)
+        self.agent.chat_brain = self.prefs.get("chat_brain", "auto")
+        self.chat.set_brain(self.agent.chat_brain)
+        self.chat.brain_changed.connect(self.set_chat_brain)
         self.chat.stop_requested.connect(self.stop_current)
 
         self.avatar.place_on_ground()
@@ -175,6 +178,9 @@ class CapriApp:
         self.warmup = Warmup(self.agent)
         self.warmup.finished.connect(lambda: self.set_status("ONLINE"))
         self.warmup.start()
+        # железо — для меню моделей (быстро, но не в главном потоке)
+        self.hw = None
+        threading.Thread(target=self._detect_hw, daemon=True).start()
         # расход ресурсов раз в минуту → data/usage.csv («сколько ты ешь ресурсов», отчёт для разработчика)
         from . import usage
         self.usage = usage.Recorder(expand("data/usage.csv"),
@@ -184,7 +190,8 @@ class CapriApp:
         if FROZEN:
             # через минуту после запуска — тихо узнать, нет ли новой версии (строчка в чате, без окон)
             self._upd_check = UpdateCheck()
-            self._upd_check.found.connect(lambda v: self.chat.add_system(t("upd_avail", self.lang).format(v=v)))
+            self._upd_check.found.connect(lambda v: self.dnd_active() or self.chat.add_system(
+                t("upd_avail", self.lang).format(v=v)))
             QTimer.singleShot(60_000, self._upd_check.start)
 
     @staticmethod
@@ -415,8 +422,8 @@ class CapriApp:
             menu.addAction(self._check(menu, t("wake_short", L), self.prefs.get("wake_short", False), self.toggle_wake_short))
             menu.addAction(self._check(menu, t("strict_video", L), self.prefs.get("strict_during_video", False), self.toggle_strict_video))
             menu.addAction(self._check(menu, t("speak_on", L), self.cfg["voice"]["speak"], self.toggle_speak))
-            menu.addAction(self._check(menu, t("speak_typed", L), self.prefs.get("speak_typed", True),
-                                       lambda: self.prefs.set("speak_typed", not self.prefs.get("speak_typed", True))))
+            menu.addAction(self._check(menu, t("speak_typed", L), self.prefs.get("speak_typed", False),
+                                       lambda: self.prefs.set("speak_typed", not self.prefs.get("speak_typed", False))))
             menu.addAction(t("voice_lab", L), self.open_voice_lab)
         am = menu.addMenu(t("attitude", L))
         ag = QActionGroup(am)
@@ -468,6 +475,9 @@ class CapriApp:
         if now != want:
             bm.addSeparator()
             bm.addAction(t("brain_now", L).format(t(f"brain_{now}", L))).setEnabled(False)
+        from .ui import models as models_menu
+        models_menu.build(self, menu, t("models", L))
+        self._dnd_menu(menu)
         sm = menu.addMenu(t("skin", L))
         sg = QActionGroup(sm)
         current_skin = self.prefs.get("skin") or ""
@@ -501,6 +511,76 @@ class CapriApp:
         menu.addAction(t("quit", L), self.qt.quit)
         return menu
 
+    # модели ------------------------------------------------------------------
+    def _save_cfg(self, values: dict):
+        try:
+            from .setup_config import apply
+            from .ui.setup_wizard import config_path
+            path = config_path()
+            if path.exists():
+                path.write_text(apply(path.read_text(encoding="utf-8"), values), encoding="utf-8")
+        except OSError:
+            pass
+
+    def set_model(self, use: str, name: str):
+        """use: voice | text. Модель для голоса — сразу в работе; для текста — со следующего письменного вопроса."""
+        from . import installer
+        o = self.cfg["ollama"]
+        if name and name not in installer.installed_models(o["url"]):
+            self.chat.add_system(f"Сначала скачаю {name} — потом переключусь.")
+            self.pull_model(name, then=(use, name))
+            return
+        if use == "voice":
+            o["model"] = name
+            self.agent.llm.model = name
+            from . import hardware
+            fits = bool(self.hw and name in hardware.MODELS and self.hw.vram_gb >= hardware.MODELS[name][1])
+            opts = getattr(self.agent.llm, "options", None)
+            if isinstance(opts, dict):
+                if fits:
+                    opts["num_gpu"] = 99
+                else:
+                    opts.pop("num_gpu", None)
+            self._save_cfg({("ollama", "model"): name})
+            self.chat.add_system(f"🎙 Для голоса теперь {name}.")
+        else:
+            o["text_model"] = name
+            self.agent._llm_text = None
+            self._save_cfg({("ollama", "text_model"): name})
+            self.chat.add_system(f"📝 Для письменных вопросов теперь {name or 'та же модель, что для голоса'}.")
+
+    def pull_model(self, name: str, then: tuple | None = None):
+        from .ui.models import ModelPull
+        if getattr(self, "_pull", None) and self._pull.isRunning():
+            self.chat.add_system("Уже качаю модель — дождись.")
+            return
+        self.chat.show()
+        self.chat.add_system(f"⬇ Качаю {name}…")
+        self._pull = ModelPull(self.cfg["ollama"]["url"], name)
+        self._pull.progress.connect(self.chat.add_system)
+        self._pull.done.connect(lambda n, err: self.chat.add_system(f"Не скачалась {n}: {err}") if err else (
+            self.chat.add_system(f"✓ {n} скачана."), then and self.set_model(*then)))
+        self._pull.start()
+
+    def delete_model(self, name: str):
+        from . import installer
+        if not self._confirm(f"Удалить модель {name} с диска? Скачать снова можно в меню «🧠 Модели»."):
+            return
+        try:
+            installer.delete_model(self.cfg["ollama"]["url"], name)
+            self.chat.add_system(f"🗑 {name} удалена.")
+        except Exception as e:  # noqa: BLE001
+            self.chat.add_system(str(e))
+
+    def set_chat_brain(self, code: str):
+        """Кто отвечает на письменные вопросы в чате (переключатель над полем ввода)."""
+        self.agent.chat_brain = code
+        self.prefs.set("chat_brain", code)
+        tm = self.cfg["ollama"].get("text_model")
+        self.chat.add_system({"auto": "Отвечаю как обычно: простое — сама, сложное — помощник из мастера.",
+                              "local": "В чате отвечает локальная модель" + (f" ({tm})" if tm else "") + ".",
+                              "gemini": "В чате отвечает Gemini.", "claude": "В чате отвечает Claude."}[code])
+
     def set_brain(self, code: str):
         """Сменить умного помощника сразу, без перезапуска (и записать в config.yaml)."""
         self.cfg.setdefault("brain", {})["provider"] = code
@@ -531,6 +611,80 @@ class CapriApp:
         self.prefs.set("skin", code)
         if self._confirm(t("restart_ask", self.lang)):
             self.restart()
+
+    # 🔕 не беспокоить и учёба -----------------------------------------------------
+    def dnd_active(self) -> bool:
+        from . import dnd
+        return dnd.active(self.prefs.get("dnd_until") or 0)
+
+    def set_dnd(self, until: float):
+        """until — timestamp конца, dnd.FOREVER или 0 (выключить)."""
+        from . import dnd
+        was = self.dnd_active()
+        self.prefs.set("dnd_until", until)
+        if not getattr(self, "_dnd_timer", None):
+            self._dnd_timer = QTimer(interval=30_000, timeout=self._dnd_check)
+        on = self.dnd_active()
+        if on:
+            self._dnd_timer.start()
+            self._wander_before = self.avatar.wander if not was else getattr(self, "_wander_before", self.avatar.wander)
+            self.avatar.wander = False                    # не гуляет по экрану
+            self.avatar.set_dance(0.0)
+            self.tray.setToolTip(f"Capri — 🔕 {dnd.describe(until)}")
+            self.chat.add_system(f"🔕 Не беспокою {dnd.describe(until)}. Таймеры звенят, «Привет, Капри» работает.")
+        else:
+            self._dnd_timer.stop()
+            if was:
+                self.avatar.wander = getattr(self, "_wander_before", self.avatar.wander)
+                self.tray.setToolTip("Capri")
+                self.chat.add_system("🔔 «Не беспокоить» закончилось.")
+
+    def _dnd_check(self):
+        if not self.dnd_active():
+            self.set_dnd(0)
+
+    def _dnd_menu(self, menu: QMenu):
+        from . import dnd
+        L = self.lang
+        on = self.dnd_active()
+        dm = menu.addMenu(("🔕 Не беспокоить — " + dnd.describe(self.prefs.get("dnd_until"))) if on else "🔕 Не беспокоить")
+        for title, choice in dnd.CHOICES:
+            dm.addAction(title, lambda c=choice: self.set_dnd(dnd.until(c)))
+        if on:
+            dm.addSeparator()
+            dm.addAction("🔔 Выключить", lambda: self.set_dnd(0))
+        dm.addSeparator()
+        st = dm.addMenu("📚 Учёба (не беспокою, в конце спрошу, что выучил)")
+        for m in (25, 45, 60, 90):
+            st.addAction(f"{m} минут", lambda m=m: self.start_study(m))
+        del L
+
+    def start_study(self, minutes: float):
+        from . import dnd
+        self.set_dnd(dnd.until(minutes))
+        self._study_minutes = minutes
+        if getattr(self, "_study_timer", None):
+            self._study_timer.stop()
+        self._study_timer = QTimer(singleShot=True, interval=int(minutes * 60_000), timeout=self.study_done)
+        self._study_timer.start()
+
+    def study_done(self):
+        """Учёба закончилась: снять 🔕, спросить «что выучил?» и записать ответ в заметки."""
+        import time as _t
+        minutes = getattr(self, "_study_minutes", 0)
+        self.set_dnd(0)
+        self.agent.pending = {"kind": "study_note", "at": _t.monotonic(), "minutes": f"{minutes:g}",
+                              "no": "Окей, без записи. Отдохни!", "ttl": 600}
+        self.timer_fired("Учёба закончилась! Что выучил? Скажи или напиши — запишу в заметки.", prefix="📚 ")
+        if self.voice and self.prefs.get("follow_up", True) and not self.in_game:
+            self._listen_after_speech = True              # ответ — без «Привет, Капри»
+
+    def _detect_hw(self):
+        try:
+            from . import hardware
+            self.hw = hardware.detect()
+        except Exception:  # noqa: BLE001
+            self.hw = None
 
     def toggle_autostart(self):
         from . import autostart
@@ -742,7 +896,7 @@ class CapriApp:
         self.avatar.dance = 0.0
 
     def _on_music_level(self, level: float):
-        if not self.prefs.get("dance", True):
+        if not self.prefs.get("dance", True) or self.dnd_active():
             level = 0.0
         # пока сама слушает или говорит — не танцует
         busy = getattr(self, "state", "") in ("LISTENING", "RECOGNIZING", "SPEAKING", "THINKING", "CLAUDE")
@@ -894,7 +1048,7 @@ class CapriApp:
                 return
         log.info("запрос: «%s»", _re.sub(r"AIza[\w-]{10,}|AQ\.[\w.-]{10,}", "(ключ скрыт)", text))
         self.chat.set_busy(True)
-        self.worker = Worker(self.agent, text)
+        self.worker = Worker(self.agent, text, typed=not self.last_input_was_voice)
         self.worker.status.connect(self.on_status)
         self.worker.token.connect(self.chat.stream)
         w = self.worker
@@ -942,7 +1096,7 @@ class CapriApp:
         # спросила («На сколько?», «Включить?») — после своей фразы сама слушает ответ, без «Капри»
         self._listen_after_speech = bool(reply.ask and self.voice and self.last_input_was_voice
                                          and self.prefs.get("follow_up", True) and not self.in_game)
-        if self.voice and v["speak"] and (self.last_input_was_voice or self.prefs.get("speak_typed", True)):
+        if self.voice and v["speak"] and (self.last_input_was_voice or self.prefs.get("speak_typed", False)):
             if any(a.kind == "game_defer" for a in reply.actions):
                 self.voice.play_cached("later", reply.text)     # посреди раунда — записанной фразой, без сети
             else:
@@ -999,6 +1153,14 @@ class CapriApp:
             return
         if act.kind == "check_updates":
             self.check_updates()
+            return
+        if act.kind == "dnd":
+            from . import dnd
+            ch = act.params.get("choice")
+            self.set_dnd(dnd.until(ch) if ch else 0)
+            return
+        if act.kind == "study":
+            self.start_study(float(act.params["minutes"]))
             return
         if act.kind == "make_report":
             self.make_report()
@@ -1062,6 +1224,9 @@ class CapriApp:
         from . import control
         every = int(self.prefs.get("break_every") or 0)
         if not every:
+            return
+        if self.dnd_active():
+            self._work_since = _t.monotonic()        # 🔕 — не дёргаем; отсчёт после «не беспокоить»
             return
         now = _t.monotonic()
         if control.idle_seconds() >= self.BREAK_IDLE:

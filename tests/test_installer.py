@@ -286,3 +286,33 @@ def test_latest_picks_public_installer(monkeypatch):
     monkeypatch.setattr(updates.httpx, "get", lambda *a, **k: R())
     assert updates.latest() == {"version": "1.0.2", "url": "u", "asset": "pub", "size": 5}
     assert updates.newer("1.0.2", "1.0.1") and not updates.newer("1.0.1", "1.0.1")
+
+
+def _hw(name, vram, ram=16, cores=8):
+    from capri import hardware
+    return hardware.Hardware(cpu="x", cores=cores, ram_gb=ram, gpus=[hardware.GPU(name, "nvidia", vram)])
+
+
+def test_profiles_are_honest():
+    from capri import hardware
+    for h in (_hw("NVIDIA GeForce GTX 1070", 8), _hw("NVIDIA GeForce RTX 5060", 8)):
+        code, title, why = h.profile()
+        assert code == "strong" and "8 ГБ" in why
+        voice = next(p for p in hardware.presets(h) if p.recommended)
+        assert voice.model == "qwen3:8b" and voice.use == "голос и текст ✓"
+        tm = hardware.text_model(h)
+        assert tm.model == "qwen3:14b" and not tm.on_gpu                   # для текста — 14B, часть в оперативке
+        p14 = next(p for p in hardware.presets(h) if p.model == "qwen3:14b")
+        assert p14.use == "📝 только текст"
+    assert _hw("NVIDIA GeForce RTX 5060", 8).modern_gpu and not _hw("NVIDIA GeForce GTX 1070", 8).modern_gpu
+    laptop = hardware.Hardware(cpu="i5", cores=4, ram_gb=8, gpus=[hardware.GPU("Intel(R) UHD Graphics", "intel")])
+    assert laptop.profile()[0] == "light" and hardware.text_model(laptop) is None
+    assert _hw("NVIDIA GeForce RTX 3050", 6).profile()[0] == "normal"
+
+
+def test_models_menu_labels():
+    from capri.ui import models
+    h = _hw("NVIDIA GeForce GTX 1070", 8)
+    assert "голос и текст ✓" in models.label("qwen3:8b", h)
+    assert "📝 только текст" in models.label("qwen3:14b", h)
+    assert "не потянет" in models.label("qwen3:32b", h)

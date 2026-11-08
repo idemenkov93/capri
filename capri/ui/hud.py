@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from .avatar import STATUS_COLORS, draw_star
+from .chat import BRAIN_CSS, ChatExtras
 from .sprites import SpriteSet
 
 BG = QColor("#070b16")
@@ -302,7 +303,8 @@ class Viewport(QWidget):
             p.fillRect(QRectF(x, r.bottom() - 10 - h, 3, h), col if lvl > 0.02 else DIM)
 
 
-class HudWindow(QWidget):
+class HudWindow(ChatExtras, QWidget):
+    brain_changed = Signal(str)
     submitted = Signal(str)
     stop_requested = Signal()
     mic_clicked = Signal()
@@ -312,7 +314,7 @@ class HudWindow(QWidget):
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setWindowTitle("CAPRI // PERSONAL LINK")
-        self.setStyleSheet(STYLE)
+        self.setStyleSheet(STYLE + BRAIN_CSS)
         self.resize(430, 560)
         self._drag = None
         self._live_text = ""
@@ -331,8 +333,9 @@ class HudWindow(QWidget):
         self.btn_mic_top = self._icon("🎙", "Сказать голосом", self.mic_clicked.emit)
         self.btn_voice = self._icon("🔊", "Озвучка вкл/выкл", self.speak_toggled.emit)
         self.btn_hist = self._icon("☰", "История переписки", self.toggle_history)
+        self.btn_copy = self._icon("📋", "Скопировать последний ответ", lambda: self.copy_text(self.card._target))
         self.btn_hide = self._icon("—", "Свернуть", self.hide)
-        for b in (self.btn_mic_top, self.btn_voice, self.btn_hist, self.btn_hide):
+        for b in (self.btn_mic_top, self.btn_voice, self.btn_copy, self.btn_hist, self.btn_hide):
             head.addWidget(b)
         root.addLayout(head)
 
@@ -342,7 +345,8 @@ class HudWindow(QWidget):
         self.view = Viewport(custom_image, fps)
         root.addWidget(self.view, 1)
 
-        self.log = QTextBrowser(openExternalLinks=True)
+        self.log = QTextBrowser()
+        self._init_extras(self.log)
         self.log.hide()
         root.addWidget(self.log, 1)
 
@@ -359,6 +363,7 @@ class HudWindow(QWidget):
         row.addWidget(self.mic)
         row.addWidget(self.send)
         row.addWidget(self.stop)
+        root.addLayout(self._brain_row())           # кто отвечает на письменные вопросы
         root.addLayout(row)
 
         self.status = QLabel(objectName="status")
@@ -468,6 +473,8 @@ class HudWindow(QWidget):
         cur.insertMarkdown(text)
         cur.insertBlock()
         self.log.setTextCursor(cur)
+        if text.strip() and route != "rules":
+            self._log(self.copy_links(text))
 
     def add_system(self, text: str):
         self._log(f'<p style="color:#5b6b85"><i>{html.escape(text)}</i></p>')

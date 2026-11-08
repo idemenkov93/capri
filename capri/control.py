@@ -234,6 +234,8 @@ APP_EXE = {
     "хром": "chrome.exe", "гугл хром": "chrome.exe", "chrome": "chrome.exe", "браузер": None, "browser": None,
     "эдж": "msedge.exe", "edge": "msedge.exe", "файрфокс": "firefox.exe", "фаерфокс": "firefox.exe", "firefox": "firefox.exe",
     "опера": "opera.exe", "opera": "opera.exe", "яндекс": "browser.exe", "телеграм": "telegram.exe", "telegram": "telegram.exe",
+    "teams": ("ms-teams.exe", "teams.exe"), "тимс": ("ms-teams.exe", "teams.exe"), "тимз": ("ms-teams.exe", "teams.exe"),
+    "claude": "claude.exe", "клод": "claude.exe", "клода": "claude.exe",
     "дискорд": "discord.exe", "discord": "discord.exe", "спотифай": "spotify.exe", "spotify": "spotify.exe",
     "проводник": "explorer.exe", "explorer": "explorer.exe", "блокнот": "notepad.exe", "notepad": "notepad.exe",
     "ворд": "winword.exe", "word": "winword.exe", "эксель": "excel.exe", "excel": "excel.exe", "стим": ("steam.exe", "steamwebhelper.exe"),
@@ -261,6 +263,41 @@ def monitors() -> list[tuple[int, int, int, int, bool]]:
 
     user32.EnumDisplayMonitors(None, None, PROC(cb), 0)
     return sorted(out, key=lambda m: (not m[4], m[0], m[1]))
+
+
+def screen_index(screen, mons: list) -> int:
+    """Номер экрана для сценария: 1/2/3 или слова main | left | right | other. → 1..len(mons)."""
+    n = len(mons)
+    if isinstance(screen, int) or str(screen).isdigit():
+        return min(max(int(screen), 1), n)
+    key = str(screen).lower()
+    if key in ("main", "основной", "главный") or n == 1:
+        return 1
+    ml = mons[0][0]
+    others = list(range(2, n + 1))
+    if key in ("left", "слева", "левый"):
+        left = [i for i in others if mons[i - 1][0] < ml]
+        return left[-1] if left else others[0]          # ближайший слева
+    if key in ("right", "справа", "правый"):
+        right = [i for i in others if mons[i - 1][0] > ml]
+        return right[0] if right else others[-1]
+    return others[0]                                     # other / второй
+
+
+def layout_text(mons: list | None = None) -> str:
+    """«2 экрана: основной 2560×1400, второй 1920×1040 — слева от основного»."""
+    mons = mons if mons is not None else monitors()
+    if not mons:
+        return "Экраны не вижу."
+    l0, t0, r0, b0, _ = mons[0]
+    parts = [f"основной {r0 - l0}×{b0 - t0}"]
+    names = {2: "второй", 3: "третий", 4: "четвёртый"}
+    for i, (l, t, r, b, _p) in enumerate(mons[1:], 2):
+        side = "слева" if r <= l0 else "справа" if l >= r0 else "сверху" if b <= t0 else "снизу" if t >= b0 else "рядом"
+        parts.append(f"{names.get(i, str(i))} {r - l}×{b - t} — {side} от основного")
+    n = len(mons)
+    word = "экран" if n == 1 else "экрана" if n < 5 else "экранов"
+    return f"{n} {word}: " + ", ".join(parts) + "."
 
 
 def monitor_of(h: int, mons: list) -> int:
@@ -363,16 +400,24 @@ def _frame_margins(h: int) -> tuple[int, int, int, int]:
     return f.left - r.left, f.top - r.top, r.right - f.right, r.bottom - f.bottom
 
 
+def _box(place: str, l: int, t: int, w: int, hh: int):
+    """Прямоугольник (x, y, ширина, высота) для места на экране; None — развернуть (max)."""
+    hw, hh2 = w // 2, hh // 2
+    return {"left": (l, t, hw, hh), "right": (l + hw, t, w - hw, hh), "top": (l, t, w, hh2),
+            "bottom": (l, t + hh2, w, hh - hh2), "center": (l + w // 6, t + hh // 8, w * 2 // 3, hh * 3 // 4),
+            "top_left": (l, t, hw, hh2), "top_right": (l + hw, t, w - hw, hh2),
+            "bottom_left": (l, t + hh2, hw, hh - hh2), "bottom_right": (l + hw, t + hh2, w - hw, hh - hh2)}.get(place)
+
+
 def place_window(h: int, screen: int = 1, place: str = "max") -> str:
     """Поставить окно на экран screen (1 — основной, 2 — второй…): max | left | right | top | bottom | center."""
     mons = monitors()
-    l, t, r, b, _ = mons[min(max(screen, 1), len(mons)) - 1]
+    l, t, r, b, _ = mons[screen_index(screen, mons) - 1]
     if user32.IsIconic(h) or user32.IsZoomed(h):
         user32.ShowWindow(h, 9)                  # SW_RESTORE
         time.sleep(0.15)
     w, hh = r - l, b - t
-    box = {"left": (l, t, w // 2, hh), "right": (l + w // 2, t, w - w // 2, hh), "top": (l, t, w, hh // 2),
-           "bottom": (l, t + hh // 2, w, hh - hh // 2), "center": (l + w // 6, t + hh // 8, w * 2 // 3, hh * 3 // 4)}.get(place)
+    box = _box(place, l, t, w, hh)
     if box is None:                                # max: сначала на нужный экран, потом развернуть
         user32.SetWindowPos(h, 0, l + 40, t + 40, w * 2 // 3, hh * 2 // 3, 0x0004 | 0x0040)
         user32.ShowWindow(h, 3)
@@ -386,14 +431,13 @@ def place_window(h: int, screen: int = 1, place: str = "max") -> str:
 def placed_ok(h: int, screen: int = 1, place: str = "max", tol: int = 24) -> bool:
     """Окно стоит там, куда мы его ставили? (Discord после загрузки сам разворачивается во весь экран.)"""
     mons = monitors()
-    l, t, r, b, _ = mons[min(max(screen, 1), len(mons)) - 1]
+    l, t, r, b, _ = mons[screen_index(screen, mons) - 1]
     if place == "max":
         return bool(user32.IsZoomed(h))
     if user32.IsZoomed(h) or user32.IsIconic(h):
         return False
     w, hh = r - l, b - t
-    want = {"left": (l, t, w // 2, hh), "right": (l + w // 2, t, w - w // 2, hh), "top": (l, t, w, hh // 2),
-            "bottom": (l, t + hh // 2, w, hh - hh // 2), "center": (l + w // 6, t + hh // 8, w * 2 // 3, hh * 3 // 4)}.get(place)
+    want = _box(place, l, t, w, hh)
     if want is None:
         return True
     rect = wintypes.RECT()

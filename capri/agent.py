@@ -177,6 +177,9 @@ class Agent:
             system.apps = apps            # чтобы узнавать YouTube Music по его ID
         o = config["ollama"]
         self.llm = llm or OllamaClient(o["url"], o["model"], o["timeout"], o.get("think"), o.get("options"))
+        self._llm_text = None          # модель для письменных вопросов (ollama.text_model), создаётся по требованию
+        self.chat_brain = "auto"       # кто отвечает в чате: auto | local | gemini | claude (переключатель над полем ввода)
+        self.typed = False             # текущий запрос написан в чат (а не сказан голосом)
         self.claude = claude
         from .llm import gemini as gmod
         self.gemini_ask = gemini_ask or gemini or gmod.ask      # в тестах — заглушка
@@ -188,10 +191,11 @@ class Agent:
     # публичный вход -------------------------------------------------------
     def handle(self, text: str, on_status: Callable[[str], None] = lambda s: None,
                on_token: Callable[[str, str], None] | None = None,
-               should_stop: Callable[[], bool] | None = None) -> Reply:
+               should_stop: Callable[[], bool] | None = None, typed: bool = False) -> Reply:
+        self.typed = typed
         text = RE_WAKE_PREFIX.sub("", text.strip()).strip()
         pending, self.pending = self.pending, None
-        if pending and text and time.monotonic() - pending["at"] < PENDING_TTL:
+        if pending and text and time.monotonic() - pending["at"] < pending.get("ttl", PENDING_TTL):
             if (ans := self._answer(pending, text)) is not None:
                 return ans
         if not text:
@@ -222,6 +226,11 @@ class Agent:
                                                           needs_confirm=False)], "rules")
         if m := RE_CLAUDE.match(text):
             return self._ask_claude(m.group(1), on_status)
+        if typed and not g and self.chat_brain in ("local", "gemini", "claude"):
+            # в чате выбран «мозг» — письменные вопросы идут ему (команды выше уже выполнились)
+            if self.chat_brain == "local":
+                return self._local(text, on_status, on_token, should_stop, escalate=False)
+            return self._ask_claude(text, on_status, force=self.chat_brain)
         if weather.is_weather_question(text) and len(text) < 120:
             return self._weather(text)
         if screen.is_screen_question(text):
@@ -376,6 +385,10 @@ class Agent:
             return None
         if p["kind"] == "confirm" and RE_YES.match(t):
             return p["do"]()
+        if p["kind"] == "study_note":
+            # «что выучил?» — любой ответ (кроме «нет») идёт в заметки с пометкой урока
+            note = f"📚 Учёба {p.get('minutes', '')} мин: {text.strip()}"
+            return Reply("Записала. Молодец 💪", [A.make_note(note)], "rules")
         return None
 
     def _ytm_play(self, text: str) -> Reply | None:
@@ -646,6 +659,27 @@ class Agent:
                          "rules")
         return None
 
+    def _dnd_cmd(self, text: str) -> Reply | None:
+        """«не беспокой меня час / до вечера», «можно беспокоить», «начни учёбу на 45 минут»."""
+        from . import dnd
+        t = text.strip(" .!?")
+        if dnd.RE_DND_OFF.match(t):
+            return Reply("Снова на связи.", [A.Action("dnd", "Не беспокоить", {"choice": 0}, needs_confirm=False)], "rules")
+        if m := dnd.RE_DND.match(t):
+            choice = dnd.parse(m.group("what"))
+            if choice is None:
+                return None                                  # «не мешай мне в играх» — это другое
+            return Reply("🔕 Не беспокою " + dnd.describe(dnd.until(choice)) + ". Таймеры и будильники звенят.",
+                         [A.Action("dnd", "Не беспокоить", {"choice": choice}, needs_confirm=False)], "rules")
+        if m := dnd.RE_STUDY.match(t):
+            what = m.group("what")
+            minutes = dnd.parse(what) if what else 45
+            if not isinstance(minutes, (int, float)) or not 5 <= minutes <= 240:
+                return None
+            return Reply(f"📚 Учёба {minutes:g} мин. Не отвлекаю — в конце спрошу, что выучил.",
+                         [A.Action("study", "Учёба", {"minutes": minutes}, needs_confirm=False)], "rules")
+        return None
+
     def _attitude_cmd(self, text: str) -> Reply | None:
         m = RE_ATTITUDE.match(text.strip(" .!?"))
         if not m:
@@ -666,6 +700,15 @@ class Agent:
             return gs
         if (at := self._attitude_cmd(text)) is not None:
             return at
+        if (dn := self._dnd_cmd(text)) is not None:
+            return dn
+        if re.fullmatch(r"(?:какие|сколько)\s+(?:у\s+меня\s+)?(?:экран\w*|монитор\w*)(?:\s+(?:у\s+меня|подключен\w*|есть))?",
+                        text.strip(" .!?"), re.I):
+            from . import control
+            try:
+                return Reply(control.layout_text(), route="rules")
+            except Exception as e:  # noqa: BLE001
+                return Reply(f"Не вижу экраны: {e}", route="error")
         t0 = text.strip(" .!?")
         if RE_USAGE.search(t0):
             from . import usage
@@ -822,6 +865,9 @@ class Agent:
         acts = []
         if reminder is not None:
             acts.append(A.Action("break_reminder", "Напоминание об отдыхе", {"minutes": reminder}, needs_confirm=False))
+        if getattr(runner, "dnd", None) is not None:
+            off = str(runner.dnd).lower() in ("off", "0", "false", "нет", "выкл")
+            acts.append(A.Action("dnd", "Не беспокоить", {"choice": 0 if off else runner.dnd}, needs_confirm=False))
         from .log import log
         log.info("сценарий %s (%s): готово %s, ошибки %s", name, "вкл" if on else "выкл", done, failed)
         return Reply(" ".join(parts), acts, "rules")
@@ -835,7 +881,7 @@ class Agent:
         attitude = self.cfg.get("persona", {}).get("attitude", "sassy")
         slang = self.cfg.get("persona", {}).get("slang", True)
         messages = [{"role": "system", "content": system_prompt(self.cfg["user_name"], attitude, slang)}, *self.history]
-        llm = self.llm
+        llm = self._text_llm() if self.typed else self.llm      # в чате — модель посильнее, если выбрана
         try:
             msg = llm.chat(messages, on_token=on_token, should_stop=should_stop)
         except OllamaError as e:
@@ -1015,10 +1061,29 @@ class Agent:
                 raise BrainError("local")
         raise BrainError(errors[-1] if errors else "умный помощник недоступен")
 
+    def _text_llm(self):
+        """Модель для письменных вопросов: ollama.text_model (например, 14B — для голоса медленно, для текста норм)."""
+        o = self.cfg.get("ollama", {})
+        name = o.get("text_model") or ""
+        if not name or name == getattr(self.llm, "model", name) or not isinstance(self.llm, OllamaClient):
+            return self.llm
+        if self._llm_text is None or self._llm_text.model != name:
+            self._llm_text = OllamaClient(o["url"], name, max(float(o.get("timeout", 120)), 300), o.get("think"),
+                                          o.get("options"))
+        return self._llm_text
+
     def _ask_claude(self, task: str, on_status, remembered: bool = False, label: str | None = None,
-                    gemini_task: str | None = None, images: list | None = None) -> Reply:
-        """Умный помощник: выбранный в мастере; в играх — Gemini; кончился лимит Claude — следующий по списку."""
+                    gemini_task: str | None = None, images: list | None = None, force: str | None = None) -> Reply:
+        """Умный помощник: выбранный в мастере; в играх — Gemini; кончился лимит Claude — следующий по списку.
+        force — «мозг» выбран в чате: спрашиваем только его."""
         order = self._order()
+        if force in ("claude", "gemini"):
+            ready = self._claude_ready() if force == "claude" else self.gemini_ready()
+            if not ready:
+                how = ("Claude не установлен или выключен — «⚙ Мастер настройки»." if force == "claude"
+                       else "Ключа Gemini нет — скажи «как подключить gemini».")
+                return Reply(how, route="error")
+            order = [force]
         want = self.cfg.get("brain", {}).get("provider", "claude")
         if not order:
             return Reply("Пока идёт игра, спросить некого: Claude и локальную модель не запускаю, а Gemini не подключён. "

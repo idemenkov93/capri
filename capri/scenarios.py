@@ -33,6 +33,10 @@ DEFAULT_TEXT = """# Сценарии Капри: скажи «Капри, игр
 #   browser: [ссылка1, ссылка2]  — одно окно браузера, вкладки по порядку
 #   volume: 20 · brightness: 40 · nightlight: on/off · break_reminder: 180 (минут, 0 — выключить) · say: "текст"
 #   display: extend (оба экрана) | internal (только основной) | external (только второй) | clone — как Win+P
+#   screen: 1 / 2 / 3 или main (основной) | left | right (экран слева/справа от основного) | other (любой второй)
+#   place: max | left | right | top | bottom | center | top_left | top_right | bottom_left | bottom_right
+#   dnd: 60 | evening | morning | forever | off — «не беспокоить»
+# Экран один, а сценарий на два — Капри сама разложит окна по половинкам.
 # Если в сценарии есть screen: 2, а второй экран выключен через Win+P, — Капри сама включит оба экрана.
 
 игровой:
@@ -78,7 +82,38 @@ DEFAULT_TEXT = """# Сценарии Капри: скажи «Капри, игр
   off_steps:
     - break_reminder: 0
     - say: "Режим работы выключила. Напоминания про отдых больше не будет."
+
 """
+
+NEW_TEXT_11 = """учёба:
+  phrases: [режим учёбы, режим учебы, учебный режим, на урок, урок, study mode]
+  off_phrases: [выключи режим учёбы, выключи режим учебы, урок закончился, конец урока]
+  steps:
+    - open: teams
+      screen: main
+      place: max
+    - open: claude
+      screen: other
+      place: max
+    - dnd: forever             # 🔕 не беспокоить до конца урока
+    - say: "Режим учёбы. Тимс на основном экране, Клод на втором. Не отвлекаю, пока не скажешь «урок закончился»."
+  off_steps:
+    - dnd: off
+    - say: "Урок закончился — снова на связи."
+
+поиск работы:
+  phrases: [режим поиска работы, поиск работы, ищем работу, вакансии, job search]
+  steps:
+    - browser: [https://www.stepstone.de, https://de.indeed.com, https://www.linkedin.com/jobs/,
+                https://www.arbeitsagentur.de/jobsuche/, https://www.xing.com/jobs]
+      screen: main
+      place: max
+    - say: "Поиск работы: StepStone, Indeed, LinkedIn, Arbeitsagentur и XING открыла. Удачи!"
+"""
+DEFAULT_TEXT += "\n" + NEW_TEXT_11
+
+# сценарии, которых нет в старых файлах data/scenarios.yaml: дописываем один раз (свои правки не трогаем)
+ADDED = {"1.1": NEW_TEXT_11}
 
 DEFAULT = yaml.safe_load(DEFAULT_TEXT)
 # файл с примерами из прошлой версии (без шагов display) — если его не меняли, обновляем сами
@@ -104,11 +139,33 @@ def load() -> dict:
             p.write_text(DEFAULT_TEXT, encoding="utf-8")
         except OSError:
             return DEFAULT
+    _add_new(p)
     try:
         data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         return data if isinstance(data, dict) else DEFAULT
     except (OSError, yaml.YAMLError):
         return DEFAULT
+
+
+def _add_new(p: Path) -> None:
+    """Новые сценарии версии — в конец файла, один раз (метка «# + 1.1»). Удалишь — больше не вернутся."""
+    try:
+        text = p.read_text(encoding="utf-8")
+        data = yaml.safe_load(text) or {}
+    except (OSError, yaml.YAMLError):
+        return
+    add = ""
+    for ver, block_text in ADDED.items():
+        mark = f"# + {ver}"
+        if mark in text:
+            continue
+        blocks = [b for b in re.split(r"\n(?=\S)", block_text.strip()) if b.split(":", 1)[0] not in data]
+        add += f"\n{mark} — новые сценарии этой версии\n" + "\n\n".join(blocks) + "\n"
+    if add:
+        try:
+            p.write_text(text.rstrip() + "\n" + add, encoding="utf-8")
+        except OSError:
+            pass
 
 
 def _norm(text: str) -> str:
@@ -157,6 +214,34 @@ def browser_exe() -> str | None:
     return shutil.which("chrome") or shutil.which("google-chrome") or shutil.which("msedge")
 
 
+def screen_arg(screen):
+    """1 / 2 / "2" → int; main | left | right | other — как есть (control.screen_index разберёт)."""
+    return int(screen) if str(screen).isdigit() else str(screen)
+
+
+def is_main(screen) -> bool:
+    return str(screen).lower() in ("1", "main", "основной", "главный", "")
+
+
+def one_screen(steps: list) -> list:
+    """Сценарий на 2–3 экрана, а экран один: основное — слева, остальное — справа (по четвертинкам, если их много)."""
+    others = [st for st in steps if isinstance(st, dict) and ("open" in st or "browser" in st) and not is_main(st.get("screen", 1))]
+    right = ["right"] if len(others) <= 1 else ["top_right", "bottom_right"] + ["right"] * (len(others) - 2)
+    out = []
+    for st in steps:
+        if not isinstance(st, dict) or not ("open" in st or "browser" in st):
+            out.append(st)
+            continue
+        st = dict(st)
+        if is_main(st.get("screen", 1)):
+            st["place"] = "left" if others and st.get("place", "max") == "max" else st.get("place", "max")
+        else:
+            st["place"] = right.pop(0)
+        st["screen"] = 1
+        out.append(st)
+    return out
+
+
 class Runner:
     """Выполняет сценарий в рабочем потоке Капри. resolve(name) → Action для «открой …» (берётся у агента)."""
 
@@ -168,8 +253,9 @@ class Runner:
         """→ (что сделано, что не вышло, напоминание в минутах или None, что сказать)."""
         done, failed, reminder, say = [], [], None, ""
         notes = []
+        self.dnd = None                       # шаг «dnd: …» — включить/выключить «Не беспокоить»
         from . import control
-        wants_two = any(isinstance(st, dict) and int(st.get("screen") or 1) >= 2 for st in steps or [])
+        wants_two = any(isinstance(st, dict) and not is_main(st.get("screen", 1)) for st in steps or [])
         switches = any(isinstance(st, dict) and "display" in st for st in steps or [])
         if wants_two and not switches:
             try:
@@ -178,7 +264,8 @@ class Runner:
                         control.switch_display("extend")      # второй экран выключен через Win+P — включаем
                         notes.append("включила второй экран")
                     else:
-                        notes.append("второго экрана нет — разложила всё на одном")
+                        steps = one_screen(steps)             # один экран — делим его на части
+                        notes.append("экран один — разложила окна по половинкам")
             except Exception:  # noqa: BLE001
                 pass
         for step in steps or []:
@@ -186,7 +273,7 @@ class Runner:
                 continue
             try:
                 if "open" in step:
-                    title = self._open(str(step["open"]), int(step.get("screen", 1)), str(step.get("place", "max")))
+                    title = self._open(str(step["open"]), screen_arg(step.get("screen", 1)), str(step.get("place", "max")))
                     done.append(title)
                 elif "browser" in step:
                     urls = step["browser"] if isinstance(step["browser"], list) else [step["browser"]]
@@ -217,6 +304,8 @@ class Runner:
                         done.append("ночной свет " + ("вкл" if on else "выкл"))
                     else:
                         failed.append("ночной свет (открыла настройки — нажми переключатель)")
+                elif "dnd" in step:
+                    self.dnd = step["dnd"]
                 elif "break_reminder" in step:
                     reminder = int(step["break_reminder"] or 0)
                 elif "say" in step:
@@ -277,4 +366,4 @@ class Runner:
             time.sleep(2.0)
             h = control.find_app_window("chrome" if "chrome" in exe.lower() else "msedge.exe", strict=True)
             if h:
-                control.place_window(h, int(screen), place)
+                control.place_window(h, screen_arg(screen), place)
