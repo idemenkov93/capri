@@ -29,7 +29,6 @@ TEXTS: dict[str, dict[str, str]] = {
     "brain_gemini": {"ru": "Gemini (ключ AI Studio)", "en": "Gemini (AI Studio key)"},
     "brain_groq": {"ru": "Groq (бесплатный ключ)", "en": "Groq (free key)"},
     "brain_openrouter": {"ru": "DeepSeek и др. через OpenRouter (бесплатно)", "en": "DeepSeek etc. via OpenRouter (free)"},
-    "brain_mistral": {"ru": "Mistral (бесплатный план)", "en": "Mistral (free plan)"},
     "brain_ollama": {"ru": "Только локально", "en": "Local only"},
     "brain_now": {"ru": "Сейчас работает: {}", "en": "Working now: {}"},
     "brain_missing": {"ru": "«{}» не подключён — пока отвечает «{}». Подключить: меню → «⚙ Мастер настройки».",

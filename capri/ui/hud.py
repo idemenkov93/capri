@@ -40,7 +40,7 @@ STATE_LINE = {
     "ERROR": "Something broke.", "TYPING": "You are typing…",
 }
 ROUTE_LABEL = {"rules": "⚡ DIRECT", "local": "◆ LOCAL", "claude": "✦ CLAUDE", "gemini": "✧ GEMINI", "groq": "✧ GROQ",
-               "openrouter": "✧ OPENROUTER", "mistral": "✧ MISTRAL", "error": "✖ ERROR"}
+               "openrouter": "✧ OPENROUTER", "error": "✖ ERROR"}
 
 STYLE = """
 QWidget { color: #d8e3f5; font-family: 'Cascadia Mono', Consolas, 'JetBrains Mono', monospace; font-size: 12px; }

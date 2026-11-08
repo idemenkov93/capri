@@ -494,7 +494,7 @@ class CapriApp:
         bm = menu.addMenu(t("brain", L))
         bg = QActionGroup(bm)
         want = self.cfg.get("brain", {}).get("provider", "claude")
-        for code in ("claude", "gemini", "groq", "openrouter", "mistral", "ollama"):
+        for code in ("claude", "gemini", "groq", "openrouter", "ollama"):
             act = QAction(t(f"brain_{code}", L), bm, checkable=True, checked=(code == want))
             act.triggered.connect(lambda _=False, c=code: self.set_brain(c))
             bg.addAction(act)

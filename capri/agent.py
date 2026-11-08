@@ -30,7 +30,7 @@ class BrainError(RuntimeError):
 class Reply:
     text: str
     actions: list[A.Action] = field(default_factory=list)
-    route: str = "local"   # rules | local | claude | gemini | groq | openrouter | mistral | error
+    route: str = "local"   # rules | local | claude | gemini | groq | openrouter | error
     ask: bool = False      # Капри задала вопрос — после ответа слушать без «Капри»
 
 
@@ -191,7 +191,7 @@ class Agent:
         self.claude = claude
         from .llm import gemini as gmod
         self.gemini_ask = gemini_ask or gemini or gmod.ask      # в тестах — заглушка
-        self.cloud_ask = cloud_ask or cloud.ask                 # Groq / OpenRouter / Mistral (бесплатные)
+        self.cloud_ask = cloud_ask or cloud.ask                 # Groq / OpenRouter (бесплатные)
         self._claude_limited_until = 0.0     # лимит Claude кончился — до этого времени Claude не трогаем
         self.history: list[dict] = []
         self.game = None      # GameMode из app.py: идёт ли игра, строгий ли режим, данные CS2
@@ -669,7 +669,7 @@ class Agent:
         return None
 
     def _cloud_setup(self, text: str) -> Reply | None:
-        """Groq / OpenRouter (DeepSeek) / Mistral: «ключ groq gsk_…», «как подключить дипсик», «проверь groq»."""
+        """Groq / OpenRouter (DeepSeek): «ключ groq gsk_…», «как подключить дипсик», «проверь groq»."""
         t = text.strip(" .!?")
         if (pk := cloud.parse_key(t)) is not None:
             p, key = pk
@@ -1105,7 +1105,9 @@ class Agent:
         want = self.cfg.get("brain", {}).get("provider", "claude")
         everyone = ("claude", "gemini", *cloud.ORDER)
         # выбранный в мастере — первым, потом остальные облачные (бесплатные — после Claude/Gemini), потом локальная
-        base = ["ollama"] if want not in everyone else [want] + [p for p in everyone if p != want] + ["ollama"]
+        if want not in everyone and want != "ollama":
+            want = "claude"                    # в конфиге «мозг», которого больше нет
+        base = ["ollama"] if want == "ollama" else [want] + [p for p in everyone if p != want] + ["ollama"]
         order = [p for p in base if self.ready(p)]
         if time.monotonic() < self._claude_limited_until and "claude" in order:
             order.remove("claude")

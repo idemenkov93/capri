@@ -1,4 +1,4 @@
-"""Бесплатные облачные «мозги»: Groq, OpenRouter (DeepSeek и др., только :free), Mistral."""
+"""Бесплатные облачные «мозги»: Groq, OpenRouter (DeepSeek и др., только :free)."""
 import copy
 from pathlib import Path
 
@@ -31,9 +31,7 @@ def test_parse_key_by_prefix_and_by_word():
     assert cloud.parse_key("gsk_" + "a" * 40)[0].code == "groq"
     assert cloud.parse_key("ключ openrouter sk-or-v1-" + "b" * 40)[0].code == "openrouter"
     assert cloud.parse_key("ключ для дипсика sk-or-v1-" + "b" * 40)[0].code == "openrouter"
-    p, key = cloud.parse_key("ключ mistral " + "Z9" * 16)
-    assert p.code == "mistral" and key == "Z9" * 16
-    assert cloud.parse_key("Z9" * 16) is None                     # ключ без примет — только со словом
+    assert cloud.parse_key("ключ mistral " + "Z9" * 16) is None   # Mistral убрали
     assert cloud.parse_key("ключ groq " + "Z9" * 16) is None      # у Groq ключ всегда gsk_
     assert cloud.parse_key("открой ютуб") is None
 
@@ -47,7 +45,7 @@ def test_provider_words():
     assert cloud.provider_for("дипсик").code == "openrouter"
     assert cloud.provider_for("deepseek").code == "openrouter"
     assert cloud.provider_for("грок").code == "groq"
-    assert cloud.provider_for("мистраль").code == "mistral"
+    assert cloud.provider_for("мистраль") is None
     assert cloud.provider_for("gemini") is None
 
 
@@ -98,9 +96,9 @@ def test_ask_errors_are_human(monkeypatch, status, words):
 
 # ------------------------------------------------------------------ в агенте
 def test_order_adds_connected_free_brains_after_claude_and_gemini(monkeypatch):
-    a = agent(keys=("groq", "mistral"), monkeypatch=monkeypatch,
+    a = agent(keys=("groq", "openrouter"), monkeypatch=monkeypatch,
               gem=lambda *a, **k: "G")
-    assert a._order() == ["claude", "gemini", "groq", "mistral", "ollama"]
+    assert a._order() == ["claude", "gemini", "groq", "openrouter", "ollama"]
 
 
 def test_claude_limit_falls_back_to_groq_when_no_gemini(monkeypatch):
@@ -124,9 +122,9 @@ def test_chat_brain_forces_cloud(monkeypatch):
 
 def test_chat_brain_without_key_says_how(monkeypatch):
     a = agent(cloud_ask=None, keys=(), monkeypatch=monkeypatch)
-    a.chat_brain = "mistral"
+    a.chat_brain = "groq"
     r = a.handle("что такое VLAN?", typed=True)
-    assert r.route == "error" and "как подключить mistral" in r.text
+    assert r.route == "error" and "как подключить groq" in r.text
 
 
 def test_how_to_connect_deepseek_and_grok(monkeypatch):
@@ -173,7 +171,7 @@ def test_chat_more_menu_and_look(qapp=None):
     w.brain_changed.connect(got.append)
     w.quick.connect(quick.append)
     w.look_changed.connect(looks.append)
-    w.set_brain_available({"groq": (True, "ok"), "openrouter": (False, "нет ключа"), "mistral": (False, "")})
+    w.set_brain_available({"groq": (True, "ok"), "openrouter": (False, "нет ключа")})
     w.more_actions["groq"].trigger()
     assert got == ["groq"] and w.more_btn.isChecked() and w.more_btn.text() == "Groq ▾"
     w.more_actions["openrouter"].trigger()            # не подключён → инструкция, выбор не меняется

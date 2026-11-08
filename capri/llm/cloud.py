@@ -1,4 +1,4 @@
-"""Бесплатные облачные «мозги» с одинаковым (OpenAI-совместимым) API: Groq, OpenRouter, Mistral.
+"""Бесплатные облачные «мозги» с одинаковым (OpenAI-совместимым) API: Groq и OpenRouter.
 
 Правила — как у Gemini: ключ вставляешь в чат («ключ groq gsk_…»), он уходит в Диспетчер учётных данных Windows
 (keyring), в логах и в чате — только маска. Капри спрашивает их, когда выбран этот «мозг» в чате, или по очереди,
@@ -8,9 +8,8 @@
   Groq        — бесплатный план без карты, очень быстрый (Llama, Qwen, GPT-OSS). Карту не добавляй — и платить нечем.
   OpenRouter  — только модели с пометкой «:free» (DeepSeek, Qwen, Llama… — список у них меняется). Платные модели
                 Капри не выбирает никогда. Без пополнения — около 50 запросов в день.
-  Mistral     — план «Experiment»: бесплатно, нужен только телефон. Запросы могут идти на обучение.
 
-Не добавлены, потому что платные: Grok (xAI) и официальный API DeepSeek. Cerebras просит карту.
+Не добавлены: Grok (xAI) и официальный API DeepSeek — платные, Cerebras просит карту, Mistral — не нужен.
 """
 from __future__ import annotations
 
@@ -29,7 +28,7 @@ class Provider:
     title: str
     base: str
     key_page: str
-    prefix: str                       # с чего начинается ключ ('' — без примет, только «ключ mistral …»)
+    prefix: str                       # с чего начинается ключ
     env: str
     prefer: tuple[str, ...]           # каких моделей ищем (по началу имени), по порядку
     vision: tuple[str, ...] = ()      # модели, которые видят картинки
@@ -63,26 +62,17 @@ PROVIDERS: dict[str, Provider] = {
             "модели (DeepSeek, Qwen, Llama — какие сейчас бесплатны). Лимит без пополнения — около 50 запросов в день.",
         note="OpenRouter — бесплатные модели (DeepSeek и др.)",
         extra_headers={"HTTP-Referer": "https://github.com/idemenkov93/capri", "X-Title": "Capri"}),
-    "mistral": Provider(
-        "mistral", "Mistral", "https://api.mistral.ai/v1", "https://console.mistral.ai/api-keys", "", "MISTRAL_API_KEY",
-        ("mistral-medium-latest", "mistral-small-latest", "mistral-large-latest", "open-mistral-nemo"),
-        vision=("mistral-medium", "mistral-small", "pixtral"),
-        words=r"mistral|мистраль|мистрал",
-        how="Открой console.mistral.ai, войди, выбери бесплатный план «Experiment» (нужен только телефон, без карты) "
-            "и создай ключ в «API Keys». Вставь его в чат Капри: «ключ mistral …». Учти: бесплатные запросы Mistral "
-            "может использовать для обучения — личное туда не отправляй.",
-        note="Mistral — бесплатный план Experiment"),
 }
-ORDER = ("groq", "openrouter", "mistral")          # в этом порядке спрашиваем, если Claude / Gemini не ответили
+ORDER = ("groq", "openrouter")          # в этом порядке спрашиваем, если Claude / Gemini не ответили
 
 # «ключ groq gsk_…», «ключ для дипсика sk-or-…», или просто вставленный ключ с узнаваемым началом
 RE_KEY = re.compile(
     r"(?:(?:ключ|key)\s+(?:для\s+)?(?P<who>" + "|".join(p.words for p in PROVIDERS.values()) +
-    r")\w*\s*[:=—-]?\s*)?\b(?P<key>gsk_[A-Za-z0-9]{20,}|sk-or-[A-Za-z0-9-]{20,}|[A-Za-z0-9]{28,40})\b", re.I)
+    r")\w*\s*[:=—-]?\s*)?\b(?P<key>gsk_[A-Za-z0-9]{20,}|sk-or-[A-Za-z0-9-]{20,})\b", re.I)
 
 
 def parse_key(text: str) -> tuple[Provider, str] | None:
-    """Ключ в сообщении → (чей, ключ). Ключ без приметного начала (Mistral) — только со словом: «ключ mistral …»."""
+    """Ключ в сообщении → (чей, ключ): gsk_… — Groq, sk-or-… — OpenRouter."""
     m = RE_KEY.search(text)
     if not m:
         return None
@@ -98,7 +88,7 @@ class CloudError(RuntimeError):
 
 
 def provider_for(word: str) -> Provider | None:
-    """«дипсик» → OpenRouter, «грок» → Groq, «мистраль» → Mistral."""
+    """«дипсик» → OpenRouter, «грок» → Groq."""
     for p in PROVIDERS.values():
         if re.fullmatch(rf"(?:{p.words})\w*", word.strip(), re.I):
             return p

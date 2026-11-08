@@ -37,7 +37,7 @@ COMPLETIONS = [
     "ночной режим", "режим работы", "какие у меня экраны", "громкость 30", "поставь таймер на 10 минут",
     "напомни через час ", "запиши: ", "погода", "сколько ты ешь ресурсов", "собери отчёт", "обнови капри",
     "проверь gemini", "как подключить gemini", "как подключить groq", "как подключить дипсик",
-    "как подключить mistral", "проверь groq", "проверь дипсик", "ключ groq ", "ключ openrouter ", "ключ mistral ", "открой ", "найди на ютубе ", "что сейчас играет", "следующий трек",
+    "проверь groq", "проверь дипсик", "ключ groq ", "ключ openrouter ", "открой ", "найди на ютубе ", "что сейчас играет", "следующий трек",
     "/claude ", "что ты умеешь",
 ]
 
@@ -48,8 +48,7 @@ BRAINS = (("auto", "Авто", "Как обычно: простое — лока
           ("claude", "Claude", "Только Claude (подписка)"))
 # бесплатные облачные — в меню «Ещё ▾», чтобы строка не разъезжалась
 MORE_BRAINS = (("groq", "Groq", "Groq — бесплатно, очень быстро (Llama, Qwen, GPT-OSS)"),
-               ("openrouter", "DeepSeek (OpenRouter)", "OpenRouter — только бесплатные модели: DeepSeek, Qwen, Llama…"),
-               ("mistral", "Mistral", "Mistral — бесплатный план Experiment"))
+               ("openrouter", "DeepSeek (OpenRouter)", "OpenRouter — только бесплатные модели: DeepSeek, Qwen, Llama…"))
 LOOKS = (("glow", "✨", "Вид: свечение по краю экрана (без персонажа)"), ("capri", "🧍", "Вид: Капри на экране"))
 
 STYLE = """
@@ -62,7 +61,7 @@ QLabel#live { color: #ffd23f; border: 1px dashed #ffd23f; padding: 6px; }
 """
 
 ROUTE_LABEL = {"rules": "⚡", "local": "◆ local", "claude": "✦ Claude", "gemini": "✧ Gemini", "groq": "✧ Groq",
-               "openrouter": "✧ OpenRouter", "mistral": "✧ Mistral", "error": "✖"}
+               "openrouter": "✧ OpenRouter", "error": "✖"}
 
 
 class ChatExtras:
@@ -133,9 +132,9 @@ class ChatExtras:
             self.brain_buttons[code] = b
             b.clicked.connect(lambda _=False, c=code: self.brain_changed.emit(c))
             brow.addWidget(b)
-        # «Ещё ▾»: Groq, DeepSeek (OpenRouter), Mistral — бесплатные
+        # «Ещё ▾»: Groq, DeepSeek (OpenRouter) — бесплатные
         self.more_btn = QPushButton("Ещё ▾", objectName="brain", checkable=True)
-        self.more_btn.setToolTip("Бесплатные облачные: Groq, DeepSeek (через OpenRouter), Mistral")
+        self.more_btn.setToolTip("Бесплатные облачные: Groq, DeepSeek (через OpenRouter)")
         self.brain_group.addButton(self.more_btn)
         menu = QMenu(self.more_btn)
         self.more_actions = {}
