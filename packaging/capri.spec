@@ -26,7 +26,7 @@ binaries = []
 hidden = ["webbrowser", "keyring.backends.Windows"]
 
 for pkg in ("faster_whisper", "vosk", "piper", "uiautomation", "googleapiclient", "tzdata", "certifi",
-            "_sounddevice_data", "edge_tts", "recurring_ical_events", "pypdfium2", "pypdfium2_raw"):
+            "_sounddevice_data", "edge_tts", "recurring_ical_events", "pypdfium2", "pypdfium2_raw", "soundcard"):
     datas += safe(collect_data_files, pkg)
 for pkg in ("ctranslate2", "vosk", "piper", "onnxruntime", "uiautomation", "_sounddevice_data", "pypdfium2_raw",
             "pypdfium2", "pillow_heif"):

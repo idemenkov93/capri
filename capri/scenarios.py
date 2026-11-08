@@ -37,6 +37,7 @@ DEFAULT_TEXT = """# Сценарии Капри: скажи «Капри, игр
 #   or_browser: [ссылки] — если программы нет, открыть эти сайты в браузере по умолчанию (на том же месте)
 #   place: max | left | right | top | bottom | center | top_left | top_right | bottom_left | bottom_right
 #   dnd: 60 | evening | morning | forever | off — «не беспокоить»
+#   subtitles: on | off | de | en — живые субтитры с переводом (выкл — предложит конспект)
 # Экран один, а сценарий на два — Капри сама разложит окна по половинкам.
 # Если в сценарии есть screen: 2, а второй экран выключен через Win+P, — Капри сама включит оба экрана.
 
@@ -98,9 +99,11 @@ NEW_TEXT_11 = """учёба:
       place: max
       or_browser: [https://gemini.google.com, https://chat.deepseek.com, https://www.deepl.com/translator]
     - dnd: forever             # 🔕 не беспокоить до конца урока
-    - say: "Режим учёбы. Тимс на основном экране, Клод на втором. Не отвлекаю, пока не скажешь «урок закончился»."
+    - subtitles: on            # живые субтитры урока с переводом на русский
+    - say: "Режим учёбы. Тимс на основном экране, Клод на втором, субтитры внизу. Не отвлекаю, пока не скажешь «урок закончился»."
   off_steps:
     - dnd: off
+    - subtitles: off
     - say: "Урок закончился — снова на связи."
 
 поиск работы:
@@ -149,6 +152,22 @@ def load() -> dict:
         return DEFAULT
 
 
+def _add_subtitles(text: str) -> str:
+    """1.5: в уже созданный «учёба» добавить субтитры (один раз, метка «# + 1.5»). Свои правки не трогаем."""
+    mark = "# + 1.5"
+    if mark in text or not re.search(r"(?m)^учёба:", text):
+        return text
+    m = re.search(r"(?ms)^учёба:\n(.*?)(?=^\S|\Z)", text)
+    block = m.group(1)
+    if "subtitles" in block:
+        return text
+    new = re.sub(r"(?m)^(\s+- dnd: forever[^\n]*\n)", r"\1    - subtitles: on            # живые субтитры урока\n", block, count=1)
+    new = re.sub(r"(?m)^(\s+- dnd: off[^\n]*\n)", r"\1    - subtitles: off\n", new, count=1)
+    if new == block:
+        return text
+    return text[:m.start(1)] + new + text[m.end(1):].rstrip() + f"\n\n{mark} — в «учёба» добавлены субтитры\n"
+
+
 def _add_new(p: Path) -> None:
     """Новые сценарии версии — в конец файла, один раз (метка «# + 1.1»). Удалишь — больше не вернутся."""
     try:
@@ -163,9 +182,10 @@ def _add_new(p: Path) -> None:
             continue
         blocks = [b for b in re.split(r"\n(?=\S)", block_text.strip()) if b.split(":", 1)[0] not in data]
         add += f"\n{mark} — новые сценарии этой версии\n" + "\n\n".join(blocks) + "\n"
-    if add:
+    new = _add_subtitles(text.rstrip() + "\n" + add if add else text)
+    if new != text:
         try:
-            p.write_text(text.rstrip() + "\n" + add, encoding="utf-8")
+            p.write_text(new, encoding="utf-8")
         except OSError:
             pass
 
@@ -286,6 +306,7 @@ class Runner:
         done, failed, reminder, say = [], [], None, ""
         notes = []
         self.dnd = None                       # шаг «dnd: …» — включить/выключить «Не беспокоить»
+        self.subtitles = None                 # шаг «subtitles: on/off/de» — субтитры урока
         from . import control
         wants_two = any(isinstance(st, dict) and not is_main(st.get("screen", 1)) for st in steps or [])
         switches = any(isinstance(st, dict) and "display" in st for st in steps or [])
@@ -347,6 +368,10 @@ class Runner:
                         failed.append("ночной свет (открыла настройки — нажми переключатель)")
                 elif "dnd" in step:
                     self.dnd = step["dnd"]
+                elif "subtitles" in step:
+                    v = step["subtitles"]
+                    self.subtitles = "off" if v is False or str(v).lower() in ("off", "0", "false", "нет", "выкл") else \
+                        ("on" if v is True else str(v).lower())
                 elif "break_reminder" in step:
                     reminder = int(step["break_reminder"] or 0)
                 elif "say" in step:

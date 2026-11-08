@@ -39,4 +39,15 @@ try:
     print("admin.ping:", admin.ping("github.com", 2))
 except Exception as e:  # noqa: BLE001
     print("admin misc: FAIL", e)
+# волна 4: звук компьютера для субтитров (WASAPI loopback) — на CI звуковой карты может не быть
+try:
+    import soundcard as sc
+    spk = sc.default_speaker()
+    print("speaker:", spk.name)
+    lb = sc.get_microphone(id=str(spk.name), include_loopback=True)
+    with lb.recorder(samplerate=48000) as rec:
+        d = rec.record(numframes=4800)
+    print("loopback frames:", d.shape)
+except Exception as e:  # noqa: BLE001
+    print("loopback: FAIL", type(e).__name__, str(e)[:150])
 print("done")

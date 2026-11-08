@@ -4,3 +4,4 @@ sounddevice>=0.4
 numpy>=1.26
 edge-tts>=7.0
 vosk>=0.3.45
+soundcard>=0.4.4   # субтитры: звук компьютера (WASAPI loopback) — Teams, Zoom, YouTube

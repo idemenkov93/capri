@@ -784,6 +784,9 @@ class Agent:
             return dn
         if (tx := self._text_cmd(text)) is not None:
             return tx
+        from .live.commands import route as live_route       # волна 4: субтитры урока, сигналы, конспекты
+        if (lv := live_route(text)) is not None:
+            return lv
         from .admin_cmds import route as admin_route        # волна 3: админ-аптечка, сайты, PowerShell
         if (ad := admin_route(self, text)) is not None:
             return ad
@@ -953,6 +956,10 @@ class Agent:
         if getattr(runner, "dnd", None) is not None:
             off = str(runner.dnd).lower() in ("off", "0", "false", "нет", "выкл")
             acts.append(A.Action("dnd", "Не беспокоить", {"choice": 0 if off else runner.dnd}, needs_confirm=False))
+        if (sub := getattr(runner, "subtitles", None)) is not None:
+            acts.append(A.Action("live", "Субтитры", {"do": "stop"} if sub == "off" else
+                                 {"do": "start", "lang": sub if sub in ("de", "en", "ru", "he", "auto") else None},
+                                 needs_confirm=False))
         from .log import log
         log.info("сценарий %s (%s): готово %s, ошибки %s", name, "вкл" if on else "выкл", done, failed)
         return Reply(" ".join(parts), acts, "rules")

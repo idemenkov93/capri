@@ -206,6 +206,9 @@ class CapriApp:
         from .convertui import ConvertUI
         self.convert = ConvertUI(self)
         self.hotkeys.convert.connect(self.convert.from_hotkey)
+        # волна 4: субтитры урока с переводом
+        from .live.controller import LiveController
+        self.live = LiveController(self)
         # волна 3: слежу за сайтами (сообщения из фонового потока — через Bridge)
         self._bridge = Bridge()
         self._bridge.msg.connect(lambda m: self.timer_fired(m, prefix="🌐 "))
@@ -525,6 +528,7 @@ class CapriApp:
         models_menu.build(self, menu, t("models", L))
         self._dnd_menu(menu)
         self._backup_menu(menu)
+        self._live_menu(menu)
         tm = menu.addMenu("📋 Буфер и экран")
         tm.addAction("❓ Что в буфере?", lambda: self.on_message("что в буфере"))
         tm.addAction("🌐 Перевести буфер", lambda: self.on_message("переведи буфер"))
@@ -882,6 +886,29 @@ class CapriApp:
                     msg = (f"{sites.host_of(c.url)} снова работает." if c.ok else f"{sites.host_of(c.url)} упал: {c.error}.")
                     self._bridge.msg.emit(msg)
         threading.Thread(target=work, daemon=True, name="sites").start()
+
+    # субтитры урока ----------------------------------------------------------------
+    def _live_menu(self, menu):
+        from .live import notes as LN
+        lv = self.live
+        p = lv.prefs()
+        m = menu.addMenu("🎧 Субтитры урока")
+        if lv.running:
+            m.addAction("⏹ Выключить (и сделать конспект)", lambda: self.chat.add_system(lv.stop(ask_notes=True)))
+        else:
+            m.addAction("▶ Включить", lambda: self.chat.add_system(lv.start()))
+        lm = m.addMenu(f"Язык урока: {p['language']}")
+        for code, label in (("de", "немецкий"), ("en", "английский"), ("auto", "любой (сама пойму)")):
+            lm.addAction(self._check(lm, label, p["language"] == code, lambda c=code: lv.handle({"do": "start", "lang": c})
+                                     if lv.running else lv.set_pref(language=c)))
+        m.addAction(self._check(m, "🎤 Переводить и меня (микрофон)", p["mic"], lambda: lv.handle({"do": "mic", "on": not p["mic"]})))
+        m.addAction(self._check(m, "🔔 Сигнал на моё имя и слова", p["signals"],
+                                lambda: lv.handle({"do": "signals", "on": not p["signals"]})))
+        m.addAction("🔔 Слова-сигналы…", lambda: self.chat.add_system(lv.handle({"do": "list_words"})))
+        m.addSeparator()
+        m.addAction("📝 Конспект последнего урока", lambda: self.chat.add_system(lv.handle({"do": "notes"})))
+        m.addAction("📂 Папка уроков", lambda: (LN.lessons_dir().mkdir(parents=True, exist_ok=True),
+                                               lv._open(LN.lessons_dir())))
 
     # бэкап -----------------------------------------------------------------------
     def _backup_cfg(self) -> dict:
@@ -1464,6 +1491,8 @@ class CapriApp:
 
     def set_status(self, status: str):
         self.state = status
+        if getattr(self, "live", None) is not None:
+            self.live.on_app_status(status)
         self.avatar.set_status(status)
         if getattr(self, "glow", None) is not None and self.look == "glow":
             self.glow.set_status(status)
@@ -1554,6 +1583,11 @@ class CapriApp:
             return
         if act.kind == "check_updates":
             self.check_updates()
+            return
+        if act.kind == "live":
+            msg = self.live.handle(act.params)
+            if msg:
+                self.chat.add_system(msg)
             return
         if act.kind == "backup":
             self.backup_now() if act.params.get("do") == "now" else self.backup_setup()
