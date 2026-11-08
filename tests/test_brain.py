@@ -48,7 +48,7 @@ def test_without_claude_or_gemini_complex_task_is_answered_locally(no_claude):
     a = agent("claude")
     assert a.provider() == "ollama"
     r = a.handle("напиши скрипт на PowerShell для бэкапа папки")
-    assert r.route == "local" and "локальный ответ" in r.text and "Claude/Gemini не подключены" in r.text
+    assert r.route == "local" and "локальный ответ" in r.text and "облачные помощники не подключены" in r.text
 
 
 def test_local_only_by_choice_has_no_excuse_note(no_claude):

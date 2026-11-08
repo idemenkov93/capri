@@ -10,7 +10,7 @@ from typing import Callable
 
 from . import actions as A
 from . import commands as C
-from .llm import claude_code, gemini
+from .llm import claude_code, cloud, gemini
 from .llm.ollama_client import OllamaClient, OllamaError
 from .persona import system_prompt
 
@@ -30,7 +30,7 @@ class BrainError(RuntimeError):
 class Reply:
     text: str
     actions: list[A.Action] = field(default_factory=list)
-    route: str = "local"   # rules | local | claude | gemini | error
+    route: str = "local"   # rules | local | claude | gemini | groq | openrouter | mistral | error
     ask: bool = False      # Капри задала вопрос — после ответа слушать без «Капри»
 
 
@@ -150,6 +150,13 @@ UNIT_TO_MIN = {
 }
 
 
+def brain_title(route: str) -> str:
+    """claude → Claude, groq → Groq, local → локальная модель."""
+    if route in cloud.PROVIDERS:
+        return cloud.PROVIDERS[route].title
+    return {"gemini": "Gemini", "claude": "Claude"}.get(route, "локальная модель")
+
+
 def _human(minutes: int) -> str:
     if minutes % 60 == 0:
         h = minutes // 60
@@ -160,7 +167,8 @@ def _human(minutes: int) -> str:
 class Agent:
     def __init__(self, config: dict, llm: OllamaClient | None = None,
                  claude: Callable[[str, dict], str] = claude_code.ask, system=None, apps=None,
-                 gemini_ask: Callable[..., str] | None = None, gemini: Callable | None = None):
+                 gemini_ask: Callable[..., str] | None = None, gemini: Callable | None = None,
+                 cloud_ask: Callable[..., str] | None = None):
         self.cfg = config
         if apps is None:
             from .applist import AppIndex
@@ -183,6 +191,7 @@ class Agent:
         self.claude = claude
         from .llm import gemini as gmod
         self.gemini_ask = gemini_ask or gemini or gmod.ask      # в тестах — заглушка
+        self.cloud_ask = cloud_ask or cloud.ask                 # Groq / OpenRouter / Mistral (бесплатные)
         self._claude_limited_until = 0.0     # лимит Claude кончился — до этого времени Claude не трогаем
         self.history: list[dict] = []
         self.game = None      # GameMode из app.py: идёт ли игра, строгий ли режим, данные CS2
@@ -226,7 +235,7 @@ class Agent:
                                                           needs_confirm=False)], "rules")
         if m := RE_CLAUDE.match(text):
             return self._ask_claude(m.group(1), on_status)
-        if typed and not g and self.chat_brain in ("local", "gemini", "claude"):
+        if typed and not g and self.chat_brain in ("local", "gemini", "claude", *cloud.ORDER):
             # в чате выбран «мозг» — письменные вопросы идут ему (команды выше уже выполнились)
             if self.chat_brain == "local":
                 return self._local(text, on_status, on_token, should_stop, escalate=False)
@@ -659,6 +668,46 @@ class Agent:
                          "rules")
         return None
 
+    def _cloud_setup(self, text: str) -> Reply | None:
+        """Groq / OpenRouter (DeepSeek) / Mistral: «ключ groq gsk_…», «как подключить дипсик», «проверь groq»."""
+        t = text.strip(" .!?")
+        if (pk := cloud.parse_key(t)) is not None:
+            p, key = pk
+            try:
+                model = cloud.check_key(p.code, key)
+            except cloud.CloudError as e:
+                return Reply(f"Ключ {p.title} не сохранила: {e}", route="error")
+            except Exception as e:  # noqa: BLE001 — нет интернета и т.п.
+                return Reply(f"Не смогла проверить ключ {p.title}: {str(e)[:120]}", route="error")
+            try:
+                cloud.set_key(p.code, key)
+            except Exception as e:  # noqa: BLE001
+                return Reply(f"Ключ {p.title} рабочий, но сохранить не вышло: {e}", route="error")
+            from .log import log
+            log.info("ключ %s сохранён (%s), модель %s", p.title, cloud.mask(key), model)
+            return Reply(f"{p.title} подключён ({model}). Ключ {cloud.mask(key)} спрятала в Диспетчер учётных данных. "
+                         f"Выбери «{p.title}» над полем ввода в чате — или он ответит сам, если Claude и Gemini не смогут.",
+                         route="rules")
+        if re.search(r"(?:как|где)\s+(?:подключить|взять|получить|добавить)\s+(?:ключ\s+)?(?:grok|xai|икс\s*ай)\b", t, re.I):
+            return Reply("Grok (от xAI) — платный, его не подключаю. Бесплатный похожий по скорости — Groq (через q): "
+                         "скажи «как подключить groq».", route="rules")
+        if m := re.search(r"(?:как|где)\s+(?:подключить|взять|получить|добавить)\s+(?:ключ\s+)?(?:для\s+)?(\S+)", t, re.I):
+            if p := cloud.provider_for(m.group(1)):
+                extra = (" Официальный API DeepSeek платный, поэтому DeepSeek — бесплатно через OpenRouter."
+                         if re.search(r"deep|дип", m.group(1), re.I) else "")
+                return Reply(p.how + extra, [A.Action("open_url", p.key_page.split("//")[1], {"url": p.key_page},
+                                                      needs_confirm=False)], "rules")
+        if m := re.fullmatch(r"(?:проверь|протестируй|работает ли)\s+(\S+)", t, re.I):
+            if p := cloud.provider_for(m.group(1)):
+                if not self.cloud_ready(p.code):
+                    return Reply(f"{p.title} не подключён — скажи «как подключить {p.code}».", route="error")
+                try:
+                    ans = self.cloud_ask(p.code, "Ответь одной короткой фразой: ты на связи?", self._ccfg(p.code))
+                    return Reply(f"{p.title} работает: {ans[:120]}", route="rules")
+                except cloud.CloudError as e:
+                    return Reply(f"{p.title} не работает: {e}", route="error")
+        return None
+
     def _text_cmd(self, text: str) -> Reply | None:
         """Волна 2: буфер, перевод, письма, текст с экрана, QR. Результат — в окне у курсора (textui.py)."""
         t = text.strip(" .!?").lower().replace("ё", "е")
@@ -724,6 +773,8 @@ class Agent:
     def _rules(self, text: str) -> Reply | None:
         if (gs := self._gemini_setup(text)) is not None:
             return gs
+        if (cs := self._cloud_setup(text)) is not None:
+            return cs
         if (at := self._attitude_cmd(text)) is not None:
             return at
         if (dn := self._dnd_cmd(text)) is not None:
@@ -1014,6 +1065,30 @@ class Agent:
                   "\nОтвечай по делу и коротко — ответ озвучивается. Без markdown, кроме кода: код — целиком одним блоком ```язык```.")
         return self.gemini_ask(task, self._gcfg(), images=images, system=system)
 
+    def _ccfg(self, code: str) -> dict:
+        return dict(self.cfg.get(code) or {})
+
+    def cloud_ready(self, code: str) -> bool:
+        c = self._ccfg(code)
+        return bool(c.get("enabled", True)) and (self.cloud_ask is not cloud.ask or bool(cloud.get_key(code, c)))
+
+    def ready(self, p: str) -> bool:
+        if p == "ollama":
+            return True
+        if p == "claude":
+            return self._claude_ready()
+        if p == "gemini":
+            return self.gemini_ready()
+        return p in cloud.PROVIDERS and self.cloud_ready(p)
+
+    def _ask_cloud(self, code: str, task: str, images: list | None = None, system: str | None = None) -> str:
+        if system is None:
+            attitude = self.cfg.get("persona", {}).get("attitude", "sassy")
+            slang = self.cfg.get("persona", {}).get("slang", True)
+            system = (system_prompt(self.cfg["user_name"], attitude, slang) +
+                      "\nОтвечай по делу и коротко — ответ озвучивается. Без markdown, кроме кода: код — целиком одним блоком ```язык```.")
+        return self.cloud_ask(code, task, self._ccfg(code), images=images, system=system)
+
     def _claude_ready(self) -> bool:
         c = self.cfg["claude_code"]
         if not c.get("enabled", True):
@@ -1028,20 +1103,23 @@ class Agent:
         """Порядок, в котором спрашиваем помощников.
         Выбор из мастера → кто реально доступен → лимит Claude → игра (Gemini первым, в CS2 без Claude и без локальной)."""
         want = self.cfg.get("brain", {}).get("provider", "claude")
-        base = {"claude": ["claude", "gemini", "ollama"], "gemini": ["gemini", "claude", "ollama"]}.get(want, ["ollama"])
-        order = [p for p in base if p == "ollama" or (p == "claude" and self._claude_ready())
-                 or (p == "gemini" and self.gemini_ready())]
+        everyone = ("claude", "gemini", *cloud.ORDER)
+        # выбранный в мастере — первым, потом остальные облачные (бесплатные — после Claude/Gemini), потом локальная
+        base = ["ollama"] if want not in everyone else [want] + [p for p in everyone if p != want] + ["ollama"]
+        order = [p for p in base if self.ready(p)]
         if time.monotonic() < self._claude_limited_until and "claude" in order:
             order.remove("claude")
         g = self.game if for_game else None
         if g is not None and getattr(g, "active", False):
-            if "gemini" in order and self._gcfg().get("in_games", True):
-                order.remove("gemini")
-                order.insert(0, "gemini")              # в игре — быстрый HTTP-запрос, без процессов и окон
+            # в игре — быстрые HTTP-запросы (Gemini, Groq…), без процессов и окон; Claude и локальная — после них
+            http = [p for p in order if p not in ("claude", "ollama")]
+            if not self._gcfg().get("in_games", True) and "gemini" in http:
+                http.remove("gemini")
+            order = http + [p for p in order if p not in http]
             if getattr(g, "strict", False):
                 # CS2: Claude — это минуты и нагрузка на процессор, локальная модель — видеокарта
-                # есть Gemini — только он; нет — Claude (между раундами), но не локальная
-                order = ["gemini"] if "gemini" in order else [p for p in order if p == "claude"]
+                # есть облачный по HTTP — только они; нет — Claude (между раундами), но не локальная
+                order = http if http else [p for p in order if p == "claude"]
         return order
 
     def _style_prefix(self) -> str:
@@ -1075,6 +1153,11 @@ class Agent:
                                            system=self._style_prefix() if persona else ""), "gemini"
                 except gemini.GeminiError as e:
                     errors.append(f"Gemini: {e}")
+            elif p in cloud.PROVIDERS:
+                try:
+                    return self._ask_cloud(p, task, images, self._style_prefix() if persona else ""), p
+                except cloud.CloudError as e:
+                    errors.append(f"{cloud.PROVIDERS[p].title}: {e}")
             elif images:
                 vm = self.cfg.get("brain", {}).get("vision_model")
                 if not vm:
@@ -1116,11 +1199,11 @@ class Agent:
         """Умный помощник: выбранный в мастере; в играх — Gemini; кончился лимит Claude — следующий по списку.
         force — «мозг» выбран в чате: спрашиваем только его."""
         order = self._order()
-        if force in ("claude", "gemini"):
-            ready = self._claude_ready() if force == "claude" else self.gemini_ready()
-            if not ready:
+        if force in ("claude", "gemini", *cloud.ORDER):
+            if not self.ready(force):
                 how = ("Claude не установлен или выключен — «⚙ Мастер настройки»." if force == "claude"
-                       else "Ключа Gemini нет — скажи «как подключить gemini».")
+                       else "Ключа Gemini нет — скажи «как подключить gemini»." if force == "gemini"
+                       else f"Ключа {cloud.PROVIDERS[force].title} нет — скажи «как подключить {force}».")
                 return Reply(how, route="error")
             order = [force]
         want = self.cfg.get("brain", {}).get("provider", "claude")
@@ -1131,7 +1214,7 @@ class Agent:
             # нет ни Claude, ни Gemini — отвечает локальная модель (попроще, но честно)
             r = self._local(label or task, on_status, escalate=False, remembered=remembered)
             if r.route == "local" and want != "ollama":
-                r.text += "\n\n(Отвечаю сама — Claude/Gemini не подключены, поэтому попроще.)"
+                r.text += "\n\n(Отвечаю сама — облачные помощники не подключены, поэтому попроще.)"
             return r
         on_status("CLAUDE")
         if not remembered:
@@ -1164,6 +1247,15 @@ class Agent:
                     log.warning("gemini не ответил (%s)", e)
                     errors.append(f"Gemini не ответил: {e}")
                     why = why or "Gemini не ответил"
+            elif p in cloud.PROVIDERS:
+                title = cloud.PROVIDERS[p].title
+                try:
+                    answer, route = self._ask_cloud(p, gemini_task or task, images), p
+                    break
+                except cloud.CloudError as e:
+                    log.warning("%s не ответил (%s)", title, e)
+                    errors.append(f"{title} не ответил: {e}")
+                    why = why or f"{title} не ответил"
             elif images:
                 vm = self.cfg.get("brain", {}).get("vision_model")
                 if not vm:
@@ -1184,7 +1276,7 @@ class Agent:
         if answer is None:
             return Reply(errors[-1] if errors else "Умный помощник недоступен.", route="error")
         if why:
-            answer = f"{why} — ответил {'Gemini' if route == 'gemini' else 'Claude' if route == 'claude' else 'локальная модель'}. " + answer
+            answer = f"{why} — ответил {brain_title(route)}. " + answer
         self._remember("assistant", answer)
         if RE_WANTS_CODE.search(label or task) and not images:
             if saved := self._save_code(answer, route):

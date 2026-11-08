@@ -4,7 +4,7 @@ from __future__ import annotations
 import html
 import re
 
-from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QGuiApplication, QTextCursor
 from PySide6.QtWidgets import (QButtonGroup, QCompleter, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
                                QTextBrowser, QToolButton, QVBoxLayout, QWidget)
@@ -36,7 +36,8 @@ COMPLETIONS = [
     "можно беспокоить", "начни учёбу на 45 минут", "режим учёбы", "урок закончился", "поиск работы", "игровой режим",
     "ночной режим", "режим работы", "какие у меня экраны", "громкость 30", "поставь таймер на 10 минут",
     "напомни через час ", "запиши: ", "погода", "сколько ты ешь ресурсов", "собери отчёт", "обнови капри",
-    "проверь gemini", "как подключить gemini", "открой ", "найди на ютубе ", "что сейчас играет", "следующий трек",
+    "проверь gemini", "как подключить gemini", "как подключить groq", "как подключить дипсик",
+    "как подключить mistral", "проверь groq", "проверь дипсик", "ключ groq ", "ключ openrouter ", "ключ mistral ", "открой ", "найди на ютубе ", "что сейчас играет", "следующий трек",
     "/claude ", "что ты умеешь",
 ]
 
@@ -45,6 +46,11 @@ BRAINS = (("auto", "Авто", "Как обычно: простое — лока
           ("local", "Локальная", "Только модель на этом компьютере (без интернета)"),
           ("gemini", "Gemini", "Только Gemini (бесплатный ключ)"),
           ("claude", "Claude", "Только Claude (подписка)"))
+# бесплатные облачные — в меню «Ещё ▾», чтобы строка не разъезжалась
+MORE_BRAINS = (("groq", "Groq", "Groq — бесплатно, очень быстро (Llama, Qwen, GPT-OSS)"),
+               ("openrouter", "DeepSeek (OpenRouter)", "OpenRouter — только бесплатные модели: DeepSeek, Qwen, Llama…"),
+               ("mistral", "Mistral", "Mistral — бесплатный план Experiment"))
+LOOKS = (("glow", "✨", "Вид: свечение по краю экрана (без персонажа)"), ("capri", "🧍", "Вид: Капри на экране"))
 
 STYLE = """
 QWidget { background: #0b0b14; color: #e6e6f0; font-family: Consolas, 'JetBrains Mono', monospace; font-size: 13px; }
@@ -55,7 +61,8 @@ QPushButton:hover { background: #00f0ff; color: #0b0b14; }
 QLabel#live { color: #ffd23f; border: 1px dashed #ffd23f; padding: 6px; }
 """
 
-ROUTE_LABEL = {"rules": "⚡", "local": "◆ local", "claude": "✦ Claude", "gemini": "✧ Gemini", "error": "✖"}
+ROUTE_LABEL = {"rules": "⚡", "local": "◆ local", "claude": "✦ Claude", "gemini": "✧ Gemini", "groq": "✧ Groq",
+               "openrouter": "✧ OpenRouter", "mistral": "✧ Mistral", "error": "✖"}
 
 
 class ChatExtras:
@@ -99,11 +106,17 @@ class ChatExtras:
         line.setCompleter(comp)
 
     def set_brain_available(self, avail: dict):
-        """{code: (можно?, подсказка)} — недоступных «мозгов» не выбрать, в подсказке — почему."""
+        """{code: (можно?, подсказка)} — недоступных «мозгов» не выбрать, в подсказке — почему.
+        В «Ещё ▾» неподключённые не прячем: выбор такого пункта — инструкция «как подключить»."""
         for code, (ok, tip) in avail.items():
             if b := self.brain_buttons.get(code):
                 b.setEnabled(ok)
                 b.setToolTip(tip)
+            elif act := self.more_actions.get(code):
+                self._more_ok[code] = ok
+                title = dict((c, t) for c, t, _ in MORE_BRAINS)[code]
+                act.setText(title if ok else f"{title} — подключить…")
+                act.setToolTip(tip)
 
     def _brain_row(self) -> QHBoxLayout:
         brow = QHBoxLayout()
@@ -120,12 +133,65 @@ class ChatExtras:
             self.brain_buttons[code] = b
             b.clicked.connect(lambda _=False, c=code: self.brain_changed.emit(c))
             brow.addWidget(b)
+        # «Ещё ▾»: Groq, DeepSeek (OpenRouter), Mistral — бесплатные
+        self.more_btn = QPushButton("Ещё ▾", objectName="brain", checkable=True)
+        self.more_btn.setToolTip("Бесплатные облачные: Groq, DeepSeek (через OpenRouter), Mistral")
+        self.brain_group.addButton(self.more_btn)
+        menu = QMenu(self.more_btn)
+        self.more_actions = {}
+        self._more_ok: dict[str, bool] = {}
+        for code, title, tip in MORE_BRAINS:
+            act = menu.addAction(title)
+            act.setToolTip(tip)
+            act.triggered.connect(lambda _=False, c=code: self._pick_more(c))
+            self.more_actions[code] = act
+        menu.setToolTipsVisible(True)
+        # меню закрыли, ничего не выбрав, — вернуть отметку на того, кто отвечает сейчас
+        menu.aboutToHide.connect(lambda: QTimer.singleShot(0, lambda: self.set_brain(self._brain_now)))
+        self.more_btn.setMenu(menu)
+        self.brain_group.buttonToggled.connect(self._brain_toggled)
+        brow.addWidget(self.more_btn)
         brow.addStretch(1)
+        # вид: свечение или Капри — как радиокнопки
+        lbl2 = QLabel("Вид:")
+        lbl2.setStyleSheet("color:#5b6b85; font-size:10px;")
+        brow.addWidget(lbl2)
+        self.look_group = QButtonGroup(self)
+        self.look_buttons: dict[str, QPushButton] = {}
+        for code, title, tip in LOOKS:
+            b = QPushButton(title, objectName="brain", checkable=True)
+            b.setToolTip(tip)
+            self.look_group.addButton(b)
+            self.look_buttons[code] = b
+            b.clicked.connect(lambda _=False, c=code: self.look_changed.emit(c))
+            brow.addWidget(b)
         self.brain_buttons["auto"].setChecked(True)
         return brow
 
+    def _pick_more(self, code: str):
+        if not self._more_ok.get(code, True):
+            self.quick.emit(f"как подключить {code}")      # не подключён — покажем, как (ключ бесплатный)
+            self.set_brain(self._brain_now)
+            return
+        self.set_brain(code)
+        self.brain_changed.emit(code)
+
+    def _brain_toggled(self, button, checked: bool):
+        if button is self.more_btn and not checked:
+            self.more_btn.setText("Ещё ▾")
+
+    _brain_now = "auto"
+
     def set_brain(self, code: str):
+        self._brain_now = code
         if b := self.brain_buttons.get(code):
+            b.setChecked(True)
+        elif code in self.more_actions:
+            self.more_btn.setChecked(True)
+            self.more_btn.setText(dict((c, t) for c, t, _ in MORE_BRAINS)[code].split(" (")[0] + " ▾")
+
+    def set_look(self, code: str):
+        if b := self.look_buttons.get(code):
             b.setChecked(True)
 
     def set_dnd_label(self, text: str):
@@ -162,6 +228,7 @@ QToolButton#quick::menu-indicator { image: none; width: 0; }
 QPushButton#brain:disabled { color: #2c3a50; border-color: #16233a; }
 QPushButton#brain { border: 1px solid #1d3550; color: #5b6b85; padding: 2px 8px; font-size: 10px; background: transparent; }
 QPushButton#brain:checked { border-color: #ff2a6d; color: #ff2a6d; }
+QPushButton#brain::menu-indicator { image: none; width: 0; }
 """
 
 
@@ -171,6 +238,7 @@ class ChatWindow(ChatExtras, QWidget):
     stop_requested = Signal()
     mic_clicked = Signal()
     brain_changed = Signal(str)
+    look_changed = Signal(str)
 
     def __init__(self):
         super().__init__(None, Qt.WindowStaysOnTopHint)

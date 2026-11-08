@@ -138,6 +138,8 @@ class CapriApp:
         self.agent.chat_brain = self.prefs.get("chat_brain", "auto")
         self.chat.set_brain(self.agent.chat_brain)
         self.chat.brain_changed.connect(self.set_chat_brain)
+        if hasattr(self.chat, "look_changed"):
+            self.chat.look_changed.connect(self.set_look)
         self.chat.quick.connect(self.on_quick)
         QTimer.singleShot(3000, self.refresh_brain_buttons)
         self.chat.stop_requested.connect(self.stop_current)
@@ -147,6 +149,8 @@ class CapriApp:
         from .ui.glow import EdgeGlow
         self.glow = EdgeGlow()
         self._idle_hidden = False
+        if hasattr(self.chat, "set_look"):
+            self.chat.set_look(self.look)
         self.show_avatar()
         self._idle_timer = QTimer(interval=3000, timeout=self._idle_check)
         self._idle_timer.start()
@@ -490,7 +494,7 @@ class CapriApp:
         bm = menu.addMenu(t("brain", L))
         bg = QActionGroup(bm)
         want = self.cfg.get("brain", {}).get("provider", "claude")
-        for code in ("claude", "gemini", "ollama"):
+        for code in ("claude", "gemini", "groq", "openrouter", "mistral", "ollama"):
             act = QAction(t(f"brain_{code}", L), bm, checkable=True, checked=(code == want))
             act.triggered.connect(lambda _=False, c=code: self.set_brain(c))
             bg.addAction(act)
@@ -635,6 +639,10 @@ class CapriApp:
             "claude": (a._claude_ready(), "Только Claude (подписка)" if a._claude_ready()
                        else "Claude не установлен или выключен — «⚙ Мастер настройки»"),
         }
+        from .llm import cloud
+        for code, p in cloud.PROVIDERS.items():
+            ok = a.cloud_ready(code)
+            avail[code] = (ok, p.note if ok else f"{p.title} не подключён — нажми, покажу как (ключ бесплатный)")
         if hasattr(self.chat, "set_brain_available"):
             self.chat.set_brain_available(avail)
         if not avail.get(a.chat_brain, (True,))[0]:
@@ -646,9 +654,12 @@ class CapriApp:
         self.agent.chat_brain = code
         self.prefs.set("chat_brain", code)
         tm = self.cfg["ollama"].get("text_model")
+        from .agent import brain_title
+        if hasattr(self.chat, "set_brain"):
+            self.chat.set_brain(code)
         self.chat.add_system({"auto": "Отвечаю как обычно: простое — сама, сложное — помощник из мастера.",
-                              "local": "В чате отвечает локальная модель" + (f" ({tm})" if tm else "") + ".",
-                              "gemini": "В чате отвечает Gemini.", "claude": "В чате отвечает Claude."}[code])
+                              "local": "В чате отвечает локальная модель" + (f" ({tm})" if tm else "") + "."}.get(
+            code, f"В чате отвечает {brain_title(code)}."))
 
     def set_brain(self, code: str):
         """Сменить умного помощника сразу, без перезапуска (и записать в config.yaml)."""
@@ -1095,6 +1106,8 @@ class CapriApp:
 
     def set_look(self, look: str):
         self.prefs.set("look", look)
+        if hasattr(self.chat, "set_look"):
+            self.chat.set_look(look)
         if look == "glow":
             self.avatar.hide()
             self.glow.set_status(getattr(self, "state", "ONLINE"))

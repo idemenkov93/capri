@@ -39,7 +39,8 @@ STATE_LINE = {
     "TALKING": "Capri is replying…", "SPEAKING": "Capri is speaking…", "LISTENING": "Capri is listening…",
     "ERROR": "Something broke.", "TYPING": "You are typing…",
 }
-ROUTE_LABEL = {"rules": "⚡ DIRECT", "local": "◆ LOCAL", "claude": "✦ CLAUDE", "gemini": "✧ GEMINI", "error": "✖ ERROR"}
+ROUTE_LABEL = {"rules": "⚡ DIRECT", "local": "◆ LOCAL", "claude": "✦ CLAUDE", "gemini": "✧ GEMINI", "groq": "✧ GROQ",
+               "openrouter": "✧ OPENROUTER", "mistral": "✧ MISTRAL", "error": "✖ ERROR"}
 
 STYLE = """
 QWidget { color: #d8e3f5; font-family: 'Cascadia Mono', Consolas, 'JetBrains Mono', monospace; font-size: 12px; }
@@ -305,6 +306,7 @@ class Viewport(QWidget):
 
 class HudWindow(ChatExtras, QWidget):
     brain_changed = Signal(str)
+    look_changed = Signal(str)
     quick = Signal(str)
     submitted = Signal(str)
     stop_requested = Signal()
