@@ -65,7 +65,8 @@ class LiveController(QObject):
     # ------------------------------------------------------------------ настройки (data/state.json → live)
     def prefs(self) -> dict:
         d = {"language": "de", "target": "ru", "mic": True, "translate_with": "auto", "names": [], "triggers": [],
-             "signals": True, "geometry": None, "model": "auto"}
+             "signals": True, "geometry": None, "model": "auto",
+             "source": "auto", "teams_name": ""}
         return {**d, **(self.app.prefs.get("live") or {})}
 
     def set_pref(self, **kw):
@@ -149,9 +150,11 @@ class LiveController(QObject):
             on_partial=self.sig_partial.emit, on_trigger=self.sig_trigger.emit, on_status=self.sig_status.emit,
             translator=tr, gpu=gpu_available(), capture_factory=Capture, speakers=self.speakers,
             embedder_getter=self._embedder_getter)
+        self.session.me = {n for n in [p.get("teams_name") or "", str(self.app.cfg.get("user_name") or "")] if n}
         self.started = dt.datetime.now()
         self.folder = None
         self.session.start()
+        self._start_teams(p)
         if tr.order()[0] != "local" and gpu_available():
             # переводит облако — освобождаем видеопамять от локальной модели под точное распознавание
             import threading
@@ -167,6 +170,9 @@ class LiveController(QObject):
         if not self.running:
             return "Субтитры и так выключены."
         sess, self.session = self.session, None
+        if self.teams is not None:
+            self.teams.stop()
+            self.teams = None
         sess.stop()
         if self.bar:
             self.bar.hide()
@@ -187,6 +193,36 @@ class LiveController(QObject):
                                                                ("📂 Транскрипт", lambda: self._open(self.folder / "транскрипт.md"))],
                           copy=False, markdown=False)
         return f"Выключила субтитры. Записала {len(lines)} фраз — транскрипт в «Документы\\Capri\\Уроки»."
+
+    # ------------------------------------------------------------------ субтитры Teams
+    teams = None
+
+    def _start_teams(self, p: dict):
+        """source: auto — субтитры Teams, если они включены в звонке, иначе звук; audio — только звук."""
+        import sys
+        if p.get("source", "auto") == "audio" or sys.platform != "win32":
+            return
+        from ..config import expand
+        from .teams import TeamsCaptions, clean_name
+        sess = self.session
+
+        def on_event(ev):
+            if self.session is not sess:
+                return
+            name = clean_name(ev.speaker)
+            if ev.kind == "final":
+                sess.external_line(name, ev.text)
+            else:
+                sess.external_partial("Ты" if sess.is_me(name) else name, ev.text)
+
+        def on_state(active: bool):
+            if self.session is not sess:
+                return
+            sess.external = active
+            self.sig_status.emit("Читаю субтитры Teams: имена и текст — из Teams, перевожу сразу." if active else
+                                 "Субтитры Teams пропали — слушаю звук сама.")
+        self.teams = TeamsCaptions(on_event, on_state, dump_path=expand("data/teams_uia.txt"))
+        self.teams.start()
 
     # ------------------------------------------------------------------ кто говорит
     def _embedder_getter(self):
@@ -227,6 +263,15 @@ class LiveController(QObject):
         from ..study import fast_ask, parse_json
         from . import glossary
         pop = self.app.text.popup
+        try:
+            known = [e for e in glossary.find(word, limit=3)
+                     if word.lower() in [v.lower() for v in glossary.variants(e["de"])]]
+        except Exception:  # noqa: BLE001
+            known = []
+        if known:                                   # есть в словаре курса — мгновенно, без интернета
+            e = known[0]
+            pop.show_text(f"🔤 {e['de']}", glossary.line(e) + "\n\n_из словаря курса_", copy_text=f"{e['de']} — {e['ru']}")
+            return
         pop.show_busy(f"🔤 {word}", "Смотрю слово…")
         prompt = (f"Немецкое слово «{word}» в предложении «{sentence[:300]}». Ответ строго JSON без markdown: "
                   '{"de": "<начальная форма с артиклем для существительных>", "ru": "<перевод в этом смысле, 1–3 слова>", '
@@ -388,6 +433,16 @@ class LiveController(QObject):
             if self.session:
                 self.session.s.signals = bool(p["on"])
             return "Сигналы включены." if p["on"] else "Сигналы выключила — субтитры работают тихо."
+        if do == "teams_name":
+            self.set_pref(teams_name=p["name"])
+            if self.session is not None:
+                self.session.me.add(p["name"])
+            return f"Запомнила: в Teams ты — «{p['name']}». Твои фразы покажу как «Ты»."
+        if do == "source":
+            self.set_pref(source=p["value"])
+            return ("Субтитры беру только из звука (Whisper)." if p["value"] == "audio" else
+                    "Если в Teams включены Live-Untertitel — беру имена и текст оттуда, иначе слушаю звук.") + \
+                (" Сработает со следующего включения субтитров." if self.running else "")
         if do == "mic":
             self.set_pref(mic=bool(p["on"]))
             return ("Буду переводить и тебя (микрофон)." if p["on"] else "Твой микрофон больше не перевожу.") + \
@@ -407,11 +462,24 @@ class LiveController(QObject):
         if do in ("search", "explain"):
             from . import importer
             term = p["term"]
+            from . import glossary
             hits = N.search(term)
             mats = importer.search_materials(term)
+            try:
+                words = glossary.find(term, limit=5)
+            except Exception:  # noqa: BLE001 — словарь не прочитался: ищем без него
+                words = []
+            if not hits and not mats and not words:
+                return f"В уроках, материалах и словаре «{term}» не нашла."
+            text = ("**📖 Словарь курса:**\n" + "\n".join(f"• {glossary.line(e)}" for e in words) + "\n\n"
+                    if words else "")
             if not hits and not mats:
-                return f"В уроках и материалах «{term}» не нашла."
-            text = "\n\n".join(f"**{f.name[:10]} — {title}**\n" + "\n".join(f"• {h[:160]}" for h in lines)
+                if do == "explain":
+                    self.explain(term, text)
+                    return f"Объясняю «{term}»."
+                self.app.text.popup.show_text(f"📖 {term}", text.strip(), [("🧠 Объясни", lambda: self.explain(term, text))])
+                return f"{words[0]['de']} — {words[0]['ru']}."
+            text += "\n\n".join(f"**{f.name[:10]} — {title}**\n" + "\n".join(f"• {h[:160]}" for h in lines)
                                for f, title, lines in hits)
             if mats:
                 text += ("\n\n" if text else "") + "**📁 Материалы:**\n\n" + "\n\n".join(
@@ -426,6 +494,19 @@ class LiveController(QObject):
             if hits:
                 return f"«{term}» было на {len(hits)} уроках, последний — {hits[0][0].name[:10]}: {hits[0][1]}."
             return f"«{term}» есть в материалах: {mats[0][1]}."
+        if do == "import_glossary":
+            from PySide6.QtWidgets import QFileDialog
+            from . import glossary
+            f = p.get("path") or QFileDialog.getOpenFileName(
+                None, "Бестиарий / словарь курса", "", "Словарь (*.csv *.md *.txt);;Все файлы (*)")[0]
+            if not f:
+                return ""
+            try:
+                n = glossary.import_file(Path(f))
+            except Exception as e:  # noqa: BLE001
+                return f"Не получилось импортировать словарь: {e}"
+            return (f"Добавила словарь «{Path(f).stem}»: {n} терминов (всего в словаре {glossary.count()}). "
+                    "Субтитры переводят термины по нему, а «что такое …» отвечаю сразу.")
         if do == "import_granola":
             return self._run_import("Granola", lambda progress: importer_granola())
         if do == "import_folder":
@@ -461,7 +542,16 @@ class LiveController(QObject):
         prompt = (f"Объясни тему «{term}» по-русски, простыми словами, для ученика курса IT-Support (немецкий B1). "
                   "Опирайся на фрагменты из его уроков и материалов ниже; немецкие термины оставляй с переводом; "
                   "в конце — на каком уроке это было и 2 вопроса для самопроверки.\n\n" + found[:12000])
-        job = Job(lambda: self.app.agent.ask_text(prompt))
+        def ask():
+            # уроки — личное: объясняет локальная модель; не отвечает (Ollama выключена) — обычный «мозг»
+            from .. import mentor
+            if self.app.prefs.get("mentor_local", True) is not False:
+                try:
+                    return mentor.ask_local(self.app.agent, prompt) + "\n\n_🔒 Объяснила локальная модель._"
+                except Exception:  # noqa: BLE001
+                    pass
+            return self.app.agent.ask_text(prompt)
+        job = Job(ask)
         job.done.connect(lambda res, err, secs: pop.show_text(f"🧠 {term}", err or res, copy_text=None if err else res))
         self._jobs = [j for j in self._jobs if j.isRunning()] + [job]
         job.start()

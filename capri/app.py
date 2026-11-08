@@ -834,6 +834,34 @@ class CapriApp:
                                                              copy_text=command)))
         pop.show_text(title, text, acts)
 
+    def run_mentor(self, p: dict):
+        """Наставник (mentor.py): локальная модель + твои файлы (+ интернет по теме). Долго — в фоне."""
+        from . import hardware, mentor
+        if p.get("do") == "install":
+            best = hardware.text_model(self.hw or hardware.detect())
+            if best is None:
+                self.chat.add_system("Сильнее текущей модели на этом компьютере нормально работать не будет.")
+                return
+            self.set_model("text", best.model)
+            return
+        from .convertui import Job
+        pop = self.text.popup
+        pop.show_busy("🎓 Наставник", "Ищу в твоих материалах…")
+        job = Job(lambda: mentor.run(self.agent, p, status=lambda s: job.progress.emit(0.0, s)))
+        job.progress.connect(lambda f, s: pop.status.setText(s))
+
+        def done(res, err, secs):
+            if err:
+                hint = ("\n\nЛокальная модель не отвечает — запущена ли Ollama?" if "connect" in err.lower() or
+                        "ollama" in err.lower() else "")
+                pop.show_text("🎓 Наставник", f"Не получилось: {err}{hint}", copy=False, markdown=False)
+                return
+            title, text = res
+            pop.show_text(title, text)
+        job.done.connect(done)
+        self._mentor_jobs = [j for j in getattr(self, "_mentor_jobs", []) if j.isRunning()] + [job]
+        job.start()
+
     def run_admin_action(self, act):
         from PySide6.QtGui import QGuiApplication
         k, p = act.kind, act.params
@@ -1648,6 +1676,9 @@ class CapriApp:
             msg = self.live.handle(act.params)
             if msg:
                 self.chat.add_system(msg)
+            return
+        if act.kind == "mentor":
+            self.run_mentor(act.params)
             return
         if act.kind == "backup":
             self.backup_now() if act.params.get("do") == "now" else self.backup_setup()

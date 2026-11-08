@@ -26,6 +26,9 @@ RE_MORNING_AUTO = re.compile(r"^(?P<on>включи|выключи)\s+утрен
 RE_COURSE_END = re.compile(r"^(?:курс|учёба|учеба|weiterbildung|вайтербильдунг)\s+(?:заканчивается|кончается|до)\s+(?P<d>.+)$", re.I)
 RE_HINT = re.compile(r"^(?:подскажи\s+(?:ответ|что\s+ответить)|что\s+(?:мне\s+)?ответить|какой\s+был\s+вопрос|"
                      r"что\s+(?:меня\s+)?спросили|о\s+ч[её]м\s+(?:меня\s+)?спросили)\??$", re.I)
+RE_WHATIS = re.compile(r"^(?:что\s+такое|что\s+значит|что\s+означает|как\s+переводится|переведи\s+термин|"
+                       r"was\s+(?:ist|bedeutet|hei(?:ß|ss)t))\s+[«\"']?(?P<w>[^«»\"'?]{2,50}?)[»\"']?\s*\??$|"
+                       r"^(?:в\s+словаре|в\s+бестиарии|найди\s+в\s+(?:словаре|бестиарии))\s+(?P<w2>.{2,50}?)\??$", re.I)
 RE_ANSWER = re.compile(r"^(?:помоги\s+ответить|как\s+ответить|ответ\s+учителю|быстрый\s+ответ|хочу\s+сказать)"
                        r"\s*[:,—-]?\s*(?P<what>.+)$", re.I | re.S)
 RE_TRAIN = re.compile(r"^(?:тренируй|тренировка|потренируй|потренируемся|начни\s+тренировку)\s*(?P<what>.*)$", re.I)
@@ -292,6 +295,25 @@ class Trainer:
         return s
 
 
+def glossary_reply(Reply, term: str, strict: bool = True):
+    """«что такое Freigabe» — из словаря курса мгновенно, без интернета. Нет точного совпадения → None (дальше — мозг)."""
+    try:
+        from .live import glossary
+        hits = glossary.find(term, limit=5)
+    except Exception:  # noqa: BLE001 — словаря нет / не читается
+        return None
+    t = re.sub(r"^(?:der|die|das)\s+", "", term.lower(), flags=re.I)
+    exact = [e for e in hits if t in [v.lower() for v in glossary.variants(e["de"])] + [e["de"].lower(), e["ru"].lower()]]
+    show = exact or ([] if strict else hits)
+    if not show:
+        return None
+    e = show[0]
+    text = "\n\n".join(glossary.line(x) for x in show[:3])
+    text += f"\n\n_Из словаря курса. Подробнее — «объясни по урокам {e['de']}»._"
+    return Reply(f"{e['de']} — {e['ru']}.", [A.Action("popup", "Словарь", {
+        "title": f"📖 {e['de']}", "text": text, "command": ""}, needs_confirm=False)], "rules")
+
+
 # ====================================================================== маршрутизация (из agent._rules)
 def route(agent, text: str):
     from .agent import Reply
@@ -306,6 +328,10 @@ def route(agent, text: str):
                       copy_first=True)
     if m := RE_FIX.match(t):
         return _popup(agent, Reply, "Исправление", FIX_PROMPT.format(what=m.group("what").strip()), copy_first=True)
+    if m := RE_WHATIS.match(t.strip(" .!")):
+        r = glossary_reply(Reply, (m.group("w") or m.group("w2")).strip(), strict=not m.group("w2"))
+        if r is not None:
+            return r
     if RE_WORD.match(t):
         de, ru, ex = word_of_day()
         return Reply(f"Слово дня: {de} — {ru}.", [A.Action("popup", "Слово дня", {

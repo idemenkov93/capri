@@ -132,6 +132,8 @@ class LiveSession:
         self._rx = trigger_regex(self.s.names + self.s.triggers)
         self._last_partial = 0.0
         self.errors: list[str] = []
+        self.external = False                  # True — фразы приходят из субтитров Teams (teams.py)
+        self.me: set[str] = set()              # как тебя зовут в Teams → «Ты»
 
     # ------------------------------------------------------------------ старт / стоп
     def start(self):
@@ -172,6 +174,8 @@ class LiveSession:
     # ------------------------------------------------------------------ звук → фразы
     def push(self, source: str, frames: np.ndarray):
         """Сюда кладут звук 16 кГц моно (из capture.py или тестов)."""
+        if self.external:                      # текст идёт из субтитров Teams — Whisper не нужен
+            return
         if not self.paused:
             try:
                 self.audio_q.put_nowait((source, frames))
@@ -245,6 +249,37 @@ class LiveSession:
                 self.on_trigger(line)
             if self.s.translate and self.translator is not None and lang != self.s.target:
                 self.tr_q.put(line)
+
+    # ------------------------------------------------------------------ готовый текст (субтитры Teams)
+    def is_me(self, speaker: str) -> bool:
+        sp = speaker.lower()
+        return bool(sp) and any(n.lower() in sp.split() or n.lower() == sp for n in self.me | set(self.s.names))
+
+    def external_partial(self, speaker: str, text: str):
+        if not self.paused:
+            self.on_partial("system", f"{speaker}: {text}" if text and speaker else text)
+
+    def external_line(self, speaker: str, text: str, lang: str = "") -> Line | None:
+        """Фраза из Teams: имя и текст уже есть — сразу в окно и в перевод."""
+        text = clean(text)
+        if self.paused or not text:
+            return None
+        me = self.is_me(speaker)
+        lang = lang or ("" if self.s.language == "auto" else self.s.language)
+        self._id += 1
+        now = self.elapsed()
+        line = Line(self._id, "mic" if me else "system", text, lang, now, now, speaker="Ты" if me else speaker)
+        if self.speakers is not None and not me and speaker:
+            line.spk = self.speakers.named(speaker)
+        if self._rx and not me and (m := self._rx.search(text)):
+            line.trigger = m.group(1)
+        self.lines.append(line)
+        self.on_line(line)
+        if line.trigger and self.s.signals:
+            self.on_trigger(line)
+        if self.s.translate and self.translator is not None and lang != self.s.target:
+            self.tr_q.put(line)
+        return line
 
     def _embed(self, audio: np.ndarray):
         if self.embedder_getter is None:

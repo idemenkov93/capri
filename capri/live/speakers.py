@@ -147,6 +147,18 @@ class Speakers:
         self.last = s
         return s
 
+    def named(self, name: str) -> int:
+        """Имя уже известно (субтитры Teams) → номер этого говорящего в уроке (без отпечатка голоса)."""
+        for s in self.speakers:
+            if s.name == name:
+                self.last = s
+                return s.id
+        dim = len(self.speakers[0].centroid) if self.speakers else 256
+        s = Speaker(len(self.speakers) + 1, name, np.zeros(dim, np.float32), count=0)
+        self.speakers.append(s)
+        self.last = s
+        return s.id
+
     def _recall(self, e: np.ndarray) -> tuple[str, bool]:
         best, sim = "", -1.0
         for name, vec in self.memory.items():

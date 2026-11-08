@@ -244,7 +244,7 @@ def make_report(data_dir: Path, dest: Path, extra: str = "") -> Path:
     out = Path(dest) / f"Capri-отчёт-{dt.datetime.now():%Y%m%d-%H%M}.zip"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for name in ("capri.log", "capri.log.1", "usage.csv", "usage.old.csv", "selftest.txt", "pc_report.txt",
-                     "cs2_matches.jsonl"):
+                     "cs2_matches.jsonl", "teams_uia.txt"):
             p = data_dir / name
             if p.exists():
                 z.write(p, name)

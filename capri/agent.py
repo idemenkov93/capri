@@ -790,6 +790,9 @@ class Agent:
             return dn
         if (tx := self._text_cmd(text)) is not None:
             return tx
+        from . import mentor                                 # 1.9: наставник на локальной модели
+        if (mt := mentor.route(self, text)) is not None:
+            return mt
         from . import study                                  # волна 4: языки, сводка, подсказка, тренажёр
         if (st := study.route(self, text)) is not None:
             return st

@@ -29,6 +29,13 @@ RE_IMPORT_GRANOLA = re.compile(r"^(?:импортируй|загрузи|заб�
                                r"^импорт\s+(?:из\s+)?(?:гранол\w*|granola)", re.I)
 RE_IMPORT_FOLDER = re.compile(r"^(?:импортируй|загрузи|добавь)\s+(?:папку|материал\w*|файлы)(?:\s+(?:курса|урок\w*|"
                               r"цукунфт\w*|zukunftsmotor))?$", re.I)
+RE_TEAMS_NAME = re.compile(r"^(?:в\s+(?:тимсе|тимс|teams)\s+)?меня\s+зовут\s+(?P<n>[^.?!]{2,50}?)\s+в\s+(?:тимсе|тимс|teams)$|"
+                           r"^в\s+(?:тимсе|тимс|teams)\s+(?:меня\s+зовут|я)\s+(?P<n2>[^.?!]{2,50})$", re.I)
+RE_TEAMS_SRC = re.compile(r"^(?P<off>не\s+читай|не\s+бери|выключи)\s+субтитры\s+(?:из\s+)?(?:тимс\w*|teams)$|"
+                          r"^(?:читай|бери|включи)\s+субтитры\s+(?:из\s+)?(?:тимс\w*|teams)$|"
+                          r"^(?P<off2>субтитры\s+только\s+(?:по|из)\s+звук\w*)$", re.I)
+RE_IMPORT_GLOSSARY = re.compile(r"^(?:импортируй|загрузи|добавь|подключи)\s+(?:мой\s+|свой\s+)?(?:бестиари\w*|бистиари\w*|"
+                                r"словар\w*(?:\s+курса)?|глоссари\w*|термин\w*)$", re.I)
 RE_IMPORT_REFRESH = re.compile(r"^обнови\s+материал\w*$", re.I)
 RE_EXPLAIN = re.compile(r"^объясни\s+(?:мне\s+)?(?:по\s+(?:моим\s+)?урокам|из\s+(?:моих\s+)?уроков)\s+(?P<t>.{2,60})$|"
                         r"^объясни\s+(?P<t2>.{2,60}?)\s+по\s+(?:моим\s+)?урокам$", re.I)
@@ -83,6 +90,12 @@ def route(text: str):
         return act("Забываю.", do="forget_voice", name=m.group("name").strip(" «»\"'"))
     if RE_IMPORT_GRANOLA.match(t):
         return act("Импортирую Granola.", do="import_granola")
+    if m := RE_TEAMS_NAME.match(t):
+        return act("Запомнила.", do="teams_name", name=(m.group("n") or m.group("n2")).strip(" «»\"'"))
+    if m := RE_TEAMS_SRC.match(t):
+        return act("Готово.", do="source", value="audio" if (m.group("off") or m.group("off2")) else "auto")
+    if RE_IMPORT_GLOSSARY.match(t):
+        return act("Выбери файл словаря.", do="import_glossary")
     if RE_IMPORT_REFRESH.match(t):
         return act("Обновляю материалы.", do="import_refresh")
     if RE_IMPORT_FOLDER.match(t):
