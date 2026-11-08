@@ -196,7 +196,11 @@ class CapriApp:
         hk = self.cfg.get("hotkeys") or {}
         from .hotkeys import HotkeyPoller
         self.hotkeys = HotkeyPoller(hk.get("translate", "Ctrl+Shift+T"), hk.get("dictate", "Ctrl+Win"),
-                                    hk.get("chat", "Ctrl+Shift+Space"))
+                                    hk.get("chat", "Ctrl+Shift+Space"), hk.get("convert", "Ctrl+Shift+Q"))
+        # волна 3: конвертер файлов (круговое меню)
+        from .convertui import ConvertUI
+        self.convert = ConvertUI(self)
+        self.hotkeys.convert.connect(self.convert.from_hotkey)
         self.hotkeys.chat.connect(self.open_or_hide_chat)
         self.hotkeys.translate.connect(self.text.translate_selection)
         self.hotkeys.dictate.connect(self.text.dictate)
@@ -512,10 +516,12 @@ class CapriApp:
         tm.addAction("✉ Объяснить письмо на экране", lambda: self.on_message("объясни письмо"))
         tm.addAction("📄 Скопировать текст с экрана", lambda: self.on_message("скопируй текст с экрана"))
         tm.addAction("🔳 QR-код из ссылки в буфере", lambda: self.on_message("сделай qr-код"))
+        tm.addAction("🔄 Конвертер (скопированные файлы)", self.convert.from_clipboard)
         hk = self.cfg.get("hotkeys") or {}
         tm.addSeparator()
         tm.addAction(f"Перевод выделенного: {hk.get('translate', 'Ctrl+Shift+T')}").setEnabled(False)
         tm.addAction(f"Диктовка: держи {hk.get('dictate', 'Ctrl+Win')}").setEnabled(False)
+        tm.addAction(f"Конвертер: выдели файлы → {hk.get('convert', 'Ctrl+Shift+Q')}").setEnabled(False)
         sm = menu.addMenu(t("skin", L))
         lg = QActionGroup(sm)
         for code, label in (("glow", "✨ Свечение по краю экрана (без персонажа)"), ("capri", "🧍 Капри на экране")):
@@ -780,6 +786,8 @@ class CapriApp:
                 self.text.reply(p["instruction"])
             else:
                 self.text.ask_reply()
+        elif k == "convert":
+            self.convert.from_clipboard()
         elif k == "qr_make":
             src = QGuiApplication.clipboard().text().strip()
             if not src:
@@ -1341,7 +1349,8 @@ class CapriApp:
         if act.kind == "check_updates":
             self.check_updates()
             return
-        if act.kind in ("clip_explain", "clip_translate", "screen_text", "letter_explain", "letter_reply", "qr_make"):
+        if act.kind in ("clip_explain", "clip_translate", "screen_text", "letter_explain", "letter_reply", "qr_make",
+                        "convert"):
             self.run_text_action(act)
             return
         if act.kind == "dnd":

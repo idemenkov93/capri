@@ -64,6 +64,7 @@ DEFAULTS: dict = {
         "translate": "Ctrl+Shift+T",
         "dictate": "Ctrl+Win",
         "chat": "Ctrl+Shift+Space",   # открыть чат из любой программы
+        "convert": "Ctrl+Shift+Q",    # конвертер: выделенные файлы → круговое меню
     },
     "games": {
         "enabled": True,       # игровой помощник: сам замечает игру и не мешает ей

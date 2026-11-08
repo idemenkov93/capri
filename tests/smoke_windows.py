@@ -18,4 +18,11 @@ for i in range(2):
     print(f"after gc {i}")
 box = grab.grab_box((0, 0, 400, 300), prefer_dxgi=True)
 print("box via dxgi:", box.size)
+# волна 3: конвертер
+from capri import convertui, media  # noqa: E402
+print("explorer selection:", convertui.explorer_selection())
+import pypdfium2, pillow_heif  # noqa: E402,F401
+pillow_heif.register_heif_opener()
+print("pdfium + heif: ok")
+print("ffmpeg found:", media.find_ffmpeg())
 print("done")

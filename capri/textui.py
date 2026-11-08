@@ -113,6 +113,10 @@ class TextOps(QObject):
             except OSError as e:
                 self.popup.show_text("Не открылся файл", str(e), copy=False)
                 return
+        conv = getattr(self.app, "convert", None)
+        if conv is not None and p.exists():
+            conv.open_for([p])                  # видео, архив, документ… — предлагаем, что с ним сделать
+            return
         self.popup.show_text("Этот файл пока не читаю", f"{p.name}: открой его и скажи «объясни письмо» "
                              "или скопируй текст.", copy=False)
 
@@ -280,6 +284,18 @@ class TextOps(QObject):
                                  [] if translate else [("Перевести", lambda: self.translate(self.last_source))],
                                  markdown=False)
         self._ask(T.ocr_prompt(translate), img, show)
+
+    def ocr_image(self, path: str):
+        """Текст с картинки (из конвертера) — в окно и сразу в буфер."""
+        self.popup.show_busy("Читаю текст с картинки")
+
+        def show(ans):
+            text = ans.strip()
+            QGuiApplication.clipboard().setText(text)
+            self.last_source = text
+            self.popup.show_text("Текст с картинки — уже в буфере", text,
+                                 [("Перевести", lambda: self.translate(self.last_source))], markdown=False)
+        self._ask(T.ocr_prompt(False), [path], show)
 
     # ------------------------------------------------------------------ диктовка
     def dictate(self, start: bool):

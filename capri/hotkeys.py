@@ -3,6 +3,8 @@
 
   Ctrl+Shift+T — перевести выделенный текст (окно у курсора)
   Ctrl+Win (держать) — диктовка: говоришь, отпускаешь — текст печатается туда, где курсор
+  Ctrl+Shift+Q — конвертер: выделенные файлы → круговое меню
+  Ctrl+Shift+Space — открыть / спрятать чат
 Клавиши меняются в config.yaml → hotkeys.
 """
 from __future__ import annotations
@@ -32,11 +34,13 @@ class HotkeyPoller(QObject):
     dictate = Signal(bool)          # True — начали держать сочетание диктовки, False — отпустили
     dictate_cancel = Signal()       # это было Ctrl+Win+стрелка и т.п. — записанное выбросить
     chat = Signal()                 # открыть / спрятать чат (без персонажа на экране это главный вход)
+    convert = Signal()              # конвертер для выделенных файлов
 
     def __init__(self, translate_keys: str = "Ctrl+Shift+T", dictate_keys: str = "Ctrl+Win",
-                 chat_keys: str = "Ctrl+Shift+Space"):
+                 chat_keys: str = "Ctrl+Shift+Space", convert_keys: str = "Ctrl+Shift+Q"):
         super().__init__()
         self.tr_keys, self.dict_keys, self.chat_keys = parse(translate_keys), parse(dictate_keys), parse(chat_keys)
+        self.conv_keys = parse(convert_keys)
         self._stop = False
         self._thread = None
 
@@ -62,7 +66,7 @@ class HotkeyPoller(QObject):
             return bool(vks) and all(get(v) & 0x8000 or (v == 0x5B and get(0x5C) & 0x8000) for v in vks)
 
         import time
-        tr_was = chat_was = False
+        tr_was = chat_was = conv_was = False
         held_since = 0.0            # когда зажали сочетание диктовки
         recording = cancelled = False
         others = (0x25, 0x26, 0x27, 0x28, 0x44, 0x73, 0x09)   # стрелки, D, F4, Tab — это Ctrl+Win+… Windows, не диктовка
@@ -75,6 +79,10 @@ class HotkeyPoller(QObject):
             if ch and not chat_was:
                 self.chat.emit()
             chat_was = ch
+            cv = down(self.conv_keys)
+            if cv and not conv_was:
+                self.convert.emit()
+            conv_was = cv
             dk = down(self.dict_keys) and not (get(0x10) & 0x8000) and not (get(0x12) & 0x8000)
             now = time.monotonic()
             if dk:

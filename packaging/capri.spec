@@ -26,9 +26,10 @@ binaries = []
 hidden = ["webbrowser", "keyring.backends.Windows"]
 
 for pkg in ("faster_whisper", "vosk", "piper", "uiautomation", "googleapiclient", "tzdata", "certifi",
-            "_sounddevice_data", "edge_tts", "recurring_ical_events"):
+            "_sounddevice_data", "edge_tts", "recurring_ical_events", "pypdfium2", "pypdfium2_raw"):
     datas += safe(collect_data_files, pkg)
-for pkg in ("ctranslate2", "vosk", "piper", "onnxruntime", "uiautomation", "_sounddevice_data"):
+for pkg in ("ctranslate2", "vosk", "piper", "onnxruntime", "uiautomation", "_sounddevice_data", "pypdfium2_raw",
+            "pypdfium2", "pillow_heif"):
     binaries += safe(collect_dynamic_libs, pkg)
 for pkg in ("capri", "dxcam", "winrt", "pycaw", "comtypes", "screen_brightness_control", "send2trash", "win32ctypes", "keyring",
             "uiautomation", "google_auth_oauthlib", "icalendar"):
