@@ -153,6 +153,8 @@ class LiveController(QObject):
             import threading
             threading.Thread(target=lambda: getattr(self.app.agent.llm, "unload", lambda: None)(), daemon=True).start()
         self.bar.show()
+        from ..ui.anim import fade_in
+        fade_in(self.bar, slide=14)
         who = {"groq": "Groq", "gemini": "Gemini", "openrouter": "OpenRouter"}.get(tr.order()[0], "локальная модель")
         return (f"Включила субтитры: {LANGS.get(s.language)} → русский, переводит {who}. "
                 f"Скажу, если назовут твоё имя. Выключить — «стоп субтитры».")

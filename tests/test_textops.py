@@ -41,7 +41,10 @@ def test_links_and_qr(tmp_path):
 
 
 def test_prompts_mention_what_matters():
-    assert "немецкий" in T.translate_prompt("hi", "de") and "уже на русском" in T.translate_prompt("hi")
+    assert "немецкий" in T.translate_prompt("hi", "de") and "уже на языке «русский»" in T.translate_prompt("hi", "ru", auto=True)
+    assert "с немецкого на иврит" in T.translate_prompt("Hallo", "he", "de")
+    assert T.parse_translation('{"from": "de", "to": "he", "text": "שלום"}') == ("de", "he", "שלום")
+    assert T.parse_translation("просто текст", "ru") == ("", "ru", "просто текст")
     rp = T.reply_prompt("Sehr geehrter Herr…", "согласен на четверг", "de")
     assert "согласен на четверг" in rp and "attach" in rp and "B1" in rp
 
@@ -118,14 +121,20 @@ def test_clipboard_link_and_qr_image(tmp_path, monkeypatch):
 
 def test_translate_shows_language_buttons():
     from capri.textui import TextOps
-    ops = TextOps(FakeApp("Привет, мир"))
+    fake = FakeApp('{"from": "de", "to": "ru", "text": "Привет, мир"}')
+    ops = TextOps(fake)
     KEEP.append(ops)
     ops.translate("Hallo Welt")
     wait(ops)
-    assert ops.popup.body.toPlainText() == "Привет, мир"
-    labels = [ops.popup.buttons.itemAt(i).widget().text() for i in range(ops.popup.buttons.count())
-              if ops.popup.buttons.itemAt(i).widget()]
-    assert "🇩🇪 DE" in labels and "🇮🇱 HE" in labels
+    pop = ops.popup
+    assert pop.body.toPlainText() == "Привет, мир"
+    assert pop.cb_to.currentData() == "ru" and pop.cb_from.currentText() == "Авто (Немецкий)" and pop.cb_from.isVisible()
+    asked = []
+    ops.translate = lambda text, target="", source="": asked.append((text, target, source))
+    pop.cb_to.setCurrentIndex(pop.cb_to.findData("he"))
+    pop._lang_changed()                                      # «с немецкого → на иврит»
+    pop._swap()
+    assert asked == [("Hallo Welt", "he", ""), ("Hallo Welt", "de", "he")]
 
 
 def test_ask_text_falls_back_to_local_model():

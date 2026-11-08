@@ -1472,20 +1472,35 @@ class CapriApp:
             self.chat.activateWindow()
             self.chat.input.setFocus()
 
+    def _hide_chat(self):
+        g = self.chat.pos()
+        self.prefs.set("chat_pos", [g.x(), g.y()])        # следующий раз откроется на этом же месте
+        self.chat.hide()
+
     def open_or_hide_chat(self):
         if self.chat.isVisible() and self.chat.isActiveWindow():
-            self.chat.hide()
+            self._hide_chat()
         else:
             self.open_chat()
 
     def toggle_chat(self):
         self.wake_up()
         if self.chat.isVisible():
-            self.chat.hide()
+            self._hide_chat()
             return
-        a = self.avatar.frameGeometry()
-        self.chat.move(max(0, a.left() - self.chat.width() - 10), max(0, a.bottom() - self.chat.height()))
+        from .ui.anim import fade_in, keep_on_screen
+        pos = self.prefs.get("chat_pos")
+        if self.look == "capri" and self.avatar.isVisible():
+            a = self.avatar.frameGeometry()               # рядом с Капри
+            self.chat.move(max(0, a.left() - self.chat.width() - 10), max(0, a.bottom() - self.chat.height()))
+        elif pos and len(pos) == 2:
+            self.chat.move(int(pos[0]), int(pos[1]))      # там, где ты его оставил
+        else:
+            scr = QApplication.primaryScreen().availableGeometry()
+            self.chat.move(scr.right() - self.chat.width() - 24, scr.bottom() - self.chat.height() - 24)
         self.chat.show()
+        keep_on_screen(self.chat)
+        fade_in(self.chat)
         self.chat.raise_()
         self.chat.activateWindow()
         self.chat.input.setFocus()

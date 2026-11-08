@@ -104,9 +104,9 @@ def test_bar_shows_and_renames_speakers():
     b = SubtitleBar()
     b.add_line(1, "system", "Guten Morgen.", "de", spk=1, speaker="Спикер 1")
     b.add_line(2, "mic", "Hallo.", "de")
-    assert "Спикер 1:" in b.text.text() and "Ты:" in b.text.text()
+    assert "Спикер 1:" in b.html and "Ты:" in b.html
     b.rename_speakers({1: "Herr Müller"})
-    assert "Herr Müller:" in b.text.text()
+    assert "Herr Müller:" in b.html
     b.show_history()
     got = []
     b.rename_requested.connect(got.append)

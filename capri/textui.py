@@ -24,12 +24,16 @@ IMAGE_FILES = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")
 class BrainJob(QThread):
     done = Signal(str, str)          # ответ, ошибка
 
-    def __init__(self, agent, task: str, images: list | None = None):
+    def __init__(self, agent, task: str, images: list | None = None, fast: bool = False):
         super().__init__()
-        self.agent, self.task, self.images = agent, task, images
+        self.agent, self.task, self.images, self.fast = agent, task, images, fast
 
     def run(self):
         try:
+            if self.fast and not self.images:             # перевод — быстрые HTTP-мозги (1–3 с), не Claude
+                from .study import fast_ask
+                self.done.emit(fast_ask(self.agent, self.task), "")
+                return
             self.done.emit(self.agent.ask_text(self.task, self.images), "")
         except Exception as e:  # noqa: BLE001
             self.done.emit("", str(e)[:300])
@@ -69,8 +73,8 @@ class TextOps(QObject):
         p.mkdir(parents=True, exist_ok=True)
         return p
 
-    def _ask(self, task: str, images: list | None, then):
-        job = BrainJob(self.agent, task, images)
+    def _ask(self, task: str, images: list | None, then, fast: bool = False):
+        job = BrainJob(self.agent, task, images, fast)
         self.jobs = [j for j in self.jobs if j.isRunning()] + [job]
         job.done.connect(lambda ans, err: self.popup.show_text("Не получилось", err, copy=False) if err else then(ans))
         job.start()
@@ -176,13 +180,19 @@ class TextOps(QObject):
         return path
 
     # ------------------------------------------------------------------ перевод
-    def translate(self, text: str, target: str = ""):
+    def translate(self, text: str, target: str = "", source: str = ""):
+        """По умолчанию — на язык Капри (у тебя русский), язык оригинала определяет сама.
+        В окне перевода — «С: … → На: …» и ⇄: выбрал — переводит заново."""
         self.last_source = text
+        auto = not target
+        target = target or getattr(self.app, "lang", "ru") or "ru"
         self.popup.show_busy("Перевожу")
-        self._ask(T.translate_prompt(text, target), None,
-                  lambda ans: self.popup.show_text("Перевод", ans.strip(), [
-                      (label, lambda c=code: self.translate(self.last_source, c)) for code, label in FLAGS
-                      if code != target], markdown=False))
+
+        def show(ans):
+            frm, to, out = T.parse_translation(ans, target)
+            self.popup.show_translation(out, source or frm, to or target, T.LANGS,
+                                        lambda s, t: self.translate(self.last_source, t, "" if s == "auto" else s))
+        self._ask(T.translate_prompt(text, target, source, auto), None, show, fast=True)
 
     def translate_clipboard(self, target: str = ""):
         """«переведи буфер»: текст — сразу, скриншот — переписать и перевести, файл — прочитать и перевести."""

@@ -10,7 +10,8 @@ import json
 import re
 from urllib.parse import urlparse
 
-LANGS = {"ru": "русский", "de": "немецкий", "en": "английский", "he": "иврит"}
+LANGS = {"ru": "русский", "de": "немецкий", "en": "английский", "he": "иврит", "uk": "украинский", "pl": "польский",
+         "tr": "турецкий", "ar": "арабский", "fr": "французский", "es": "испанский", "it": "итальянский"}
 SHORTENERS = ("bit.ly", "tinyurl.com", "t.co", "goo.gl", "is.gd", "cutt.ly", "ow.ly", "rebrand.ly", "shorturl.at",
               "rb.gy", "tiny.cc", "qrco.de", "s.id")
 
@@ -31,12 +32,31 @@ def explain_prompt(text: str = "", image: bool = False) -> str:
         'иначе пустая строка"}')
 
 
-def translate_prompt(text: str, target: str = "") -> str:
-    to = LANGS.get(target, "")
-    rule = (f"Переведи на {to} язык." if to else
-            "Переведи на русский. Если текст уже на русском — переведи на немецкий.")
-    return (f"{rule} Сохрани смысл и тон, имена и термины не переводи без нужды. Ответь ТОЛЬКО переводом, без "
-            f"кавычек и пояснений.\n<<<\n{text[:8000]}\n>>>")
+def translate_prompt(text: str, target: str = "", source: str = "", auto: bool = False) -> str:
+    """target — на какой язык; source — с какого ('' — пусть определит сам); auto — язык выбран не человеком,
+    а по умолчанию: если текст уже на нём, переводим на немецкий (с русского) или на русский (с другого)."""
+    to = LANGS.get(target, "русский")
+    frm = f"с {LANGS[source][:-2]}ого " if source in LANGS and LANGS[source].endswith("ий") else (
+        "с иврита " if source == "he" else "")
+    rule = f"Переведи {frm}на {to} язык."
+    if auto:
+        other = "немецкий" if target == "ru" else "русский"
+        rule += f" Если текст уже на языке «{to}» — переведи его на {other}."
+    return (f"{rule} Сохрани смысл и тон, имена и термины не переводи без нужды.\n"
+            'Ответь ТОЛЬКО JSON без markdown: {"from": "код языка оригинала (de/en/ru/he/uk/…)", '
+            '"to": "код языка перевода", "text": "перевод"}\n'
+            f"<<<\n{text[:8000]}\n>>>")
+
+
+def parse_translation(raw: str, target: str = "") -> tuple[str, str, str]:
+    """→ (с какого, на какой, перевод). Модель ответила просто текстом — тоже понимаем."""
+    try:
+        d = parse_json(raw)
+        if isinstance(d, dict) and d.get("text"):
+            return str(d.get("from") or "")[:5], str(d.get("to") or target)[:5], str(d["text"]).strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return "", target, raw.strip()
 
 
 def reply_prompt(letter: str, instruction: str, lang: str = "de") -> str:

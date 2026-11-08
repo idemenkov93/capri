@@ -291,15 +291,21 @@ def test_subtitle_bar_render():
     from capri.ui.subtitles import SubtitleBar
     b = SubtitleBar()
     b.add_line(1, "system", "Guten Morgen.", "de")
-    assert "Guten Morgen." in b.text.text() and "…" in b.text.text()
+    assert "Guten Morgen." in b.html and "…" in b.html
     b.set_translation(1, "Доброе утро.")
     b.add_line(2, "system", "Igor, bitte!", "de", trigger="Igor")
     b.set_partial("system", "Und jetzt")
-    html_ = b.text.text()
+    html_ = b.html
     assert "Доброе утро." in html_ and "🔔" in html_ and "Und jetzt" in html_ and b.flash > 0
-    for i in range(3, 8):
+    for i in range(3, 20):
         b.add_line(i, "mic", f"фраза {i}", "ru")
-    assert "Guten Morgen." not in b.text.text()          # на экране только последние
+    assert "Guten Morgen." not in b.html          # на экране только последние
+    # окно больше — шрифт крупнее, текст на всю ширину
+    b.resize(800, 190)
+    small = b.sizes()[0]
+    b.resize(1400, 400)
+    b.render()
+    assert b.sizes()[0] > small and b._doc.textWidth() == b.text_rect().width() > 1300
     b.show_history()
     assert "Guten Morgen." in b.history.toPlainText()
     b.zoom(4)
