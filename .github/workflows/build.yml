@@ -1,0 +1,144 @@
+# Сборка Dolmetsch для Windows: модель перевода → тесты → Dolmetsch.exe → проверка → архив.
+name: Dolmetsch
+
+on:
+  push:
+    branches: [dolmetsch, main]
+  workflow_dispatch:
+
+concurrency:
+  group: dolmetsch-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  MODEL_ID: Helsinki-NLP/opus-mt-tc-big-de-zle
+
+jobs:
+  model:
+    # Переводим модель из формата Hugging Face в формат CTranslate2 (int8). Результат кэшируется.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: model
+          key: model-opus-mt-tc-big-de-zle-int8-v1
+
+      - uses: actions/setup-python@v5
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Convert model
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          pip install "ctranslate2>=4.4" "transformers>=4.40,<5" sentencepiece sacremoses
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          ct2-transformers-converter --model "$MODEL_ID" --output_dir model --quantization int8 --copy_files source.spm target.spm
+          printf 'Модель: %s (лицензия CC-BY-4.0), формат CTranslate2 int8.\n' "$MODEL_ID" > model/SOURCE.txt
+
+      - run: ls -la model && du -sh model
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: model
+          path: model
+          retention-days: 3
+
+  build:
+    needs: model
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "pyinstaller>=6.10" pytest
+
+      - name: Tests
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m pytest -v -rfE -p no:cacheprovider *> pytest.txt
+          $code = $LASTEXITCODE
+          Get-Content pytest.txt
+          $tail = (Get-Content pytest.txt -Tail 3) -join ' | '
+          "::notice title=pytest exit $code::$tail"
+          Select-String -Path pytest.txt -Pattern '^(FAILED|ERROR) ' | Select-Object -First 9 | ForEach-Object { "::warning title=test::$($_.Line)" }
+          exit $code
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: model
+          path: models/opus-mt-de-ru
+
+      - name: Offline translation benchmark (source)
+        shell: pwsh
+        run: |
+          python -m dolmetsch --bench --out bench.txt
+          $code = $LASTEXITCODE
+          Get-Content bench.txt | Select-Object -First 4 | ForEach-Object { "::notice title=bench::$_" }
+          exit $code
+
+      - name: Build Dolmetsch.exe
+        run: pyinstaller --noconfirm --clean --log-level WARN packaging/dolmetsch.spec --distpath dist --workpath build
+
+      - name: Add model and readme
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\Dolmetsch\models | Out-Null
+          Copy-Item -Recurse models\opus-mt-de-ru dist\Dolmetsch\models\opus-mt-de-ru
+          Copy-Item README.md "dist\Dolmetsch\Прочти меня.md"
+
+      - name: Check the bundle (smoke, benchmark, capture probe)
+        shell: pwsh
+        run: |
+          $exe = "dist\Dolmetsch\Dolmetsch.exe"
+          $fail = 0
+          foreach ($mode in @(@("--smoke", "smoke.txt"), @("--bench", "bench-exe.txt"), @("--probe", "6", "probe.txt"))) {
+            $out = "$PWD\" + $mode[-1]
+            $list = @($mode[0..($mode.Length - 2)]) + @("--out", $out)
+            $p = Start-Process -FilePath $exe -ArgumentList $list -Wait -PassThru
+            "===== $($mode[0]) (exit $($p.ExitCode))"
+            if (Test-Path $out) { Get-Content $out } else { "нет отчёта"; $fail = 1 }
+            if ($p.ExitCode -ne 0) { $fail = 1; "::warning title=bundle::$($mode[0]) exit $($p.ExitCode)" }
+          }
+          Get-Content smoke.txt | Select-String -Pattern '^(FAIL|WARN)' | ForEach-Object { "::warning title=smoke::$($_.Line)" }
+          Get-Content bench-exe.txt | Select-Object -First 4 | ForEach-Object { "::notice title=bench exe::$_" }
+          exit $fail
+
+      - name: Pack
+        shell: pwsh
+        run: |
+          $v = python -c "import dolmetsch;print(dolmetsch.__version__)"
+          Compress-Archive -Path dist\Dolmetsch -DestinationPath "Dolmetsch-$v-win64.zip"
+          Get-ChildItem Dolmetsch-*.zip | ForEach-Object { "::notice title=archive::{0}  {1:N0} MB" -f $_.Name, ($_.Length / 1MB) }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dolmetsch-win64
+          path: |
+            Dolmetsch-*.zip
+            bench.txt
+            bench-exe.txt
+            smoke.txt
+            probe.txt
+            pytest.txt
+          compression-level: 0

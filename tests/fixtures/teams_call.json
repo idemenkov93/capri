@@ -1,0 +1,1454 @@
+{
+"about": "Структура окна звонка нового Teams (разведка 14.11.2026). Текст синтетический.",
+"nodes": [
+[
+0,
+"WindowControl",
+"Wir sprechen heute über das netzwerk und die ben",
+"",
+"TeamsWebView"
+],
+[
+1,
+"PaneControl",
+"",
+"",
+"TeamsOverlay"
+],
+[
+1,
+"PaneControl",
+"",
+"",
+"Chrome_WidgetWin_0"
+],
+[
+2,
+"PaneControl",
+"",
+"",
+"Chrome_WidgetWin_0"
+],
+[
+2,
+"PaneControl",
+"",
+"",
+"Chrome_WidgetWin_0"
+],
+[
+2,
+"PaneControl",
+"",
+"",
+"Chrome_WidgetWin_0"
+],
+[
+2,
+"PaneControl",
+"",
+"",
+"Chrome_WidgetWin_0"
+],
+[
+2,
+"PaneControl",
+"Wir sprechen heute über das netzwerk und die ben",
+"",
+"Chrome_WidgetWin_1"
+],
+[
+3,
+"PaneControl",
+"",
+"",
+"Intermediate D3D Window"
+],
+[
+3,
+"PaneControl",
+"Wir sprechen heute über das netzwerk und die benutzer im act",
+"",
+"RootView"
+],
+[
+4,
+"PaneControl",
+"",
+"",
+"NonClientView"
+],
+[
+5,
+"PaneControl",
+"",
+"",
+"EmbeddedBrowserTabRootView"
+],
+[
+5,
+"PaneControl",
+"",
+"",
+"NativeFrameView"
+],
+[
+6,
+"PaneControl",
+"",
+"",
+"ClientView"
+],
+[
+7,
+"PaneControl",
+"Anna Becker",
+"46",
+"Chrome_RenderWidgetHostHWND"
+],
+[
+8,
+"DocumentControl",
+"Wir sprechen heute über das netzwerk und die ben",
+"RootWebArea",
+""
+],
+[
+9,
+"PaneControl",
+"",
+"",
+""
+],
+[
+10,
+"GroupControl",
+"",
+"app",
+""
+],
+[
+11,
+"GroupControl",
+"",
+"",
+"___1bna0ji f10pi13n f22iagw f1vx9l62 f1l02sjl fly5x3f fprs0cq fy77jfu"
+],
+[
+12,
+"GroupControl",
+"",
+"",
+"fui-AppLayout ___1qw8lf9 f1ewtqcl f13qh94s f1l02sjl f1immsc2 f6dzj5z f"
+],
+[
+13,
+"GroupControl",
+"",
+"",
+"fui-AppLayoutArea ___1w77opl f1ewtqcl f1immsc2 f6dzj5z f10pi13n f1lvye"
+],
+[
+14,
+"GroupControl",
+"",
+"",
+""
+],
+[
+15,
+"GroupControl",
+"",
+"",
+"fui-Grid ___1irknu3 f13qh94s figf6al frn2hmy f122n59 f18k9nw3 f10pi13n"
+],
+[
+15,
+"GroupControl",
+"",
+"titlebar-end-slot-start",
+"fui-Flex ___1gzszts f22iagw"
+],
+[
+15,
+"GroupControl",
+"",
+"",
+"fui-Primitive"
+],
+[
+16,
+"ButtonControl",
+"Wir sprechen heute üb",
+"more-options-header",
+"fui-Button r1f29ykk ___vj7bba0 fhovq9v f1p3nwhy f11589ue f1q5o8ev f1pd"
+],
+[
+15,
+"SeparatorControl",
+"",
+"",
+"fui-Divider ___1ybvdys f122n59 f1ewtqcl f22iagw f1vx9l62 fepjonw f10pi"
+],
+[
+13,
+"GroupControl",
+"",
+"",
+"fui-AppLayoutArea ___cf0g930 f1ewtqcl f1immsc2 f6dzj5z f10pi13n f1lvye"
+],
+[
+14,
+"GroupControl",
+"",
+"",
+""
+],
+[
+13,
+"GroupControl",
+"",
+"",
+"fui-AppLayoutArea ___6o1tt30 f1ewtqcl f1immsc2 f6dzj5z f10pi13n f1lvye"
+],
+[
+14,
+"GroupControl",
+"",
+"",
+""
+],
+[
+15,
+"GroupControl",
+"",
+"",
+"fui-Flex vdi-occlusion ___111n4xs f13qh94s fxugw4r f1e8zem4 fxppcr1 f1"
+],
+[
+16,
+"ToolBarControl",
+"Anna Becker",
+"indicators",
+"fui-Toolbar ___1z2su50 f22iagw f122n59 f1mk8lai fn45zha"
+],
+[
+17,
+"ButtonControl",
+"Anna Becker",
+"e2ee-status",
+"fui-Button r1f29ykk ___155bo5v f1p3nwhy f11589ue f1q5o8ev f1pdflbu f1w"
+],
+[
+17,
+"TextControl",
+"Anna Becker",
+"call-duration-custom",
+"fui-Primitive ___1u16hn8 f1wf6e08 f8wwgaz f6ixzk8 f90h6l f1uo6wrk fnok"
+],
+[
+18,
+"GroupControl",
+"",
+"",
+"fui-Primitive ___46gqwt0 fkfq4zb fz5stix f1hgmx08"
+],
+[
+19,
+"TextControl",
+"00:05:10",
+"",
+""
+],
+[
+16,
+"ToolBarControl",
+"Anna Becker",
+"horizontalMiddleEnd",
+"fui-Toolbar ___11cc4pf f22iagw f122n59 f1mk8lai fn45zha f1e8xxv9"
+],
+[
+17,
+"ButtonControl",
+"Anna Becker",
+"chat-button",
+"fui-Button r1f29ykk ___1lj7lvq ftsixi f1wf6e08 f1h648pw f1s2uweq fr80s"
+],
+[
+17,
+"ButtonControl",
+"Anna Becker",
+"roster-button",
+"fui-Button r1f29ykk ___1lj7lvq ftsixi f1wf6e08 f1h648pw f1s2uweq fr80s"
+],
+[
+17,
+"ButtonControl",
+"Anna Becker",
+"raisehands-button",
+"fui-Button r1f29ykk ___1lj7lvq ftsixi f1wf6e08 f1h648pw f1s2uweq fr80s"
+],
+[
+17,
+"ButtonControl",
+"Anna Becker",
+"reaction-menu-button",
+"fui-Button r1f29ykk ___1lj7lvq ftsixi f1wf6e08 f1h648pw f1s2uweq fr80s"
+],
+[
+17,
+"ButtonControl",
+"Anna Becker",
+"view-mode-button",
+"fui-Button r1f29ykk ___1lj7lvq ftsixi f1wf6e08 f1h648pw f1s2uweq fr80s"
+],
+[
+17,
+"ButtonControl",
+"Anna Becker",
+"organizer-control-button",
+"fui-Button r1f29ykk ___1lj7lvq ftsixi f1wf6e08 f1h648pw f1s2uweq fr80s"
+],
+[
+17,
+"ButtonControl",
+"Anna Becker",
+"start-breakout-room-button",
+"fui-Button r1f29ykk ___1pts4gz ftsixi f1wf6e08 f1h648pw f1s2uweq fr80s"
+],
+[
+17,
+"ButtonControl",
+"Anna Becker",
+"callingButtons-showMoreBtn",
+"fui-Button r1f29ykk ___1lj7lvq ftsixi f1wf6e08 f1h648pw f1s2uweq fr80s"
+],
+[
+17,
+"SeparatorControl",
+"",
+"divider-horizontalMiddleEnd/secondary",
+"fui-Divider ___13yspvx f22iagw f1lwjmbk f1mk8lai f122n59 f1ewtqcl f1vx"
+],
+[
+17,
+"GroupControl",
+"",
+"",
+"fui-SplitButton ___19qvvg7 ftuwxu6 fsxf2b5 f10pi13n fmrv4ls f14uur2j f"
+],
+[
+18,
+"ButtonControl",
+"Wir sprechen heu",
+"video-button",
+"fui-Button r1f29ykk ___16za60h ftsixi f1pikq0 f1h648pw f1s2uweq fr80ss"
+],
+[
+18,
+"ButtonControl",
+"Wir sprechen heute",
+"video-button-configure",
+"fui-Button r1f29ykk fui-MenuButton ___m9rc2z0 ftsixi f1p3nwhy f11589ue"
+],
+[
+17,
+"GroupControl",
+"",
+"",
+"fui-SplitButton ___19qvvg7 ftuwxu6 fsxf2b5 f10pi13n fmrv4ls f14uur2j f"
+],
+[
+18,
+"ButtonControl",
+"Wir sprechen heute üb",
+"microphone-button",
+"fui-Button r1f29ykk ___16za60h ftsixi f1pikq0 f1h648pw f1s2uweq fr80ss"
+],
+[
+19,
+"ImageControl",
+"",
+"",
+"fui-Icon-filled"
+],
+[
+19,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+18,
+"ButtonControl",
+"Wir sprechen heute",
+"audio-button-configure",
+"fui-Button r1f29ykk fui-MenuButton ___m9rc2z0 ftsixi f1p3nwhy f11589ue"
+],
+[
+17,
+"ButtonControl",
+"Anna Becker",
+"share-button",
+"fui-Button r1f29ykk ___9w4txr0 ftsixi f1pikq0 f1h648pw f1s2uweq fr80ss"
+],
+[
+16,
+"GroupControl",
+"Wir sprechen heute über das",
+"horizontalEnd",
+"fui-Toolbar ___14lwa6x f22iagw f122n59 f1mk8lai fn45zha f1rzaqi3 f1ejo"
+],
+[
+17,
+"GroupControl",
+"",
+"",
+"fui-SplitButton ___19qvvg7 ftuwxu6 fsxf2b5 f10pi13n fmrv4ls f14uur2j f"
+],
+[
+18,
+"ButtonControl",
+"Anna Becker",
+"hangup-button",
+"fui-Button r1f29ykk ___1t89j6p ftsixi f1pikq0 f1usghc4 f1s2uweq fr80ss"
+],
+[
+18,
+"ButtonControl",
+"Anna Becker",
+"hangup-button-more-options",
+"fui-Button r1f29ykk fui-MenuButton ___oqfqsp0 ftsixi f1p3nwhy f11589ue"
+],
+[
+13,
+"GroupControl",
+"",
+"",
+"fui-AppLayoutArea ___14v2gdm f1ewtqcl f1immsc2 f6dzj5z f10pi13n f1lvye"
+],
+[
+14,
+"GroupControl",
+"",
+"",
+""
+],
+[
+13,
+"GroupControl",
+"",
+"",
+"fui-AppLayoutArea ___1vs2uut f1ewtqcl f1immsc2 f6dzj5z f10pi13n f1lvye"
+],
+[
+14,
+"GroupControl",
+"",
+"",
+"___px86z80 f1vx9l62"
+],
+[
+15,
+"GroupControl",
+"",
+"",
+"fui-Flex ___1m6cf63 f22iagw fly5x3f f1l02sjl"
+],
+[
+16,
+"GroupControl",
+"",
+"",
+"fui-Flex ___qud7ig0 f22iagw f1vx9l62 fly5x3f f1l02sjl f10pi13n"
+],
+[
+17,
+"GroupControl",
+"",
+"",
+"___77lcry0 f10pi13n"
+],
+[
+17,
+"GroupControl",
+"",
+"",
+"fui-Flex ___99zx0i0 f22iagw fly5x3f f1l02sjl f10pi13n f1rmlqtg fqerorx"
+],
+[
+18,
+"GroupControl",
+"",
+"",
+"fui-Flex ___pultml0 f22iagw f4d9j23 f122n59 fly5x3f f1l02sjl f1euv43f"
+],
+[
+18,
+"GroupControl",
+"Anna Becker",
+"",
+"fui-Flex ___1o5nuec f22iagw fly5x3f f1l02sjl f1jhi6b8 f1a3p1vp f1ngn1p"
+],
+[
+19,
+"GroupControl",
+"",
+"",
+"fui-Flex ___p2lnz80 f22iagw f1vx9l62 f1ktbn1t f3ev47i fpjto39 f1euv43f"
+],
+[
+19,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+19,
+"GroupControl",
+"",
+"",
+"fui-Flex ___10rbwke f22iagw f18w1nra f1euv43f f1i1t8d1 f4d9j23 fgsmnjn"
+],
+[
+20,
+"GroupControl",
+"",
+"call-status",
+"fui-StyledText ___2e8efh0 f1x0m3f5 fb86gi6 f19n0e5 fl43uef"
+],
+[
+21,
+"TextControl",
+"Wir sprechen heute über das ne",
+"",
+""
+],
+[
+17,
+"GroupControl",
+"Liveuntertitel",
+"",
+"fui-Flex ___1h3d38d f22iagw f1vx9l62 fv8hmgk f12xb3oj f1yj8dow f1nkf6f"
+],
+[
+18,
+"SliderControl",
+"Höhe des Untertitelfensters",
+"",
+"fui-Button r1f29ykk ___19ftwl9 f3rmtva fkfq4zb f1cio4g9 f1s2uweq fr80s"
+],
+[
+18,
+"GroupControl",
+"",
+"",
+"fui-Flex ___74mma70 f22iagw f1vx9l62 fly5x3f f1hu3pq6 f19f4twv fcgxt0o"
+],
+[
+19,
+"GroupControl",
+"",
+"",
+"ui-box ___1tz8134 f1yrx710 f1l02sjl f1115ve7 f1oy3dpc f5zp4f fp1ilsu f"
+],
+[
+20,
+"GroupControl",
+"",
+"",
+"fui-Flex ___1v52uhs f22iagw f1vx9l62 fbhxue7 f10pi13n fan4evk"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-Primitive ___6spbtv0 f1euv43f f15twtuk ff37pk3 f1vgc2s3 f1e31b4d f"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heut.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clie.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über da.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server errei.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleib.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clie.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory dami.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und die benutzer im active directory damit.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der serv.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprech.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprech.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das n.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir spre.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients e.",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"___87nhvx0 fau6ura f3052tw lpcCommonWeb-hoverTarget lpc-hover-target-c"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-ChatMessageCompact__body ___10lx575 fxn1s5j f10pi13n ftqa4ok f8hki"
+],
+[
+22,
+"TextControl",
+"Anna Becker",
+"",
+""
+],
+[
+22,
+"TextControl",
+"Wir sprechen heute über das netzwerk und die benutzer im active directory damit alle clients eine adresse bekommen und der server erreichbar bleibt wir sprechen heute über da",
+"",
+""
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-Primitive ___5iyjhn0 f1euv43f f8ovrd7 f1yab3r1 f1vgc2s3 f1e31b4d f"
+],
+[
+21,
+"GroupControl",
+"",
+"",
+"fui-Primitive ___ml05g00 f1aehjj5 f3rmtva f1euv43f f1vgc2s3 f1e31b4d f"
+],
+[
+18,
+"GroupControl",
+"",
+"",
+"fui-Flex ___1k9k6zz f22iagw flvyvdh fqerorx f1a3p1vp fvhg3xh f1qtfxlh "
+],
+[
+19,
+"GroupControl",
+"",
+"",
+""
+],
+[
+20,
+"ButtonControl",
+"Feedback zu Liveuntertiteln geben Daumen hoch",
+"captions-feedback-thumb-up-rkv",
+"fui-Button r1f29ykk ___1lsc12l f3rmtva f1p3nwhy f11589ue f1q5o8ev f1pd"
+],
+[
+20,
+"ButtonControl",
+"Feedback zu Liveuntertiteln geben Daumen runter",
+"captions-feedback-thumb-down-rl0",
+"fui-Button r1f29ykk ___1lsc12l f3rmtva f1p3nwhy f11589ue f1q5o8ev f1pd"
+],
+[
+19,
+"GroupControl",
+"",
+"",
+""
+],
+[
+20,
+"ButtonControl",
+"Liveuntertitel, Untertiteleinstellungen",
+"captions-settings-menu-trigger-button-non-overflow",
+"fui-Button r1f29ykk ___1lsc12l f3rmtva f1p3nwhy f11589ue f1q5o8ev f1pd"
+],
+[
+19,
+"GroupControl",
+"",
+"",
+""
+],
+[
+20,
+"ButtonControl",
+"Liveuntertitel, Untertitel im neuen Fenster öffnen",
+"closed-captions-pop-out-button",
+"fui-Button r1f29ykk ___1lsc12l f3rmtva f1p3nwhy f11589ue f1q5o8ev f1pd"
+],
+[
+19,
+"ButtonControl",
+"Liveuntertitel ausblenden",
+"captions-panel-dismiss-button",
+"fui-Button r1f29ykk ___1lsc12l f3rmtva f1p3nwhy f11589ue f1q5o8ev f1pd"
+],
+[
+17,
+"GroupControl",
+"",
+"",
+"fui-Flex ___lic3gj0 f22iagw f1vx9l62 f122n59 fd7ph1c f1euv43f f15twtuk"
+],
+[
+13,
+"GroupControl",
+"",
+"",
+"fui-AppLayoutArea ___18rp110 f1ewtqcl feialds f6dzj5z f10pi13n f1lvyey"
+],
+[
+14,
+"GroupControl",
+"",
+"",
+""
+],
+[
+15,
+"GroupControl",
+"",
+"",
+"rrd10u0 fui-AriaLive__assertive"
+],
+[
+15,
+"GroupControl",
+"",
+"",
+"rrd10u0 fui-AriaLive__polite"
+],
+[
+13,
+"GroupControl",
+"",
+"",
+"fui-AppLayoutArea ___ezfjj20 f1ewtqcl f1immsc2 f6dzj5z f10pi13n f1lvye"
+],
+[
+14,
+"GroupControl",
+"",
+"",
+""
+],
+[
+11,
+"GroupControl",
+"",
+"teams-fast-background",
+""
+],
+[
+10,
+"GroupControl",
+"",
+"ui-paint-timing-container",
+""
+],
+[
+10,
+"GroupControl",
+"",
+"",
+""
+],
+[
+10,
+"GroupControl",
+"",
+"",
+""
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-Flex fui-FluentProviderrft fui-FluentProvider fui-FluentProviderrf"
+],
+[
+10,
+"GroupControl",
+"",
+"fluent-default-layer-host",
+""
+],
+[
+11,
+"GroupControl",
+"",
+"LivePersonaCardRootElement",
+"lpc_ip_root_class LivePersonaCardScrollBar"
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-FluentProviderrfs fui-FluentProvider fui-FluentProviderrfl riyx3kq"
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-FluentProviderrfs fui-FluentProvider fui-FluentProviderrfl riyx3kq"
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-FluentProviderrfs fui-FluentProvider fui-FluentProviderrfl riyx3kq"
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-FluentProviderrfs fui-FluentProvider fui-FluentProviderrfl riyx3kq"
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-FluentProviderrfs fui-FluentProvider fui-FluentProviderrfl riyx3kq"
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-FluentProviderrfs fui-FluentProvider fui-FluentProviderrfl riyx3kq"
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-FluentProviderrfs fui-FluentProvider fui-FluentProviderrfl riyx3kq"
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-FluentProviderrfs fui-FluentProvider fui-FluentProviderrfl riyx3kq"
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-FluentProviderrfs fui-FluentProvider fui-FluentProviderrfl riyx3kq"
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-FluentProviderrfs fui-FluentProvider fui-FluentProviderrfl riyx3kq"
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-FluentProviderrfs fui-FluentProvider fui-FluentProviderrfl riyx3kq"
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-FluentProviderrfs fui-FluentProvider fui-FluentProviderrfl riyx3kq"
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-FluentProviderrfs fui-FluentProvider fui-FluentProviderrfl riyx3kq"
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-FluentProviderrfs fui-FluentProvider fui-FluentProviderrfl riyx3kq"
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-FluentProviderrfs fui-FluentProvider fui-FluentProviderrfl riyx3kq"
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-FluentProviderrfs fui-FluentProvider fui-FluentProviderrfl riyx3kq"
+],
+[
+10,
+"GroupControl",
+"",
+"",
+"fui-FluentProviderrfs fui-FluentProvider fui-FluentProviderrfl riyx3kq"
+],
+[
+7,
+"PaneControl",
+"",
+"",
+"EmbeddedBrowserDownloadView"
+],
+[
+1,
+"TitleBarControl",
+"",
+"",
+""
+],
+[
+2,
+"MenuBarControl",
+"Anna Becker",
+"MenuBar",
+""
+],
+[
+3,
+"MenuItemControl",
+"Anna Becker",
+"",
+""
+],
+[
+2,
+"ButtonControl",
+"Anna Becker",
+"",
+""
+],
+[
+2,
+"ButtonControl",
+"Anna Becker",
+"",
+""
+],
+[
+2,
+"ButtonControl",
+"Anna Becker",
+"",
+""
+]
+]
+}

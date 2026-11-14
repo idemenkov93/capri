@@ -1,0 +1,7 @@
+PySide6-Essentials>=6.6          # окно, трей (без тяжёлых частей Qt)
+ctranslate2>=4.4                 # офлайн-перевод (модель Opus-MT)
+sentencepiece>=0.2               # разбиение текста на токены для модели
+keyring>=25.0                    # ключ DeepL в хранилище Windows
+truststore>=0.9                  # HTTPS через сертификаты Windows (антивирус, прокси)
+uiautomation>=2.0; sys_platform == "win32"   # чтение субтитров из окон Teams и Windows
+comtypes>=1.2; sys_platform == "win32"
