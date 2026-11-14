@@ -23,6 +23,15 @@ for pkg in ("ctranslate2", "uiautomation", "sentencepiece"):
 for pkg in ("dolmetsch", "comtypes", "win32ctypes", "keyring", "uiautomation", "truststore"):
     hidden += safe(collect_submodules, pkg)
 
+# sentencepiece держит свои DLL в соседней папке sentencepiece.libs — PyInstaller её сам не берёт
+import glob
+import importlib.util
+
+_spm = importlib.util.find_spec("sentencepiece")
+if _spm and _spm.origin:
+    _libs = os.path.join(os.path.dirname(os.path.dirname(_spm.origin)), "sentencepiece.libs")
+    binaries += [(dll, "sentencepiece.libs") for dll in glob.glob(os.path.join(_libs, "*.dll"))]
+
 a = Analysis(
     [os.path.join(SPECPATH, "entry.py")],
     pathex=[ROOT],
