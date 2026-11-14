@@ -19,3 +19,13 @@ def setup() -> None:
         log.addHandler(handler)
     except OSError:
         log.addHandler(logging.NullHandler())
+
+
+def crash(where: str, exc: BaseException | None = None) -> None:
+    """Записать сбой: тип ошибки и место в коде. Текст ошибки не пишем — в нём может оказаться текст встречи."""
+    import sys
+    import traceback
+    exc = exc or sys.exc_info()[1]
+    frames = traceback.extract_tb(exc.__traceback__) if exc is not None else []
+    place = " <- ".join(f"{f.filename.replace(chr(92), '/').rsplit('/', 1)[-1]}:{f.lineno}" for f in frames[-3:][::-1])
+    log.error("сбой (%s): %s в %s", where, type(exc).__name__ if exc else "?", place or "?")

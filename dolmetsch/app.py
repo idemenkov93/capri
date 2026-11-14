@@ -236,9 +236,18 @@ def make_controller():
                 log.error("модель: %s", e)
                 self.bridge.model.emit(str(e))
 
+        def draft_interval(self):
+            """Черновой перевод недописанной фразы — только когда модель работает на видеокарте."""
+            setting = self.cfg["live_partial"]
+            if self.offline.used_device == "cuda" or setting == "on":
+                return hardware.live_interval(self.hw, setting)
+            return None
+
         def on_model(self, error: str) -> None:
             if error:
                 self.overlay.flash(f"Офлайн-перевод недоступен: {error}", 30)
+            if self.pipeline is not None:
+                self.pipeline.live_interval = self.draft_interval()
             self.refresh()
 
         def start(self) -> None:
@@ -250,7 +259,7 @@ def make_controller():
                 self.router, on_line=self.bridge.line.emit, on_partial=self.bridge.partial.emit,
                 on_draft=self.bridge.draft.emit,
                 transcript=self.transcript if self.cfg["save_transcript"] else None,
-                live_interval=hardware.live_interval(self.hw, self.cfg["live_partial"]))
+                live_interval=self.draft_interval())
             self.pipeline.start()
 
             def make_selector(auto):
@@ -482,6 +491,9 @@ def main(argv=None) -> int:
         return probe(report, args.probe)
 
     setup_log()
+    from .log import crash
+    sys.excepthook = lambda kind, value, tb: crash("окно", value)          # у оконной программы нет консоли —
+    threading.excepthook = lambda a: crash(a.thread.name if a.thread else "поток", a.exc_value)   # сбои пишем в журнал
     from PySide6.QtCore import QLockFile
     from PySide6.QtWidgets import QApplication, QMessageBox
     app = QApplication(sys.argv[:1])

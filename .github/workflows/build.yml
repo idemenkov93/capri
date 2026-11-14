@@ -105,7 +105,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist\Dolmetsch\models | Out-Null
           Copy-Item -Recurse models\opus-mt-de-ru dist\Dolmetsch\models\opus-mt-de-ru
-          Copy-Item README.md "dist\Dolmetsch\Прочти меня.md"
+          Copy-Item README.md dist\Dolmetsch\README.md
 
       - name: Check the bundle (smoke, benchmark, capture probe)
         shell: pwsh
@@ -124,21 +124,28 @@ jobs:
           Get-Content bench-exe.txt | Select-Object -First 4 | ForEach-Object { "::notice title=bench exe::$_" }
           exit $fail
 
-      - name: Pack
+      - name: Version
+        id: v
         shell: pwsh
         run: |
           $v = python -c "import dolmetsch;print(dolmetsch.__version__)"
-          Compress-Archive -Path dist\Dolmetsch -DestinationPath "Dolmetsch-$v-win64.zip"
-          Get-ChildItem Dolmetsch-*.zip | ForEach-Object { "::notice title=archive::{0}  {1:N0} MB" -f $_.Name, ($_.Length / 1MB) }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          $size = (Get-ChildItem dist\Dolmetsch -Recurse | Measure-Object Length -Sum).Sum / 1MB
+          "::notice title=size::Dolmetsch $v, {0:N0} MB unpacked" -f $size
 
+      # Архив с программой: скачивается со страницы запуска (раздел Artifacts) и распаковывается в любую папку
       - uses: actions/upload-artifact@v4
         with:
-          name: Dolmetsch-win64
+          name: Dolmetsch-${{ steps.v.outputs.version }}-win64
+          path: dist/Dolmetsch
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reports
           path: |
-            Dolmetsch-*.zip
             bench.txt
             bench-exe.txt
             smoke.txt
             probe.txt
             pytest.txt
-          compression-level: 0

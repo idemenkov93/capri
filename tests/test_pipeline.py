@@ -178,3 +178,59 @@ def test_log_never_contains_meeting_text(qapp, tmp_path, monkeypatch):
         L.log.removeHandler(h)
     text = (tmp_path / "Dolmetsch" / "dolmetsch.log").read_text(encoding="utf-8")
     assert "фраз 1" in text and secret not in text and "Geheim" not in text
+
+
+def test_crash_log_has_place_but_not_the_message(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    import dolmetsch.log as L
+    for h in list(L.log.handlers):
+        L.log.removeHandler(h)
+    L.setup()
+    try:
+        raise ValueError("ТЕКСТ ВСТРЕЧИ В ОШИБКЕ")
+    except ValueError:
+        L.crash("тест")
+    for h in list(L.log.handlers):
+        h.close()
+        L.log.removeHandler(h)
+    text = (tmp_path / "Dolmetsch" / "dolmetsch.log").read_text(encoding="utf-8")
+    assert "ValueError" in text and "test_pipeline.py" in text and "ТЕКСТ ВСТРЕЧИ" not in text
+
+
+def test_pipeline_thread_survives_a_bad_phrase(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    import time
+
+    class Bad(Router):
+        def translate(self, texts, context=""):
+            if "kaputt" in texts[0]:
+                raise RuntimeError("сбой")
+            return super().translate(texts, context)
+    p, out, clock = pipe(router=Bad())
+    p.start()
+    p.push(Event("final", "Anna", "kaputt", 100.0))
+    time.sleep(0.3)
+    p.push(Event("final", "Anna", "Geht wieder.", 100.0))
+    time.sleep(0.4)
+    p.stop()
+    p.join(2)
+    assert [ln.text for ln in out["lines"]] == ["Geht wieder."]
+
+
+def test_overlay_drag_and_resize_by_hand(qapp):
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from dolmetsch.ui.overlay import Grip, Overlay
+    o = Overlay(geometry=[100, 100, 600, 200])
+    o.show()
+
+    def ev(kind, x, y, buttons=Qt.LeftButton):
+        return QMouseEvent(kind, QPointF(5, 5), QPointF(x, y), Qt.LeftButton, buttons, Qt.NoModifier)
+    o.mousePressEvent(ev(QMouseEvent.MouseButtonPress, 110, 110))
+    o.mouseMoveEvent(ev(QMouseEvent.MouseMove, 160, 140))
+    o.mouseReleaseEvent(ev(QMouseEvent.MouseButtonRelease, 160, 140, Qt.NoButton))
+    assert o.pos() == QPoint(150, 130)
+    grip = o.findChild(Grip)
+    grip.mousePressEvent(ev(QMouseEvent.MouseButtonPress, 700, 300))
+    grip.mouseMoveEvent(ev(QMouseEvent.MouseMove, 760, 340))
+    assert (o.width(), o.height()) == (660, 240)

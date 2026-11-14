@@ -63,9 +63,10 @@ class TeamsSource:
             return False
         self.status = "no_panel"
         for win in wins:
-            # медленный обход всего окна — не каждый раз, а на первой и каждой третьей попытке
+            # медленный обход всего окна — только как страховка: на первой попытке и раз в ~30 с,
+            # иначе поиск сам грузил бы Teams
             anchor = uia.find_by_ids(self.auto, win, self.profile["anchor_ids"],
-                                     allow_slow=self._attempt % 3 == 1)
+                                     allow_slow=self._attempt % 10 == 1)
             if anchor is None:
                 continue
             self.status = "panel_empty"      # панель включена, но реплик ещё нет

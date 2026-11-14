@@ -11,7 +11,7 @@ import os
 
 from PySide6.QtCore import QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizeGrip, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QTextEdit, QVBoxLayout, QWidget
 
 from . import style
 
@@ -28,6 +28,29 @@ def set_capture_hidden(widget: QWidget, hidden: bool) -> bool:
             int(widget.winId()), WDA_EXCLUDEFROMCAPTURE if hidden else WDA_NONE))
     except Exception:  # noqa: BLE001
         return False
+
+
+class Grip(QLabel):
+    """Уголок для изменения размера. Сделан вручную: системное перетаскивание плохо работает
+    у окон, которые не забирают фокус."""
+
+    def __init__(self, window: QWidget):
+        super().__init__("◢", window)
+        self.window_, self._start = window, None
+        self.setCursor(Qt.SizeFDiagCursor)
+        self.setFixedSize(16, 16)
+
+    def mousePressEvent(self, event) -> None:
+        self._start = (event.globalPosition().toPoint(), self.window_.size())
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._start:
+            delta = event.globalPosition().toPoint() - self._start[0]
+            self.window_.resize(max(320, self._start[1].width() + delta.x()),
+                                max(110, self._start[1].height() + delta.y()))
+
+    def mouseReleaseEvent(self, event) -> None:
+        self._start = None
 
 
 class Overlay(QWidget):
@@ -58,8 +81,8 @@ class Overlay(QWidget):
         self.text.setFocusPolicy(Qt.NoFocus)
         self.status = QLabel(self.card)
         self.status.setAttribute(Qt.WA_TransparentForMouseEvents)
-        grip = QSizeGrip(self.card)
-        grip.setFixedSize(14, 14)
+        grip = Grip(self)
+        self._drag = None
 
         bottom = QHBoxLayout()
         bottom.setContentsMargins(0, 0, 0, 0)
@@ -94,7 +117,8 @@ class Overlay(QWidget):
         screen = QGuiApplication.primaryScreen().availableGeometry()
         if geometry and len(geometry) == 4:
             x, y, w, h = geometry
-            if screen.adjusted(-200, -200, 200, 200).contains(QPoint(x + 40, y + 20)):
+            # сохранённое место годится, если оно видно на каком-то из мониторов
+            if any(s.availableGeometry().contains(QPoint(x + 40, y + 20)) for s in QGuiApplication.screens()):
                 return self.setGeometry(x, y, max(320, w), max(110, h))
         w, h = min(980, screen.width() - 80), 210
         self.setGeometry(screen.x() + (screen.width() - w) // 2, screen.bottom() - h - 60, w, h)
@@ -165,8 +189,15 @@ class Overlay(QWidget):
 
     # ---------- мышь и размер
     def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.LeftButton and self.windowHandle():
-            self.windowHandle().startSystemMove()
+        if event.button() == Qt.LeftButton:
+            self._drag = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._drag is not None and event.buttons() & Qt.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag)
+
+    def mouseReleaseEvent(self, event) -> None:
+        self._drag = None
 
     def contextMenuEvent(self, event) -> None:
         self.menu_requested.emit(event.globalPos())

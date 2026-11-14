@@ -117,7 +117,11 @@ class Pipeline(threading.Thread):
 
     def run(self) -> None:
         while not self._stop_flag.is_set():
-            self.step()
+            try:
+                self.step()
+            except Exception:  # noqa: BLE001 — одна плохая фраза не должна остановить перевод
+                from .log import crash
+                crash("pipeline")
 
     def summary(self) -> str:
         """Сводка за сессию — только числа."""
