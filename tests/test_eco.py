@@ -86,7 +86,7 @@ def test_app_dnd_study_and_menus(monkeypatch, tmp_path):
     app = quiet_app(monkeypatch)
     monkeypatch.setattr(app.prefs, "path", tmp_path / "state.json")
     app.warmup.wait(10_000)
-    menu = app.build_menu()                                  # меню с «🔕» и «🧠 Модели» строится без ошибок
+    menu = app.build_full_menu()                                  # меню с «🔕» и «🧠 Модели» строится без ошибок
     titles = [a.text() for a in menu.actions()]
     assert any("Не беспокоить" in x for x in titles) and any("Модели" in x for x in titles)
     app.set_dnd(dnd.until(30))
@@ -121,7 +121,7 @@ def test_glow_look_and_idle_hide(monkeypatch, tmp_path):
     monkeypatch.setattr(control, "idle_seconds", lambda: 0.5)
     app._idle_check()
     assert app.avatar.isVisible()                                        # шевельнул мышь — вернулась
-    menu = app.build_menu()
+    menu = app.build_full_menu()
     assert menu is not None
 
 

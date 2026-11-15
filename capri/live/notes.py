@@ -218,8 +218,22 @@ def search(term: str, root: Path | None = None, limit: int = 6) -> list[tuple[Pa
     return found
 
 
+def interviews_dir() -> Path:
+    """Собеседования: их текст пишет Dolmetsch (профиль «Важное»), рядом с папкой уроков."""
+    return lessons_dir().parent / "Собеседования"
+
+
 def latest(root: Path | None = None) -> Path | None:
+    """Последняя встреча с текстом: урок или (если root не задан) собеседование — что новее по дате в названии."""
+    found = []
     for p in reversed(lessons(root)):
         if (p / "конспект.md").exists() or (p / "транскрипт.md").exists():
-            return p
-    return None
+            found.append(p)
+            break
+    if root is None:
+        try:
+            talks = sorted(p for p in interviews_dir().iterdir() if p.is_dir() and (p / "транскрипт.md").exists())
+            found += talks[-1:]
+        except OSError:
+            pass
+    return max(found, key=lambda p: p.name) if found else None

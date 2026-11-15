@@ -34,6 +34,7 @@ class Hotkey:
 
 ACTIONS: list[Hotkey] = [
     Hotkey("chat", "Открыть / спрятать чат", "Win+Alt+O", "Общее", "O — Open"),
+    Hotkey("palette", "Команды: найти и выполнить любое действие или настройку", "Win+Alt+P", "Общее", "P — Palette"),
     Hotkey("dictate", "Диктовка: держи и говори — текст туда, где курсор", "Ctrl+Win", "Общее", "держать", hold=True),
     Hotkey("translate", "Перевести выделенное (ничего не выделено — буфер)", "Win+Alt+X", "Текст",
            "X — как ⇄; язык — в окне перевода"),
@@ -44,7 +45,7 @@ ACTIONS: list[Hotkey] = [
     Hotkey("hint", "💡 Что спросил учитель и как ответить", "Win+Alt+Q", "Урок", "Q — Question"),
     Hotkey("answer", "💬 Хочу ответить: по-русски → фраза по-немецки", "Win+Alt+A", "Урок", "A — Answer"),
     Hotkey("phrases", "🗣 Готовые фразы для урока (меню у мыши)", "Win+Alt+F", "Урок", "F — фразы"),
-    Hotkey("subtitles", "🎧 Субтитры: включить / выключить", "Win+Alt+U", "Урок", "U — Untertitel"),
+    Hotkey("subtitles", "🎧 Субтитры встречи (Dolmetsch): старт / стоп", "Win+Alt+U", "Урок", "U — Untertitel"),
     Hotkey("mentor", "🎓 Спросить наставника", "Win+Alt+N", "Учёба", "N — Наставник"),
     Hotkey("convert", "🔄 Конвертер для выделенных файлов", "Win+Alt+V", "Файлы", "V — conVert"),
 ]

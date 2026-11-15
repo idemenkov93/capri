@@ -91,6 +91,14 @@ class CapriApp:
         self.qt.setQuitOnLastWindowClosed(False)
         self.cfg = load_config()
         self.prefs = State(expand("data/state.json"))
+        self._wake_note = False
+        if not self.prefs.get("v2_wake_checked", False):
+            # 2.0: без видеокарты постоянное прослушивание «Привет, Капри» заметно грузит ноутбук — выключаем
+            self.prefs.set("v2_wake_checked", True)
+            from .mentor import has_gpu
+            if not has_gpu() and self.prefs.get("wake_word", True):
+                self.prefs.set("wake_word", False)
+                self._wake_note = True
         if self.prefs.data.get("speak") is not None:
             self.cfg["voice"]["speak"] = bool(self.prefs.data["speak"])
         self._apply_attitude(self.prefs.get("attitude", "sassy"))
@@ -140,6 +148,9 @@ class CapriApp:
         self.avatar.clicked.connect(self.toggle_chat)
         self.avatar.quit_requested.connect(self.qt.quit)
         self.chat.submitted.connect(self.on_message)
+        if self._wake_note:
+            self.chat.add_system("На этом компьютере нет видеокарты, поэтому я больше не слушаю «Привет, Капри» постоянно: "
+                                 "это грузило процессор. Зови клавишей Win+Alt+O. Вернуть: Настройки → набери «слушать».")
         self.agent.chat_brain = self.prefs.get("chat_brain", "auto")
         self.chat.set_brain(self.agent.chat_brain)
         self.chat.brain_changed.connect(self.set_chat_brain)
@@ -435,6 +446,99 @@ class CapriApp:
             self.toggle_chat()
 
     def build_menu(self, parent=None, menu: QMenu | None = None) -> QMenu:
+        """Короткое меню (трей и правый клик по Капри): шесть пунктов. Всё остальное — в палитре команд."""
+        if menu is None:
+            menu = QMenu(parent)
+        else:
+            menu.clear()
+        from .hotkeys import resolve
+        keys = resolve(self.cfg.get("hotkeys"))
+
+        def label(text: str, aid: str) -> str:
+            return f"{text}\t{keys[aid]}" if keys.get(aid) else text
+        menu.setDefaultAction(menu.addAction(label("Открыть Capri", "chat"), self.open_chat))
+        menu.addAction(label("Команды…", "palette"), self.open_palette)
+        menu.addAction(label("Субтитры встречи", "subtitles"), self.toggle_subtitles)
+        if self.dnd_active():
+            menu.addAction("Можно беспокоить", lambda: self.on_message("можно беспокоить"))
+        else:
+            menu.addAction("Не беспокоить час", lambda: self.on_message("не беспокой меня час"))
+        menu.addAction("Настройки…", lambda: self.open_palette(settings=True))
+        menu.addAction(t("quit", self.lang), self.qt.quit)
+        return menu
+
+    # палитра команд ------------------------------------------------------------
+    def open_palette(self, settings: bool = False, query: str = ""):
+        if getattr(self, "palette", None) is None:
+            from .ui.palette import Palette
+            self.palette = Palette(self.palette_commands)
+            self.palette.ran.connect(self._palette_ran)
+        self.palette.open(settings=bool(settings), query=query or "")
+
+    def _palette_ran(self, title: str):
+        recent = [x for x in self.prefs.get("palette_recent", []) if x != title]
+        self.prefs.set("palette_recent", ([title] + recent)[:6])
+
+    def run_phrase(self, phrase: str):
+        """Команда из палитры — как будто написал эту фразу в чате."""
+        if phrase == "__answer__":
+            return self.live.ask_answer()
+        self.open_chat()
+        if phrase.endswith(" "):                  # «наставник: », «видео про » — дописать вопрос в поле ввода
+            self.chat._quick_pick(phrase)
+        else:
+            self.on_quick(phrase)
+
+    def palette_commands(self) -> list:
+        """Всё, что умеет Капри, одним списком: клавиши, команды-фразы, настройки из полного меню."""
+        from .hotkeys import ACTIONS, resolve
+        from .ui.chat import COMPLETIONS, QUICK
+        from .ui.palette import Command
+        keys = resolve(self.cfg.get("hotkeys"))
+        out, seen = [], set()
+        for a in ACTIONS:
+            if a.id in ("palette", "dictate"):
+                continue
+            out.append(Command(a.title, a.group, keys.get(a.id) or "", run=lambda i=a.id: self.on_hotkey(i)))
+        for _title, tip, what in QUICK:
+            group = tip.split(":")[0]
+            for text, phrase in ([(tip, what)] if isinstance(what, str) else what):
+                seen.add(phrase)
+                out.append(Command(text, group, run=lambda p=phrase: self.run_phrase(p), keywords=phrase))
+        for phrase in COMPLETIONS:
+            if phrase not in seen:
+                title = phrase.strip()[:1].upper() + phrase.strip()[1:] + ("…" if phrase.endswith(" ") else "")
+                out.append(Command(title, "Команда", run=lambda p=phrase: self.run_phrase(p), keywords=phrase))
+        self._full_menu = self.build_full_menu()      # держим ссылку: пункты меню живут, пока жива палитра
+
+        def walk(menu, path):
+            for act in menu.actions():
+                text = act.text().replace("&", "").split("\t")[0].strip()
+                if act.isSeparator() or not text:
+                    continue
+                if act.menu() is not None:
+                    walk(act.menu(), path + [text])
+                elif act.isEnabled():
+                    out.append(Command(text, " › ".join(["Настройки"] + path), run=act.trigger, settings=True,
+                                       checked=act.isChecked() if act.isCheckable() else None))
+        walk(self._full_menu, [])
+        recent = self.prefs.get("palette_recent", [])
+        out.sort(key=lambda c: recent.index(c.title) if c.title in recent else len(recent))   # недавние — первыми
+        return out
+
+    def toggle_subtitles(self):
+        """Субтитры встречи ведёт Dolmetsch. Если он не установлен — работают старые встроенные субтитры."""
+        from . import dolmetsch
+        msg = dolmetsch.run("toggle", self.cfg)
+        if msg is None:
+            if not self.prefs.get("dolmetsch_hint"):
+                self.prefs.set("dolmetsch_hint", True)
+                self.chat.add_system(dolmetsch.missing_text())
+            msg = self.live.stop() if self.live.running else self.live.start()
+        self.chat.add_system(msg)
+
+    def build_full_menu(self, parent=None, menu: QMenu | None = None) -> QMenu:
+        """Полное старое меню. На экране не показывается: его пункты попадают в палитру как «Настройки»."""
         L = self.lang
         if menu is None:
             menu = QMenu(parent)
@@ -846,7 +950,8 @@ class CapriApp:
             "hint": lambda: self.on_message("подскажи ответ"),
             "answer": self.live.ask_answer,
             "phrases": self.live.phrases_menu,
-            "subtitles": lambda: self.chat.add_system(self.live.stop() if self.live.running else self.live.start()),
+            "subtitles": self.toggle_subtitles,
+            "palette": self.open_palette,
             "mentor": self._ask_mentor,
             "convert": self.convert.from_hotkey,
         }.get(aid)
@@ -1717,6 +1822,12 @@ class CapriApp:
             self.live.show_answer(act.params.get("say", ""), act.params.get("ru", ""))
             return
         if act.kind == "live":
+            if act.params.get("do") in ("start", "stop") and not self.live.running:
+                from . import dolmetsch              # субтитры встречи ведёт Dolmetsch, если он установлен
+                msg = dolmetsch.run(act.params["do"], self.cfg)
+                if msg is not None:
+                    self.chat.add_system(msg)
+                    return
             msg = self.live.handle(act.params)
             if msg:
                 self.chat.add_system(msg)

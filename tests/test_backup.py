@@ -80,11 +80,11 @@ def test_app_menu_and_admin_actions(monkeypatch, tmp_path):
     from tests.test_eco import quiet_app
     from capri import actions as A
     app = quiet_app(monkeypatch)
-    menu = app.build_menu()
+    menu = app.build_full_menu()
     titles = [a.text() for a in menu.actions()]
     assert "💾 Бэкап" in titles
     app.prefs.set("backup", {"folders": [str(tmp_path)], "dest": str(tmp_path), "keep": 5, "every": "off", "last": 0})
-    app.build_menu()
+    app.build_full_menu()
     app.run_action(A.Action("popup", "x", {"title": "Мой IP", "text": "**192.168.1.5**", "command": "Get-NetIPConfiguration"},
                             needs_confirm=False))
     assert "192.168.1.5" in app.text.popup.body.toPlainText()

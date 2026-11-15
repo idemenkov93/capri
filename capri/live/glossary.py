@@ -28,8 +28,31 @@ def path(root: Path | None = None) -> Path:
 
 
 def csv_dir() -> Path:
-    from ..config import expand
-    return expand("data/glossary")
+    """Бестиарий лежит в общей папке Документы\\Capri\\Бестиарий: его читают Капри, Dolmetsch и Claude.
+    До 2.0 он лежал внутри программы (data/glossary) — при первом обращении файлы копируются сюда."""
+    new = N.lessons_dir().parent / "Бестиарий"
+    _migrate(new)
+    return new
+
+
+_migrated = set()
+
+
+def _migrate(new: Path) -> None:
+    if str(new) in _migrated:
+        return
+    _migrated.add(str(new))
+    try:
+        from ..config import expand
+        old = expand("data/glossary")
+        if not old.exists() or old.resolve() == new.resolve():
+            return
+        new.mkdir(parents=True, exist_ok=True)
+        for f in old.iterdir():
+            if f.is_file() and not (new / f.name).exists():
+                shutil.copy2(f, new / f.name)          # старые файлы не удаляем: это страховка
+    except OSError:
+        pass
 
 
 # ---------- CSV ----------
