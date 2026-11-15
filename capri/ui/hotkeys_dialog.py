@@ -9,18 +9,18 @@ from PySide6.QtWidgets import (QDialog, QGridLayout, QHBoxLayout, QLabel, QLineE
 from .. import hotkeys as H
 
 STYLE = """
-QDialog, QWidget#page { background: #0b1222; color: #eef6ff; }
-QLabel { color: #d7e3fb; }
-QLabel#group { color: #8fb4ff; font-weight: 600; padding-top: 8px; }
-QLabel#hint { color: #6f82a8; font-size: 11px; }
-QLabel#warn { color: #ffb454; font-size: 11px; }
-QLineEdit { background: #070b16; color: #eef6ff; border: 1px solid #1d3550; border-radius: 5px; padding: 4px 6px;
-            font-family: Consolas, monospace; }
-QLineEdit:focus { border-color: #1f6feb; }
-QPushButton { background: #14223d; color: #eef6ff; border: 1px solid #27406a; border-radius: 6px; padding: 5px 10px; }
-QPushButton:hover { background: #1c3156; }
-QPushButton#main { background: #1f6feb; border-color: #1f6feb; }
-QPushButton#small { padding: 2px 6px; }
+QDialog, QWidget#page { background: #202020; color: #FFFFFF; }
+QLabel { color: #C8C8C8; }
+QLabel#group { color: #60CDFF; font-weight: 600; padding-top: 8px; }
+QLabel#hint { color: #9A9A9A; font-size: 11px; }
+QLabel#warn { color: #FCE100; font-size: 11px; }
+QLineEdit { background: #2B2B2B; color: #FFFFFF; border: 1px solid #3A3A3A; border-radius: 5px; padding: 4px 6px;
+            font-family: 'Segoe UI Variable Text', 'Segoe UI', Inter, sans-serif; }
+QLineEdit:focus { border-color: #60CDFF; }
+QPushButton { background: #2B2B2B; color: #FFFFFF; border: 1px solid #3A3A3A; border-radius: 6px; padding: 5px 10px; }
+QPushButton:hover { background: #383838; }
+QPushButton#main { background: #60CDFF; border-color: #60CDFF; color: #000000; border-radius: 4px; }
+QPushButton#small { padding: 2px 6px; border-radius: 4px; }
 """
 
 QT_NAMES = {Qt.Key_Space: "Space", **{getattr(Qt, f"Key_F{i}"): f"F{i}" for i in range(1, 13)}}
@@ -124,7 +124,7 @@ class HotkeysDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(page)
-        scroll.setStyleSheet("QScrollArea { border: 0; background: #0b1222; }")
+        scroll.setStyleSheet("QScrollArea { border: 0; background: #202020; }")
         lay.addWidget(scroll, 1)
         bar = QHBoxLayout()
         b_def = QPushButton("Всё по умолчанию")

@@ -21,12 +21,12 @@ from .avatar import STATUS_COLORS, draw_star
 from .chat import BRAIN_CSS, ChatExtras
 from .sprites import SpriteSet
 
-BG = QColor("#070b16")
-PANEL = QColor("#0b1222")
-CYAN = QColor("#3ff3ff")
-DIM = QColor("#5b6b85")
-PINK = QColor("#ff2a6d")
-YELLOW = QColor("#f5e663")
+BG = QColor("#2B2B2B")
+PANEL = QColor("#202020")
+CYAN = QColor("#60CDFF")
+DIM = QColor("#9A9A9A")
+PINK = QColor("#FF99A4")
+YELLOW = QColor("#FCE100")
 
 STATE_LABEL = {
     "ONLINE": "STANDBY", "LOADING": "BOOTING", "THINKING": "THINKING", "RECOGNIZING": "DECODING",
@@ -43,19 +43,19 @@ ROUTE_LABEL = {"rules": "⚡ DIRECT", "local": "◆ LOCAL", "claude": "✦ CLAUD
                "openrouter": "✧ OPENROUTER", "error": "✖ ERROR"}
 
 STYLE = """
-QWidget { color: #d8e3f5; font-family: 'Cascadia Mono', Consolas, 'JetBrains Mono', monospace; font-size: 12px; }
-QLineEdit { background: #0b1222; border: 1px solid #1d3550; border-left: 3px solid #ff2a6d;
-            padding: 8px 10px; color: #e8f4ff; selection-background-color: #3ff3ff; }
-QLineEdit:focus { border-color: #3ff3ff; border-left-color: #ff2a6d; }
-QPushButton { background: transparent; border: 1px solid #1d3550; color: #3ff3ff; padding: 6px 10px; }
-QPushButton:hover { border-color: #3ff3ff; background: #0f2235; }
-QPushButton#icon { border: none; padding: 2px 6px; color: #5b6b85; font-size: 14px; }
-QPushButton#icon:hover { color: #3ff3ff; background: transparent; }
-QPushButton#stop { border-color: #ff2a6d; color: #ff2a6d; }
-QTextBrowser { background: #0b1222; border: 1px solid #1d3550; padding: 6px; }
-QLabel#status { color: #5b6b85; font-size: 10px; letter-spacing: 1px; }
-QScrollBar:vertical { background: #0b1222; width: 6px; }
-QScrollBar::handle:vertical { background: #1d3550; }
+QWidget { color: #C8C8C8; font-family: 'Cascadia Mono', Consolas, 'JetBrains Mono', monospace; font-size: 12px; }
+QLineEdit { background: #202020; border: 1px solid #3A3A3A; border-left: 3px solid #FF99A4;
+            padding: 8px 10px; color: #FFFFFF; selection-background-color: #60CDFF; border-radius: 4px; }
+QLineEdit:focus { border-color: #60CDFF; border-left-color: #FF99A4; }
+QPushButton { background: transparent; border: 1px solid #3A3A3A; color: #60CDFF; padding: 6px 10px; border-radius: 4px; }
+QPushButton:hover { border-color: #60CDFF; background: #2B2B2B; }
+QPushButton#icon { border: none; padding: 2px 6px; color: #9A9A9A; font-size: 14px; border-radius: 4px; }
+QPushButton#icon:hover { color: #60CDFF; background: transparent; }
+QPushButton#stop { border-color: #FF99A4; color: #FF99A4; border-radius: 4px; }
+QTextBrowser { background: #202020; border: 1px solid #3A3A3A; padding: 6px; border-radius: 4px; }
+QLabel#status { color: #9A9A9A; font-size: 10px; letter-spacing: 1px; }
+QScrollBar:vertical { background: #202020; width: 6px; }
+QScrollBar::handle:vertical { background: #3A3A3A; }
 """
 
 
@@ -82,12 +82,12 @@ class Transmission(QWidget):
         lay.setContentsMargins(14, 10, 14, 18)
         lay.setSpacing(3)
         self.you = QLabel(wordWrap=True)
-        self.you.setStyleSheet("color:#5b6b85; font-size:10px;")
+        self.you.setStyleSheet("color:#9A9A9A; font-size:10px;")
         self.head = QLabel()
-        self.head.setStyleSheet("color:#3ff3ff; font-size:10px; letter-spacing:1px;")
+        self.head.setStyleSheet("color:#60CDFF; font-size:10px; letter-spacing:1px;")
         self.body = QLabel(wordWrap=True)
         self.body.setTextFormat(Qt.PlainText)
-        self.body.setStyleSheet("color:#eef6ff; font-size:13px;")
+        self.body.setStyleSheet("color:#FFFFFF; font-size:13px;")
         self.body.setTextInteractionFlags(Qt.TextSelectableByMouse)
         for w in (self.you, self.head, self.body):
             lay.addWidget(w)
@@ -213,8 +213,8 @@ class Viewport(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         r = QRectF(0, 0, w, h)
         g = QLinearGradient(r.topLeft(), r.bottomLeft())
-        g.setColorAt(0, QColor("#0a1020"))
-        g.setColorAt(1, QColor("#05070f"))
+        g.setColorAt(0, QColor("#202020"))
+        g.setColorAt(1, QColor("#1A1A1A"))
         p.fillRect(r, g)
         for sx, sy, sb in self.stars:
             a = int(60 + 120 * abs(math.sin(self.phase * (0.5 + sb) + sx * 10)))
@@ -290,7 +290,7 @@ class Viewport(QWidget):
         p.setFont(QFont("Consolas", 8, QFont.Bold))
         w = p.fontMetrics().horizontalAdvance(label) + 14
         tag = QRectF(r.left() + 10, r.top() - 8, w, 16)
-        p.fillRect(tag, QColor("#070b16"))
+        p.fillRect(tag, QColor("#2B2B2B"))
         p.setPen(QPen(col, 1))
         p.drawRect(tag)
         p.drawText(tag, Qt.AlignCenter, label)
@@ -329,8 +329,8 @@ class HudWindow(ChatExtras, QWidget):
 
         # шапка
         head = QHBoxLayout()
-        title = QLabel("<b style='color:#eef6ff;letter-spacing:2px'>▍CAPRI</b>"
-                       "&nbsp;&nbsp;<span style='color:#5b6b85;font-size:9px;letter-spacing:2px'>PERSONAL LINK</span>")
+        title = QLabel("<b style='color:#FFFFFF;letter-spacing:2px'>▍CAPRI</b>"
+                       "&nbsp;&nbsp;<span style='color:#9A9A9A;font-size:9px;letter-spacing:2px'>PERSONAL LINK</span>")
         head.addWidget(title)
         head.addStretch()
         self.btn_mic_top = self._icon("🎙", "Сказать голосом", self.mic_clicked.emit)
@@ -397,7 +397,7 @@ class HudWindow(ChatExtras, QWidget):
         r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
         path = _cut_corner_path(r, 16)
         p.fillPath(path, QColor(7, 11, 22, 242))
-        p.setPen(QPen(QColor("#1d3550"), 1))
+        p.setPen(QPen(QColor("#3A3A3A"), 1))
         p.drawPath(path)
         p.fillRect(QRectF(r.left() + 16, r.top(), 60, 2), PINK)
 
@@ -456,7 +456,7 @@ class HudWindow(ChatExtras, QWidget):
 
     def set_recording(self, on: bool):
         self.mic.setText("⏺" if on else "🎤")
-        self.mic.setStyleSheet("border-color:#ff2a6d; color:#ff2a6d;" if on else "")
+        self.mic.setStyleSheet("border-color:#FF99A4; color:#FF99A4;" if on else "")
 
     def stream(self, kind: str, piece: str):
         if kind == "reset":
@@ -475,11 +475,11 @@ class HudWindow(ChatExtras, QWidget):
 
     def add_user(self, text: str):
         self.card.set_you(text)
-        self._log(f'<p style="color:#3ff3ff"><b>YOU ›</b> {html.escape(text)}</p>')
+        self._log(f'<p style="color:#60CDFF"><b>YOU ›</b> {html.escape(text)}</p>')
 
     def add_capri(self, text: str, route: str = "local"):
         self.card.set_capri(text, route)
-        self._log(f'<p style="color:#ff2a6d"><b>CAPRI</b> <span style="color:#5b6b85">{ROUTE_LABEL.get(route, "")}</span></p>')
+        self._log(f'<p style="color:#FF99A4"><b>CAPRI</b> <span style="color:#9A9A9A">{ROUTE_LABEL.get(route, "")}</span></p>')
         cur = self.log.textCursor()
         cur.movePosition(QTextCursor.End)
         cur.insertMarkdown(text)
@@ -489,7 +489,7 @@ class HudWindow(ChatExtras, QWidget):
             self._log(self.copy_links(text))
 
     def add_system(self, text: str):
-        self._log(f'<p style="color:#5b6b85"><i>{html.escape(text)}</i></p>')
+        self._log(f'<p style="color:#9A9A9A"><i>{html.escape(text)}</i></p>')
         self.status.setText(text.upper()[:90])
 
     def _log(self, html_text: str):

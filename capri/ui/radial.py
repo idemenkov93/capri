@@ -11,7 +11,7 @@ from PySide6.QtCore import QEasingCurve, QPointF, QRectF, Qt, QVariantAnimation,
 from PySide6.QtGui import QColor, QCursor, QFont, QGuiApplication, QPainter, QPainterPath, QPen, QRadialGradient
 from PySide6.QtWidgets import QWidget
 
-PINK, CYAN, BG, LINE, TEXT, DIM = "#ff2a6d", "#3ff3ff", "#0b1222", "#1d3550", "#eef6ff", "#5b6b85"
+PINK, CYAN, BG, LINE, TEXT, DIM = "#FF99A4", "#60CDFF", "#202020", "#3A3A3A", "#FFFFFF", "#9A9A9A"
 
 
 class RadialMenu(QWidget):
@@ -176,7 +176,7 @@ class RadialMenu(QWidget):
             p.setFont(f)
             icon = it.icon or str(i + 1)
             p.drawText(QRectF(pt.x() - 40, pt.y() - 30, 80, 26), Qt.AlignCenter, icon)
-            p.setPen(QColor(TEXT if hot else "#c9d6ea"))
+            p.setPen(QColor(TEXT if hot else "#C8C8C8"))
             f = QFont("Segoe UI", max(7, int(8.5 * k)))
             f.setBold(hot)
             p.setFont(f)
@@ -203,7 +203,7 @@ class RadialMenu(QWidget):
             p.setBrush(QColor(11, 18, 34, 235))
             p.setPen(QPen(QColor(LINE), 1))
             p.drawRoundedRect(box, 6, 6)
-            p.setPen(QColor("#9fb3cf"))
+            p.setPen(QColor("#9A9A9A"))
             p.setFont(QFont("Segoe UI", 8))
             p.drawText(box.adjusted(8, 2, -8, -2), Qt.AlignCenter | Qt.TextWordWrap, hint)
         p.end()

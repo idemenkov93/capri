@@ -6,13 +6,13 @@ from PySide6.QtWidgets import (QDialog, QHBoxLayout, QHeaderView, QLabel, QPushB
                                QVBoxLayout)
 
 STYLE = """
-QDialog { background: #0b1222; color: #eef6ff; }
-QLabel { color: #b9c7e6; }
-QTableWidget { background: #070b16; color: #eef6ff; gridline-color: #1d3550; border: 1px solid #1d3550; }
-QHeaderView::section { background: #101a30; color: #8fb4ff; border: 0; padding: 4px; }
-QPushButton { background: #14223d; color: #eef6ff; border: 1px solid #27406a; border-radius: 6px; padding: 6px 12px; }
-QPushButton:hover { background: #1c3156; }
-QPushButton#main { background: #1f6feb; border-color: #1f6feb; }
+QDialog { background: #202020; color: #FFFFFF; }
+QLabel { color: #C8C8C8; }
+QTableWidget { background: #2B2B2B; color: #FFFFFF; gridline-color: #3A3A3A; border: 1px solid #3A3A3A; }
+QHeaderView::section { background: #2B2B2B; color: #60CDFF; border: 0; padding: 4px; }
+QPushButton { background: #2B2B2B; color: #FFFFFF; border: 1px solid #3A3A3A; border-radius: 6px; padding: 6px 12px; }
+QPushButton:hover { background: #383838; }
+QPushButton#main { background: #60CDFF; border-color: #60CDFF; color: #000000; }
 """
 
 

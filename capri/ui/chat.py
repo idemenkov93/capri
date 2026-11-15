@@ -85,12 +85,12 @@ MORE_BRAINS = (("groq", "Groq", "Groq — бесплатно, очень быс�
 LOOKS = (("glow", "✨", "Вид: свечение по краю экрана (без персонажа)"), ("capri", "🧍", "Вид: Капри на экране"))
 
 STYLE = """
-QWidget { background: #0b0b14; color: #e6e6f0; font-family: Consolas, 'JetBrains Mono', monospace; font-size: 13px; }
-QTextBrowser { border: 1px solid #ff2a6d; padding: 6px; }
-QLineEdit { border: 1px solid #00f0ff; padding: 6px; background: #12121f; }
-QPushButton { border: 1px solid #00f0ff; padding: 6px 12px; background: #12121f; color: #00f0ff; }
-QPushButton:hover { background: #00f0ff; color: #0b0b14; }
-QLabel#live { color: #ffd23f; border: 1px dashed #ffd23f; padding: 6px; }
+QWidget { background: #202020; color: #FFFFFF; font-family: 'Segoe UI Variable Text', 'Segoe UI', Inter, sans-serif; font-size: 13px; }
+QTextBrowser { border: 1px solid #3A3A3A; padding: 6px; border-radius: 4px; }
+QLineEdit { border: 1px solid #60CDFF; padding: 6px; background: #2B2B2B; border-radius: 4px; }
+QPushButton { border: 1px solid #60CDFF; padding: 6px 12px; background: #2B2B2B; color: #60CDFF; border-radius: 4px; }
+QPushButton:hover { background: #60CDFF; color: #202020; }
+QLabel#live { color: #FCE100; border: 1px dashed #FCE100; padding: 6px; }
 """
 
 ROUTE_LABEL = {"rules": "⚡", "local": "◆ local", "claude": "✦ Claude", "gemini": "✧ Gemini", "groq": "✧ Groq",
@@ -163,7 +163,7 @@ class ChatExtras:
         brow = QHBoxLayout()
         brow.setSpacing(4)
         lbl = QLabel("Отвечает:")
-        lbl.setStyleSheet("color:#5b6b85; font-size:10px;")
+        lbl.setStyleSheet("color:#9A9A9A; font-size:10px;")
         brow.addWidget(lbl)
         self.brain_group = QButtonGroup(self)
         self.brain_buttons: dict[str, QPushButton] = {}
@@ -195,7 +195,7 @@ class ChatExtras:
         brow.addStretch(1)
         # вид: свечение или Капри — как радиокнопки
         lbl2 = QLabel("Вид:")
-        lbl2.setStyleSheet("color:#5b6b85; font-size:10px;")
+        lbl2.setStyleSheet("color:#9A9A9A; font-size:10px;")
         brow.addWidget(lbl2)
         self.look_group = QButtonGroup(self)
         self.look_buttons: dict[str, QPushButton] = {}
@@ -249,7 +249,7 @@ class ChatExtras:
     def _clip_link(self, text: str, title: str) -> str:
         key = str(len(self._clips))
         self._clips[key] = text
-        return f'<a href="copy:{key}" style="color:#00f0ff; text-decoration:none">{html.escape(title)}</a>'
+        return f'<a href="copy:{key}" style="color:#60CDFF; text-decoration:none">{html.escape(title)}</a>'
 
     def copy_text(self, text: str):
         QGuiApplication.clipboard().setText(text)
@@ -263,12 +263,12 @@ class ChatExtras:
 
 
 BRAIN_CSS = """
-QToolButton#quick { border: 1px solid #1d3550; color: #9fb3cf; background: transparent; padding: 3px 7px; font-size: 11px; }
-QToolButton#quick:hover { border-color: #3ff3ff; color: #3ff3ff; }
+QToolButton#quick { border: 1px solid #3A3A3A; color: #9A9A9A; background: transparent; padding: 3px 7px; font-size: 11px; }
+QToolButton#quick:hover { border-color: #60CDFF; color: #60CDFF; }
 QToolButton#quick::menu-indicator { image: none; width: 0; }
-QPushButton#brain:disabled { color: #2c3a50; border-color: #16233a; }
-QPushButton#brain { border: 1px solid #1d3550; color: #5b6b85; padding: 2px 8px; font-size: 10px; background: transparent; }
-QPushButton#brain:checked { border-color: #ff2a6d; color: #ff2a6d; }
+QPushButton#brain:disabled { color: #5C5C5C; border-color: #333333; }
+QPushButton#brain { border: 1px solid #3A3A3A; color: #9A9A9A; padding: 2px 8px; font-size: 10px; background: transparent; }
+QPushButton#brain:checked { border-color: #FF99A4; color: #FF99A4; }
 QPushButton#brain::menu-indicator { image: none; width: 0; }
 """
 
@@ -292,7 +292,7 @@ class ChatWindow(ChatExtras, QWidget):
         self.input = QLineEdit()
         self.send = QPushButton("SEND")
         self.stop = QPushButton("STOP")
-        self.stop.setStyleSheet("border-color:#ff2a6d; color:#ff2a6d;")
+        self.stop.setStyleSheet("border-color:#FF99A4; color:#FF99A4;")
         self.stop.hide()
         self.mic = QPushButton("🎤")
         self.mic.setToolTip("Сказать голосом (нажми, говори, нажми ещё раз)")
@@ -338,7 +338,7 @@ class ChatWindow(ChatExtras, QWidget):
 
     def set_recording(self, on: bool):
         self.mic.setText("⏺ REC" if on else "🎤")
-        self.mic.setStyleSheet("border-color:#ff0033; color:#ff0033;" if on else "")
+        self.mic.setStyleSheet("border-color:#FF99A4; color:#FF99A4;" if on else "")
 
     def stream(self, kind: str, piece: str):
         if kind == "reset":  # модель закончила рассуждать — показываем только сам ответ
@@ -359,11 +359,11 @@ class ChatWindow(ChatExtras, QWidget):
         self.live.hide()
 
     def add_user(self, text: str):
-        self._append(f'<p style="color:#00f0ff"><b>&gt; {html.escape(text)}</b></p>')
+        self._append(f'<p style="color:#60CDFF"><b>&gt; {html.escape(text)}</b></p>')
 
     def add_capri(self, text: str, route: str = "local"):
         label = ROUTE_LABEL.get(route, "")
-        self._append(f'<p style="color:#ff2a6d"><b>CAPRI</b> <span style="color:#666">{label}</span></p>')
+        self._append(f'<p style="color:#FF99A4"><b>CAPRI</b> <span style="color:#666">{label}</span></p>')
         cur = self.log.textCursor()
         cur.movePosition(QTextCursor.End)
         cur.insertMarkdown(text)  # ответы Claude приходят в Markdown

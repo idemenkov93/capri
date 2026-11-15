@@ -21,26 +21,26 @@ from ..config import DEFAULTS, FROZEN, PROJECT_ROOT, expand, load_config, resour
 from ..setup_config import REMOVE, apply
 
 STYLE = """
-QDialog, QWidget { background: #070b16; color: #d8e3f5; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px; }
-QLabel#title { color: #3ff3ff; font-size: 18px; font-weight: bold; letter-spacing: 2px; }
-QLabel#hint { color: #5b6b85; }
-QFrame#card { background: #0b1222; border: 1px solid #1d3550; border-left: 3px solid #ff2a6d; }
-QLineEdit { background: #0b1222; border: 1px solid #1d3550; padding: 7px; color: #e8f4ff; }
-QLineEdit:focus { border-color: #3ff3ff; }
-QPushButton { background: transparent; border: 1px solid #1d3550; color: #3ff3ff; padding: 7px 16px; }
-QPushButton:hover { border-color: #3ff3ff; background: #0f2235; }
-QPushButton:disabled { color: #2a3a52; border-color: #142236; }
-QPushButton#primary { border-color: #ff2a6d; color: #ff2a6d; }
+QDialog, QWidget { background: #2B2B2B; color: #C8C8C8; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px; }
+QLabel#title { color: #60CDFF; font-size: 18px; font-weight: bold; letter-spacing: 2px; }
+QLabel#hint { color: #9A9A9A; }
+QFrame#card { background: #202020; border: 1px solid #3A3A3A; border-left: 3px solid #FF99A4; }
+QLineEdit { background: #202020; border: 1px solid #3A3A3A; padding: 7px; color: #FFFFFF; border-radius: 4px; }
+QLineEdit:focus { border-color: #60CDFF; }
+QPushButton { background: transparent; border: 1px solid #3A3A3A; color: #60CDFF; padding: 7px 16px; border-radius: 4px; }
+QPushButton:hover { border-color: #60CDFF; background: #2B2B2B; }
+QPushButton:disabled { color: #3A3A3A; border-color: #2B2B2B; }
+QPushButton#primary { border-color: #FF99A4; color: #FF99A4; border-radius: 4px; }
 QRadioButton, QCheckBox { spacing: 8px; padding: 4px; }
-QRadioButton:disabled, QCheckBox:disabled { color: #3a4a62; }
-QRadioButton::indicator, QCheckBox::indicator { width: 12px; height: 12px; border: 1px solid #3ff3ff; background: #0b1222; }
+QRadioButton:disabled, QCheckBox:disabled { color: #4A4A4A; }
+QRadioButton::indicator, QCheckBox::indicator { width: 12px; height: 12px; border: 1px solid #60CDFF; background: #202020; }
 QRadioButton::indicator { border-radius: 7px; }
-QRadioButton::indicator:checked, QCheckBox::indicator:checked { background: #3ff3ff; }
-QRadioButton::indicator:disabled, QCheckBox::indicator:disabled { border-color: #2a3a52; }
-QCheckBox::indicator:checked:disabled { background: #1d6a78; }
-QProgressBar { background: #0b1222; border: 1px solid #1d3550; height: 16px; text-align: center; color: #d8e3f5; }
-QProgressBar::chunk { background: #3ff3ff; }
-QListWidget { background: #0b1222; border: 1px solid #1d3550; }
+QRadioButton::indicator:checked, QCheckBox::indicator:checked { background: #60CDFF; }
+QRadioButton::indicator:disabled, QCheckBox::indicator:disabled { border-color: #3A3A3A; }
+QCheckBox::indicator:checked:disabled { background: #3A7FA0; }
+QProgressBar { background: #202020; border: 1px solid #3A3A3A; height: 16px; text-align: center; color: #C8C8C8; }
+QProgressBar::chunk { background: #60CDFF; }
+QListWidget { background: #202020; border: 1px solid #3A3A3A; }
 """
 
 
@@ -206,7 +206,7 @@ class SetupWizard(QDialog):
         self.hw_label = QLabel("Смотрю, что за компьютер…")
         self.profile_label = QLabel("")
         self.profile_label.setWordWrap(True)
-        self.profile_label.setStyleSheet("color:#3ff3ff; font-weight:bold;")
+        self.profile_label.setStyleSheet("color:#60CDFF; font-weight:bold;")
         card = QFrame()
         card.setObjectName("card")
         cl = QVBoxLayout(card)
@@ -255,7 +255,7 @@ class SetupWizard(QDialog):
         gl = QVBoxLayout(self.gem_box)
         info = QLabel("1. Нажми «Получить ключ» → войди в Google → «Create API key» → скопируй.<br>"
                       "2. Вставь сюда и нажми «Проверить».<br>"
-                      "<span style='color:#f5e663'>Бесплатный уровень: мало запросов в день, а Google может "
+                      "<span style='color:#FCE100'>Бесплатный уровень: мало запросов в день, а Google может "
                       "использовать запросы для улучшения моделей — личное туда не отправляй.</span>")
         info.setWordWrap(True)
         info.setTextFormat(Qt.RichText)
@@ -341,7 +341,7 @@ class SetupWizard(QDialog):
     def _check_gemini(self) -> bool:
         key = self.gem_key.text().strip()
         if not key:
-            self.gem_status.setText("<span style='color:#ff3355'>Вставь ключ.</span>")
+            self.gem_status.setText("<span style='color:#FF99A4'>Вставь ключ.</span>")
             return False
         self.gem_status.setText("Проверяю…")
         self.gem_status.repaint()
@@ -349,9 +349,9 @@ class SetupWizard(QDialog):
             self.gem_model = gemini.check_key(key, self._gemini_tier())
         except Exception as e:  # noqa: BLE001
             self.gem_model = ""
-            self.gem_status.setText(f"<span style='color:#ff3355'>✗ {e}</span>")
+            self.gem_status.setText(f"<span style='color:#FF99A4'>✗ {e}</span>")
             return False
-        self.gem_status.setText(f"<span style='color:#3ff3ff'>✓ Ключ работает. Модель: {self.gem_model}</span>")
+        self.gem_status.setText(f"<span style='color:#60CDFF'>✓ Ключ работает. Модель: {self.gem_model}</span>")
         return True
 
     def _page_components(self):

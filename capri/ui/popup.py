@@ -7,24 +7,29 @@ from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit, QPlain
                                QWidget)
 
 STYLE = """
-QWidget#popup { background: #0b1222; border: 1px solid #3ff3ff; }
-QLabel { color: #eef6ff; font-family: Consolas, 'JetBrains Mono', monospace; }
-QLabel#title { color: #3ff3ff; font-size: 11px; letter-spacing: 1px; }
-QLabel#warn { color: #ffd23f; font-size: 11px; }
-QTextBrowser, QPlainTextEdit, QLineEdit { background: #070b16; color: #eef6ff; border: 1px solid #1d3550; padding: 4px;
-    font-family: Segoe UI, Arial; font-size: 13px; }
-QPushButton { border: 1px solid #1d3550; color: #3ff3ff; background: #0f1a30; padding: 4px 10px; font-size: 12px; }
-QPushButton:hover { border-color: #3ff3ff; }
-QPushButton#close { border: none; color: #5b6b85; padding: 0 4px; }
-QComboBox { background: #070b16; color: #eef6ff; border: 1px solid #1d3550; padding: 2px 6px; font-size: 12px; }
-QComboBox:hover { border-color: #3ff3ff; }
-QComboBox QAbstractItemView { background: #0b1222; color: #eef6ff; selection-background-color: #1d3550; }
-QLabel#lang { color: #7d8db0; font-size: 11px; }
+QWidget#popup { background: #202020; border: 1px solid #3A3A3A; }
+QLabel { color: #FFFFFF; font-family: 'Segoe UI Variable Text', 'Segoe UI', Inter, sans-serif; }
+QLabel#title { color: #60CDFF; font-size: 11px; letter-spacing: 1px; }
+QLabel#warn { color: #FCE100; font-size: 11px; }
+QTextBrowser, QPlainTextEdit, QLineEdit { background: #2B2B2B; color: #FFFFFF; border: 1px solid #3A3A3A; padding: 4px;
+    font-family: Segoe UI, Arial; font-size: 13px; border-radius: 4px; }
+QPushButton { border: 1px solid #3A3A3A; color: #FFFFFF; background: #2B2B2B; padding: 5px 12px; font-size: 12px; border-radius: 4px; }
+QPushButton:hover { border-color: #60CDFF; }
+QPushButton#close { border: none; color: #9A9A9A; padding: 0 4px; border-radius: 4px; }
+QComboBox { background: #2B2B2B; color: #FFFFFF; border: 1px solid #3A3A3A; padding: 2px 6px; font-size: 12px; border-radius: 4px; }
+QComboBox:hover { border-color: #60CDFF; }
+QComboBox QAbstractItemView { background: #202020; color: #FFFFFF; selection-background-color: #3A3A3A; }
+QLabel#lang { color: #9A9A9A; font-size: 11px; }
 """
 
 
 class Popup(QWidget):
     """Одно окно на всё: show_busy → show_text / show_reply / ask."""
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        from .family import win
+        win.round_corners(self)             # углы скругляет Windows 11
 
     def __init__(self):
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)

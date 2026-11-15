@@ -46,7 +46,7 @@ class ConnectDialog(QDialog):
             lay.addWidget(e)
             self.edits[key] = e
         self.error = QLabel("")
-        self.error.setStyleSheet("color: #ff3355")
+        self.error.setStyleSheet("color: #FF99A4")
         lay.addWidget(self.error)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
